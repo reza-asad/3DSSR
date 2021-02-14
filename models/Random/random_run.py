@@ -101,10 +101,12 @@ def main():
     # define initial parameters
     mode = 'val'
     model_name = 'CategoryRandom'
+    experiment_name = 'base'
     query_dict_input_path = '../../queries/matterport3d/query_dict_{}.json'.format(mode)
-    query_dict_output_path = '../../results/matterport3d/{}/query_dict_{}.json'.format(model_name, mode)
+    query_dict_output_path = '../../results/matterport3d/{}/query_dict_{}_{}.json'.format(model_name,
+                                                                                          mode,
+                                                                                          experiment_name)
     scene_graph_dir = '../../data/matterport3d/scene_graphs'
-    cat_to_scene_objects = {}
     topk = 200
 
     # read the query dict and the metadata

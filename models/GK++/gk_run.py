@@ -39,6 +39,7 @@ def main(num_chunks, chunk_idx):
     extract_target_subscenes = False
     combine_query_results = False
     mode = 'val'
+    experiment_name = 'base'
 
     if extract_target_subscenes:
         # define the parameters for running gk type models
@@ -74,7 +75,7 @@ def main(num_chunks, chunk_idx):
                     query_results[q] = q_info
 
         # save the combined query results
-        write_to_json(query_results, os.path.join(gk_dir, 'query_dict_{}.json'.format(mode)))
+        write_to_json(query_results, os.path.join(gk_dir, 'query_dict_{}_{}.json'.format(mode, experiment_name)))
 
 
 if __name__ == '__main__':
