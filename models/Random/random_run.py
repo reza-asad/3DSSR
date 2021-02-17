@@ -30,33 +30,38 @@ def map_cat_to_objects(scene):
     return cat_to_objects
 
 
-def Random(query_info, model_names, scene_graph_dir, topk):
+def Random(query_info, model_names, scene_graph_dir, mode, topk):
     # shuffle the objects in all scenes
     np.random.shuffle(model_names)
 
     # for each object sample context objects randomly from the object's scene
     num_subscenes = 0
     target_subscenes = []
+    query_scene_name = query_info['example']['scene_name']
     num_context_objects = len(query_info['example']['context_objects'])
-    train_scenes = set(os.listdir(os.path.join(scene_graph_dir, 'train')))
-    for model_name in model_names:
+    model_idx = 0
+    while num_subscenes < topk:
+        model_name = model_names[model_idx]
+        model_idx += 1
         target = model_name.split('-')[1].split('.')[0]
         scene_name = model_name.split('-')[0] + '.json'
-        # only add subscenes using the training data
-        if scene_name in train_scenes and num_subscenes < topk:
-            num_subscenes += 1
-            scene = load_from_json(os.path.join(scene_graph_dir, 'train', scene_name))
-            all_except_target = [obj for obj in scene.keys() if obj != target]
-            if num_context_objects <= len(all_except_target):
-                sample_context = np.random.choice(all_except_target, num_context_objects, replace=False).tolist()
-            else:
-                sample_context = all_except_target
-            subscene = {'scene_name': scene_name, 'target': target, 'context_objects': sample_context}
-            target_subscenes.append(subscene)
+        # exclude the scene if it is the query scene
+        if query_scene_name == scene_name:
+            continue
+        num_subscenes += 1
+        scene = load_from_json(os.path.join(scene_graph_dir, mode, scene_name))
+        all_except_target = [obj for obj in scene.keys() if obj != target]
+        if num_context_objects <= len(all_except_target):
+            sample_context = np.random.choice(all_except_target, num_context_objects, replace=False).tolist()
+        else:
+            sample_context = all_except_target
+        subscene = {'scene_name': scene_name, 'target': target, 'context_objects': sample_context}
+        target_subscenes.append(subscene)
+
     return target_subscenes
 
 
-def CategoryRandom(query_info, query_mode, scene_graph_dir, cat_to_scene_objects, topk):
+def CategoryRandom(query_info, query_mode, scene_graph_dir, mode, cat_to_scene_objects, topk):
     # load the query scene and extract the category of the objects
     query_scene_name = query_info['example']['scene_name']
     query = query_info['example']['query']
@@ -71,13 +76,16 @@ def CategoryRandom(query_info, query_mode, scene_graph_dir, cat_to_scene_objects
     target_subscenes = []
     for target_object in target_objects:
         scene_name = target_object.split('-')[0] + '.json'
+        # exclude the scene if it is the query scene
+        if scene_name == query_scene_name:
+            continue
         target_object = target_object.split('-')[-1]
         context_objects = []
         target_subscene = {'scene_name': scene_name, 'target': target_object, 'context_objects': context_objects,
                            'context_match': 0}
 
         # load the scene and map its cats to the objects
-        scene = load_from_json(os.path.join(scene_graph_dir, 'train', scene_name))
+        scene = load_from_json(os.path.join(scene_graph_dir, mode, scene_name))
         cat_to_objects = map_cat_to_objects(scene)
 
         # for each context object in the query scene sample an object with the same category from the current scene.
@@ -112,7 +120,7 @@ def main():
     # read the query dict and the metadata
     query_dict = load_from_json(query_dict_input_path)
     df_metadata = pd.read_csv('../../data/matterport3d/metadata.csv')
-    df_metadata = df_metadata[df_metadata['split'] == 'train']
+    df_metadata = df_metadata[df_metadata['split'] == mode]
 
     # map the categories to scene objects if necessary
     if model_name == 'Random':
@@ -120,13 +128,13 @@ def main():
                                                                                        str(x['objectId'])]), axis=1)
         model_names = model_names.values
         for query, query_info in query_dict.items():
-            target_subscenes = Random(query_info, model_names, scene_graph_dir, topk)
+            target_subscenes = Random(query_info, model_names, scene_graph_dir, mode, topk)
             query_info['target_subscenes'] = target_subscenes
 
     elif model_name == 'CategoryRandom':
         cat_to_scene_objects = map_cats_to_scene_objects(df_metadata)
         for query, query_info in query_dict.items():
-            target_subscenes = CategoryRandom(query_info, mode, scene_graph_dir, cat_to_scene_objects, topk)
+            target_subscenes = CategoryRandom(query_info, mode, scene_graph_dir, mode, cat_to_scene_objects, topk)
             query_info['target_subscenes'] = target_subscenes
 
     else:

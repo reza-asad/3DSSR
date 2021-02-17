@@ -47,7 +47,7 @@ class Scene:
         print(centroid_source, centroid_nb)
         print(self.find_cat(source_node), self.find_cat(nb))
         iou_computer = IoU(obbox_source, obbox_nb)
-        print(iou_computer.iou())
+        print('IoU: ', iou_computer.iou())
         s = trimesh.creation.box(obbox_source.scale, transform=obbox_source.transformation)
         nb = trimesh.creation.box(obbox_nb.scale, transform=obbox_nb.transformation)
         trimesh.Scene([s, nb]).show()
@@ -100,32 +100,6 @@ class Scene:
             one_hot_vec[idx] = 1
             node_info['cat_vec'] = one_hot_vec.tolist()
 
-    def build_adj(self):
-        # initialize the adj matrix
-        N = len(self.graph.keys())
-        relation_dic = {'supports': 0, 'supported': 1, 'encloses': 2, 'enclosed': 3, 'contact': 4, 'fc': 5}
-        adj = np.zeros((len(relation_dic), N, N), dtype=int)
-
-        # sort the nodes by their id
-        objects = self.graph.keys()
-        objects = sorted(objects, key=int)
-        obj_to_index = {obj: idx for idx, obj in enumerate(objects)}
-
-        # populate the adj matrix
-        for n1 in objects:
-            for n2, relations in self.graph[n1]['neighbours'].items():
-                for relation in relations:
-                    idx = relation_dic[relation]
-                    adj[idx, obj_to_index[n1], obj_to_index[n2]] = 1
-
-        # test the adj is symmetric for contact relation
-        assert np.all(adj[4, :, :] == adj[4, :, :].transpose())
-
-        # test that we have a fully connected graph
-        assert np.all(np.sum(adj, axis=0) == (np.ones((N, N)) - np.eye(N)))
-
-        self.graph['adj'] = adj.tolist()
-
 
 def process_scenes(scene_names, scene_graph_dir_input, models_dir, edge_types, accepted_cats):
     t = time()
@@ -142,22 +116,19 @@ def process_scenes(scene_names, scene_graph_dir_input, models_dir, edge_types, a
         # create an instance of a scene and filter it by accepted cats.
         scene_graph = Scene(scene_graph_dir_input, scene_name, edge_types, accepted_cats)
         scene_graph.filter_by_accepted_cats()
-        # if the graph is empty after filtering, skip the ring prepration
-        if len(scene_graph.graph) > 0:
+        # after filtering, only save graphs with at least two elements (source and neighbour).
+        if len(scene_graph.graph) > 1:
             # sort the ring objects based on distance and obbox iou relative to the source node.
             scene_graph.sort_features()
 
             # extract a on-hot encoding of the categories
             scene_graph.vectorize_cats()
 
-            # build an adj matrix
-            scene_graph.build_adj()
-
-            # visualize the scene
+            # visualize the scene and test sort features if necessary
             # objects = ['10', '21']
             # scene_graph.test_sort_features(objects[0], objects[1])
             # visualize_scene(scene_graph_dir_input, models_dir, scene_name, accepted_cats=accepted_cats,
-            #                 objects=objects, with_backbone=True, as_obbox=True)
+            #                 objects=objects, with_backbone=True, as_obbox=False)
 
             # save the graph
             scene_graph_path = os.path.join(scene_graph_dir_output, scene_name)
@@ -172,7 +143,7 @@ def process_scenes(scene_names, scene_graph_dir_input, models_dir, edge_types, a
 
 
 def main(num_chunks, chunk_idx):
-    build_rings = True
+    build_rings = False
     split_train_test_val = False
 
     # define paths and params
@@ -183,7 +154,7 @@ def main(num_chunks, chunk_idx):
 
     if build_rings:
         scene_names = os.listdir(scene_graph_dir_input)
-        # scene_names = ['1pXnuDYAj8r_room18.json']
+        scene_names = ['1pXnuDYAj8r_room18.json']
         # scene_names = ['8194nk5LbLH_room3.json']
         chunk_size = int(np.ceil(len(scene_names) / num_chunks))
         process_scenes(scene_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size], scene_graph_dir_input,

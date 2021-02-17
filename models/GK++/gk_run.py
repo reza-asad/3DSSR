@@ -13,15 +13,17 @@ def apply_gk(query_dict, queries, voxel_dir, scene_graph_dir, nth_closest_dict, 
         if query in visited:
             continue
         visited.add(query)
-        graph1_name = query_dict[query]['example']['scene_name']
-        gk_model = GraphKernel(voxel_dir=voxel_dir, graph_dir=scene_graph_dir, graph1_name=graph1_name,
+        query_scene_name = query_dict[query]['example']['scene_name']
+        gk_model = GraphKernel(voxel_dir=voxel_dir, graph_dir=scene_graph_dir, graph1_name=query_scene_name,
                                nth_closest_dict=nth_closest_dict, mode=mode, walk_length=walk_length)
         # run gk++ and find the ranked results
         t = time()
         query_node = query_dict[query]['example']['query']
         context_nodes = query_dict[query]['example']['context_objects']
-        training_graphs = os.listdir(os.path.join(scene_graph_dir, 'train'))
-        ranked_results = gk_model.context_based_subgraph_matching(query_node, context_nodes, training_graphs)
+        target_graphs = os.listdir(os.path.join(scene_graph_dir, mode))
+        # exclude the current query graph from the target graphs
+        target_graphs.remove(query_scene_name)
+        ranked_results = gk_model.context_based_subgraph_matching(query_node, context_nodes, target_graphs)
         query_duration = time() - t
         print('Search query took {} minutes '.format(round(query_duration / 60, 2)))
 
@@ -37,9 +39,9 @@ def apply_gk(query_dict, queries, voxel_dir, scene_graph_dir, nth_closest_dict, 
 
 def main(num_chunks, chunk_idx):
     extract_target_subscenes = False
-    combine_query_results = False
+    combine_query_results = True
     mode = 'val'
-    experiment_name = 'base'
+    experiment_name = 'v1'
 
     if extract_target_subscenes:
         # define the parameters for running gk type models
