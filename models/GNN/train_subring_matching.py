@@ -95,7 +95,7 @@ def evaluate_net(models_dic, valid_loader, criterion, device):
     return total_validation_loss/num_samples, per_class_accuracy
 
 
-def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=True, model_name='subring_matching',
+def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=True, model_name='subring_matching_cat',
               eval_itr=1000, patience=5):
     # create a directory for checkpoints
     check_point_dir = '/'.join(data_dir.split('/')[:-1])

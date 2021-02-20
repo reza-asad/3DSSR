@@ -39,7 +39,7 @@ class RingDataset(Dataset):
     def compute_feature_size(graph):
         node = list(graph.keys())[0]
         # feature size is the size of the on-hot-encoding of the category + distance + iou
-        feature_size = len(graph[node]['cat_vec']) + 1 + 1 + 3
+        feature_size = len(graph[node]['cat_vec']) + 1 + 1
 
         return feature_size
 
@@ -54,11 +54,8 @@ class RingDataset(Dataset):
         edge_type_ious = graph[source_node]['ring_info'][edge_type]['iou']
         iou_feature = [iou for n, iou in edge_type_ious if n == nb]
 
-        # extract direction
-        direction = np.asarray(graph[source_node]['obbox'][0]) - np.asarray(graph[nb]['obbox'][0])
-
         # concat features and create the edge feature
-        nb_feature = nb_cat_feature + distance_feature + iou_feature + direction.tolist()
+        nb_feature = nb_cat_feature + distance_feature + iou_feature
 
         # convert the features to torch
         nb_feature = torch.from_numpy(np.asarray(nb_feature, dtype=np.float))
@@ -121,7 +118,7 @@ class RingDataset(Dataset):
             if obj == source_node:
                 # take the cat vec for source node and replicate it for nb. distance feature is 0 and iou is 1.
                 source_cat_feature = graph[source_node]['cat_vec']
-                feature = source_cat_feature + [0] + [1] + [0, 0, 0]
+                feature = source_cat_feature + [0] + [1]
                 feature = torch.from_numpy(np.asarray(feature))
             else:
                 relations = graph[source_node]['neighbours'][obj]

@@ -21,11 +21,8 @@ def extract_edge_feature(graph, source_node, nb, edge_type):
     edge_type_ious = graph[source_node]['ring_info'][edge_type]['iou']
     iou_feature = [iou for n, iou in edge_type_ious if n == nb]
 
-    # extract direction
-    direction = np.asarray(graph[source_node]['obbox'][0]) - np.asarray(graph[nb]['obbox'][0])
-
     # concat features and create the edge feature
-    nb_feature = nb_cat_feature + distance_feature + iou_feature + direction.tolist()
+    nb_feature = nb_cat_feature + distance_feature + iou_feature
 
     # convert the features to torch
     nb_feature = torch.from_numpy(np.asarray(nb_feature, dtype=np.float))
@@ -197,14 +194,14 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
 
 def main():
     mode = 'val'
-    experiment_name = 'cat_dir'
+    experiment_name = 'cat'
     query_dict_input_path = '../../queries/matterport3d/query_dict_{}.json'.format(mode)
     query_dict_output_path = '../../results/matterport3d/GNN/query_dict_{}_{}.json'.format(mode, experiment_name)
     model_names = {'lin_layer': 'CP_lin_layer_best.pth',
                    'gcn_res': 'CP_gcn_res_best.pth',
                    'disc': 'CP_disc_best.pth'}
     ring_data_dir = '../../results/matterport3d/GNN/scene_graphs_cl'
-    checkpoints_dir = '../../results/matterport3d/GNN/subring_matching'
+    checkpoints_dir = '../../results/matterport3d/GNN/subring_matching_cat'
     hidden_dim = 256
     num_layers = 2
     device = torch.device('cuda')
