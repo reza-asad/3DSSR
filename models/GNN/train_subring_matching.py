@@ -211,7 +211,7 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=
     # save train/valid losses and the best model
     if save_cp:
         np.save(os.path.join(model_dir, 'training_loss'), training_losses)
-        np.save(os.path.join(model_dir, 'training_loss'), validation_losses)
+        np.save(os.path.join(model_dir, 'valid_loss'), validation_losses)
         for model_name, model in best_model_dic.items():
             torch.save(model.state_dict(), os.path.join(model_dir, 'CP_{}_best.pth'.format(model_name)))
 
