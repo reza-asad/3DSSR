@@ -38,16 +38,14 @@ class RingDataset(Dataset):
     @staticmethod
     def compute_feature_size(graph):
         node = list(graph.keys())[0]
-        # feature size is 2 times the size of the one hot encoding of categories + distance + iou
-        feature_size = 2 * len(graph[node]['cat_vec']) + 1 + 1
+        # feature size is the size of the on-hot-encoding of the category + distance + iou
+        feature_size = len(graph[node]['cat_vec']) + 1 + 1 + 3
 
         return feature_size
 
     @staticmethod
     def extract_edge_feature(graph, source_node, nb, edge_type):
         # extract cat features
-        # TODO: do not take the category of the source node
-        source_cat_feature = graph[source_node]['cat_vec']
         nb_cat_feature = graph[nb]['cat_vec']
 
         # extract distance and iou for the neighbour node
@@ -56,14 +54,16 @@ class RingDataset(Dataset):
         edge_type_ious = graph[source_node]['ring_info'][edge_type]['iou']
         iou_feature = [iou for n, iou in edge_type_ious if n == nb]
 
+        # extract direction
+        direction = np.asarray(graph[source_node]['obbox'][0]) - np.asarray(graph[nb]['obbox'][0])
+
         # concat features and create the edge feature
-        nb_feature = nb_cat_feature + distance_feature + iou_feature
-        feature = source_cat_feature + nb_feature
+        nb_feature = nb_cat_feature + distance_feature + iou_feature + direction.tolist()
 
         # convert the features to torch
-        feature = torch.from_numpy(np.asarray(feature, dtype=np.float))
+        nb_feature = torch.from_numpy(np.asarray(nb_feature, dtype=np.float))
 
-        return feature
+        return nb_feature
 
     @staticmethod
     def build_adj(graph, source_node):
@@ -120,9 +120,9 @@ class RingDataset(Dataset):
             # case where we add features for the source node
             if obj == source_node:
                 # take the cat vec for source node and replicate it for nb. distance feature is 0 and iou is 1.
-                source_feature = graph[source_node]['cat_vec']
-                nb_feature = source_feature + [0] + [1]
-                feature = torch.from_numpy(np.asarray(source_feature + nb_feature))
+                source_cat_feature = graph[source_node]['cat_vec']
+                feature = source_cat_feature + [0] + [1] + [0, 0, 0]
+                feature = torch.from_numpy(np.asarray(feature))
             else:
                 relations = graph[source_node]['neighbours'][obj]
                 feature = self.extract_edge_feature(graph, source_node, obj, relations[0])
@@ -164,6 +164,9 @@ class RingDataset(Dataset):
             for _, node in subring:
                 idx = obj_to_index[node]
                 data['label'][:, idx] = 1
+
+            # add the index of the source node
+            data['source_node_idx'] = obj_to_index[source_node]
         else:
             # determine the potential source nodes; i.e nodes with the same category as query node
             source_nodes = [node for node in graph.keys() if graph[node]['category'][0] == self.query_cat]

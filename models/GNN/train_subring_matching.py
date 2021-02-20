@@ -134,7 +134,6 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=
     training_losses = []
     validation_losses = []
     best_validation_loss = float('inf')
-    prev_validation_loss = float('inf')
     best_accuracy_dic = {}
     best_epoch = 0
     best_model_dic = models_dic
@@ -161,9 +160,9 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=
             adj = adj.to(device=device, dtype=torch.float32)
             label = label.to(device=device, dtype=torch.float32)
 
-            # apply linear layer and find the mean summary of the positive features. source node is excluded.
+            # apply linear layer and find the mean summary of the positive features
             pos_idx = label == 1
-            hidden_pos = lin_layer(features[:, pos_idx[0, :], :])
+            hidden_pos = models_dic['lin_layer'](features[:, pos_idx[0, :], :])
             pos_summary = torch.sigmoid(torch.mean(hidden_pos, dim=1))
 
             # add self loops and normalize the adj

@@ -13,7 +13,6 @@ from train_subring_matching import normalize_adj_mp
 
 def extract_edge_feature(graph, source_node, nb, edge_type):
     # extract cat features
-    source_cat_feature = graph[source_node]['cat_vec']
     nb_cat_feature = graph[nb]['cat_vec']
 
     # extract distance and iou for the neighbour node
@@ -22,22 +21,29 @@ def extract_edge_feature(graph, source_node, nb, edge_type):
     edge_type_ious = graph[source_node]['ring_info'][edge_type]['iou']
     iou_feature = [iou for n, iou in edge_type_ious if n == nb]
 
+    # extract direction
+    direction = np.asarray(graph[source_node]['obbox'][0]) - np.asarray(graph[nb]['obbox'][0])
+
     # concat features and create the edge feature
-    nb_feature = nb_cat_feature + distance_feature + iou_feature
-    feature = source_cat_feature + nb_feature
+    nb_feature = nb_cat_feature + distance_feature + iou_feature + direction.tolist()
 
     # convert the features to torch
-    feature = torch.from_numpy(np.asarray(feature, dtype=np.float))
+    nb_feature = torch.from_numpy(np.asarray(nb_feature, dtype=np.float))
 
-    return feature
+    return nb_feature
 
 
-def find_best_context_objects(data_dir, mode, file_name, source_node_idx, gates, context_objects_cats):
+def find_best_context_objects(data_dir, mode, file_name, source_node_idx, gates, context_objects_cats, query_cat):
     # load the target scene and sort the object ids
     target_scene = load_from_json(os.path.join(data_dir, mode, file_name))
     objects = target_scene.keys()
     objects = sorted(objects, key=int)
     objects_cats = [target_scene[obj]['category'][0] for obj in objects]
+
+    # if target and query node have different categories skip
+    t_node = objects[source_node_idx]
+    if target_scene[t_node]['category'][0] != query_cat:
+        return None, [], []
 
     # map the category of context objects in the query scene to their frequency
     query_cat_to_freq = Counter(context_objects_cats)
@@ -76,7 +82,7 @@ def find_best_context_objects(data_dir, mode, file_name, source_node_idx, gates,
     # find the indices of the non-context objects
     non_context_objects_indices = [i for i in range(len(objects)) if i not in context_objects_indices]
 
-    return objects[source_node_idx], context_objects, non_context_objects_indices
+    return t_node, context_objects, non_context_objects_indices
 
 
 def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim, num_layers, device, mode):
@@ -136,6 +142,10 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
         file_name = data['file_name'][0]
         source_node_indices = data['source_node_idx']
 
+        # skip if the file name is the same as the query scene name
+        if file_name == query_scene_name:
+            continue
+
         features = features.to(device=device, dtype=torch.float32)
         adj = adj.to(device=device, dtype=torch.float32)
 
@@ -159,22 +169,25 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
                                                                                                file_name,
                                                                                                source_node_idx,
                                                                                                gates,
-                                                                                               context_objects_cats)
+                                                                                               context_objects_cats,
+                                                                                               query_cat)
 
-            # zero out the source node and non-context objects
-            gates[0, source_node_idx] = 0
-            gates[0, non_context_objects_indices] = 0
+            # Add the target subscene only if target node was found
+            if t_node is not None:
+                # zero out the source node and non-context objects
+                gates[0, source_node_idx] = 0
+                gates[0, non_context_objects_indices] = 0
 
-            # compute the gated mean of the features for the given ring
-            hidden_target = lin_layer(features[:, j, :, :])
-            hidden_target = hidden_target[0, :, :] * gates[:, :].t()
-            target_summary = torch.sigmoid(torch.mean(hidden_target, dim=0))
+                # compute the gated mean of the features for the given ring
+                hidden_target = lin_layer(features[:, j, :, :])
+                hidden_target = hidden_target[0, :, :] * gates[:, :].t()
+                target_summary = torch.sigmoid(torch.mean(hidden_target, dim=0))
 
-            # record the target summary vector
-            sim = torch.dot(target_summary, pos_summary[0]) / (torch.norm(target_summary) * torch.norm(pos_summary[0]))
-            target_subscene = {'scene_name': file_name, 'target': t_node, 'context_objects': t_context_objects,
-                               'sim': sim.item()}
-            target_subscenes.append(target_subscene)
+                # record the target summary vector
+                sim = torch.dot(target_summary, pos_summary[0]) / (torch.norm(target_summary) * torch.norm(pos_summary[0]))
+                target_subscene = {'scene_name': file_name, 'target': t_node, 'context_objects': t_context_objects,
+                                   'sim': sim.item()}
+                target_subscenes.append(target_subscene)
 
     # sort the target subscenes based on how close each target embedding is to the positive summary
     target_subscenes = sorted(target_subscenes, reverse=True, key=lambda x: x['sim'])
@@ -184,7 +197,7 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
 
 def main():
     mode = 'val'
-    experiment_name = 'base'
+    experiment_name = 'cat_dir'
     query_dict_input_path = '../../queries/matterport3d/query_dict_{}.json'.format(mode)
     query_dict_output_path = '../../results/matterport3d/GNN/query_dict_{}_{}.json'.format(mode, experiment_name)
     model_names = {'lin_layer': 'CP_lin_layer_best.pth',

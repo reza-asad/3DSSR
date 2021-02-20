@@ -41,7 +41,7 @@ def main(num_chunks, chunk_idx):
     extract_target_subscenes = False
     combine_query_results = True
     mode = 'val'
-    experiment_name = 'v1'
+    experiment_name = 'base'
 
     if extract_target_subscenes:
         # define the parameters for running gk type models
