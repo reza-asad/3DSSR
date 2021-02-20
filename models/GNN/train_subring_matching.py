@@ -95,8 +95,8 @@ def evaluate_net(models_dic, valid_loader, criterion, device):
     return total_validation_loss/num_samples, per_class_accuracy
 
 
-def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=True, model_name='subring_matching_cat',
-              eval_itr=1000, patience=5):
+def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=True,
+              model_name='subring_matching_base', eval_itr=1000, patience=5):
     # create a directory for checkpoints
     check_point_dir = '/'.join(data_dir.split('/')[:-1])
     model_dir = os.path.join(check_point_dir, model_name)
@@ -228,7 +228,7 @@ def get_args():
     parser.add_option('--epochs', dest='epochs', default=50, type='int', help='number of epochs')
     parser.add_option('--data-dir', dest='data_dir', default='../../results/matterport3d/GNN/scene_graphs_cl',
                       help='data directory')
-    parser.add_option('--hidden_dim', dest='hidden_dim', default=256, type='int')
+    parser.add_option('--hidden_dim', dest='hidden_dim', default=128, type='int')
     parser.add_option('--num_layers', dest='num_layers', default=2, type='int')
     parser.add_option('--patience', dest='patience', default=20, type='int')
     parser.add_option('--eval_iter', dest='eval_iter', default=1000, type='int')
