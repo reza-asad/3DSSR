@@ -53,11 +53,9 @@ def evaluate_net(models_dic, valid_loader, criterion, device):
         for i, data in enumerate(valid_loader):
             # read the features, label and adj
             features = data['features'].squeeze(dim=0)
-            adj = data['adj'].squeeze(dim=0)
             label = data['label'].squeeze(dim=0)
 
             features = features.to(device=device, dtype=torch.float32)
-            adj = adj.to(device=device, dtype=torch.float32)
             label = label.to(device=device, dtype=torch.float32)
 
             # apply linear layer and find the mean summary of the positive features
@@ -65,12 +63,8 @@ def evaluate_net(models_dic, valid_loader, criterion, device):
             hidden_pos = models_dic['lin_layer'](features[:, pos_idx[0, :], :])
             summary = torch.sigmoid(torch.mean(hidden_pos, dim=1))
 
-            # add self loops and normalize the adj
-            nb_nodes = adj.shape[-1]
-            adj = normalize_adj_mp(adj, nb_nodes, device)
-
             # apply gnn on the full ring
-            hidden = models_dic['gcn_res'](features, adj)
+            hidden = models_dic['lin_layer'](features)
 
             # apply the discriminator to separate the positive and negative node embeddings.
             logits = models_dic['disc'](summary, hidden)
@@ -95,7 +89,7 @@ def evaluate_net(models_dic, valid_loader, criterion, device):
     return total_validation_loss/num_samples, per_class_accuracy
 
 
-def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=True, model_name='subring_matching_cat',
+def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=True, model_name='subring_matching',
               eval_itr=1000, patience=5):
     # create a directory for checkpoints
     check_point_dir = '/'.join(data_dir.split('/')[:-1])
@@ -153,11 +147,9 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=
         for i, data in enumerate(train_loader):
             # read the features, label and adj
             features = data['features'].squeeze(dim=0)
-            adj = data['adj'].squeeze(dim=0)
             label = data['label'].squeeze(dim=0)
 
             features = features.to(device=device, dtype=torch.float32)
-            adj = adj.to(device=device, dtype=torch.float32)
             label = label.to(device=device, dtype=torch.float32)
 
             # apply linear layer and find the mean summary of the positive features
@@ -165,12 +157,8 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=
             hidden_pos = models_dic['lin_layer'](features[:, pos_idx[0, :], :])
             pos_summary = torch.sigmoid(torch.mean(hidden_pos, dim=1))
 
-            # add self loops and normalize the adj
-            nb_nodes = adj.shape[-1]
-            adj = normalize_adj_mp(adj, nb_nodes, device)
-
-            # apply gnn on the full ring
-            hidden = gcn_res(features, adj)
+            # apply lin layer on the full ring
+            hidden = models_dic['lin_layer'](features)
 
             # apply the discriminator to separate the positive and negative node embeddings.
             logits = disc(pos_summary, hidden)
@@ -232,6 +220,7 @@ def get_args():
     parser.add_option('--num_layers', dest='num_layers', default=2, type='int')
     parser.add_option('--patience', dest='patience', default=20, type='int')
     parser.add_option('--eval_iter', dest='eval_iter', default=1000, type='int')
+    parser.add_option('--model_name', dest='model_name', default='subring_matching_linear')
     parser.add_option('--gpu', action='store_true', dest='gpu', default=True, help='use cuda')
 
     (options, args) = parser.parse_args()
@@ -250,7 +239,7 @@ def main():
     # time the training
     t = time()
     train_net(data_dir=args.data_dir, num_epochs=args.epochs, lr=1e-5, device=device, hidden_dim=args.hidden_dim,
-              num_layers=args.num_layers, patience=args.patience, eval_itr=args.eval_iter)
+              num_layers=args.num_layers, patience=args.patience, eval_itr=args.eval_iter, model_name=args.model_name)
     t2 = time()
     print("Training took %.3f minutes" % ((t2 - t) / 60))
 

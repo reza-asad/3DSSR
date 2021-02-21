@@ -135,7 +135,6 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
     for i, data in enumerate(loader):
         # read the features, label and adj
         features = data['features']
-        adj = data['adj']
         file_name = data['file_name'][0]
         source_node_indices = data['source_node_idx']
 
@@ -144,16 +143,10 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
             continue
 
         features = features.to(device=device, dtype=torch.float32)
-        adj = adj.to(device=device, dtype=torch.float32)
-
         num_nodes = features.shape[1]
         for j in range(num_nodes):
-            # add self loops and normalize the adj
-            nb_nodes = adj.shape[-1]
-            adj_j = normalize_adj_mp(adj[:, j, :, :, :], nb_nodes, device)
-
-            # apply gnn on the full ring
-            hidden = gcn_res(features[:, j, :, :], adj_j)
+            # apply linear layer on the full ring
+            hidden = lin_layer(features[:, j, :, :])
 
             # apply the discriminator to separate the positive and negative node embeddings.
             logits_j = disc(pos_summary, hidden)
@@ -194,14 +187,15 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
 
 def main():
     mode = 'val'
-    experiment_name = 'cat'
+    experiment_name = 'linear'
+    checkpoints_dir = '../../results/matterport3d/GNN/subring_matching_linear'
+
     query_dict_input_path = '../../queries/matterport3d/query_dict_{}.json'.format(mode)
     query_dict_output_path = '../../results/matterport3d/GNN/query_dict_{}_{}.json'.format(mode, experiment_name)
     model_names = {'lin_layer': 'CP_lin_layer_best.pth',
                    'gcn_res': 'CP_gcn_res_best.pth',
                    'disc': 'CP_disc_best.pth'}
     ring_data_dir = '../../results/matterport3d/GNN/scene_graphs_cl'
-    checkpoints_dir = '../../results/matterport3d/GNN/subring_matching_cat'
     hidden_dim = 256
     num_layers = 2
     device = torch.device('cuda')
