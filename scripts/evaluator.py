@@ -18,8 +18,8 @@ class Evaluate:
         self.curr_df = curr_df
         self.mode = mode
 
-        self.metrics = {'distance_mAP': [self.compute_distance_match, distance_threshold],
-                        'overlap_mAP': [self.compute_overlap_match, overlap_threshold]
+        self.metrics = {'distance_mAP': [self.compute_distance_match, distance_threshold, 'all'],
+                        'overlap_mAP': [self.compute_overlap_match, overlap_threshold, 'all']
                         }
 
     def sort_by_distance(self, scene_name, query_object, context_objects, mode):
@@ -150,7 +150,8 @@ class Evaluate:
         obj_to_cat_target = self.map_obj_to_cat(target_scene)
 
         # if target and query target don't match mAP is 0
-        if obj_to_cat_query[query_object] != obj_to_cat_target[target_subscene['target']]:
+        target_object = target_subscene['target']
+        if obj_to_cat_query[query_object] != obj_to_cat_target[target_object]:
             return 0
 
         # for each context object in the query scene find the closet object in the target subscene that satisfies a
@@ -184,6 +185,83 @@ class Evaluate:
                 visited.add(best_candidate)
         return len(visited) / len(context_objects)
 
+    def compute_target_to_query_corr(self, target_subscene, query_scene_name, query_object, context_objects):
+        # sort the target context objects by their distance to the target object
+        target_context_objects = self.sort_by_distance(target_subscene['scene_name'], target_subscene['target'],
+                                                       target_subscene['context_objects'], mode=self.mode)
+        # load the query scene and target scenes
+        query_scene = load_from_json(os.path.join(self.scene_graph_dir, self.mode, query_scene_name))
+        target_scene = load_from_json(os.path.join(self.scene_graph_dir, self.mode, target_subscene['scene_name']))
+
+        # initialize the correspondence
+        query_and_context = context_objects + [query_object]
+        correspondence = {q: None for q in query_and_context}
+        if query_scene[query_object]['category'][0] == target_scene[target_subscene['target']]['category'][0]:
+            correspondence[query_object] = target_subscene['target']
+
+        # assign each query context to a target context of the same category, following the computed order.
+        visited = set()
+        for query_c_node in context_objects:
+            for target_c_node in target_context_objects:
+                if target_c_node not in visited:
+                    if target_scene[target_c_node]['category'][0] == query_scene[query_c_node]['category'][0]:
+                        visited.add(target_c_node)
+                        correspondence[query_c_node] = target_c_node
+
+        return correspondence
+
+    def compute_full_precision_at(self, top, metric, target_subscenes, query_scene_name, query_object, context_objects,
+                                  computed_precisions, query_to_target_map):
+        accuracies = []
+        for i in range(top):
+            # the case where there are no longer results
+            if i >= len(target_subscenes):
+                acc = 0
+            else:
+                # compute the correspondence between the current query and target scene if its not already computed
+                target_subscene_name = target_subscenes[i]['scene_name']
+                if target_subscene_name not in query_to_target_map:
+                    query_to_target_map[target_subscene_name] = self.compute_target_to_query_corr(target_subscenes[i],
+                                                                                                  query_scene_name,
+                                                                                                  query_object,
+                                                                                                  context_objects)
+                query_to_target_corr = query_to_target_map[target_subscene_name]
+
+                # consider each node in the query subgraph as a potential query
+                query_and_context = context_objects + [query_object]
+                target_scene_accuracies = []
+                for j in range(len(query_and_context)):
+                    # fix a query and a set of context objects
+                    curr_query_object = query_and_context[j]
+                    curr_context_objects = query_and_context[:j] + query_and_context[j+1:]
+
+                    # find the corresponding target and cotnext objects
+                    target_subscene = target_subscenes[i].copy()
+                    target_subscene['target'] = query_to_target_corr[curr_query_object]
+                    target_subscene['context_objects'] = [query_to_target_corr[n] for n in query_to_target_corr.keys()
+                                                          if (query_to_target_corr[n] != target_subscene['target']) and
+                                                          (query_to_target_corr[n] is not None)]
+
+                    # if there is zero matching target object or zero matching context object, the acc is 0
+                    if (target_subscene['target'] is None) or (len(target_subscene['context_objects']) == 0):
+                        acc = 0
+                    else:
+                        # read the accuracy if you have computed it before.
+                        key = '-'.join([query_scene_name, curr_query_object, target_subscene_name, target_subscene['target']])
+                        if key in computed_precisions:
+                            acc = computed_precisions[key]
+                        else:
+                            acc = self.metrics[metric][0](target_subscene, query_scene_name, curr_query_object,
+                                                          curr_context_objects)
+                            computed_precisions[key] = acc
+                    target_scene_accuracies.append(acc)
+
+                # average the computed accuracies for all possible target nodes in the target scene
+                acc = np.mean(target_scene_accuracies)
+
+            accuracies.append(acc)
+        return np.mean(accuracies)
+
     def compute_precision_at(self, top, metric, target_subscenes, query_scene_name, query_object, context_objects,
                              computed_precisions):
         accuracies = []
@@ -192,15 +270,16 @@ class Evaluate:
             if i >= len(target_subscenes):
                 acc = 0
             else:
-                # read the accuracy if you have computed it before.
                 target_subscene_name = target_subscenes[i]['scene_name']
                 target_object = target_subscenes[i]['target']
+                # read the accuracy if you have computed it before.
                 key = '-'.join([query_scene_name, query_object, target_subscene_name, target_object])
                 if key in computed_precisions:
                     acc = computed_precisions[key]
                 else:
                     acc = self.metrics[metric][0](target_subscenes[i], query_scene_name, query_object, context_objects)
                     computed_precisions[key] = acc
+
             accuracies.append(acc)
         return np.mean(accuracies)
 
@@ -219,12 +298,21 @@ class Evaluate:
             # load the target subgraphs up to topk
             target_subscenes = self.query_results[query_name]['target_subscenes'][:topk]
 
+            # memorize the correspondence between each query and target scene
+            target_to_query_map = {}
+
             # memorize the precisions that you already computed in a dict
             computed_precisions = {}
             precision_at = {i: 0 for i in range(1, topk+1)}
             for top in precision_at.keys():
-                precision_at[top] = self.compute_precision_at(top, metric, target_subscenes, query_scene_name,
-                                                              query_object, context_objects, computed_precisions)
+                # case where we average precision over each node being the center of the ring.
+                if self.metrics[metric][2] == 'all':
+                    precision_at[top] = self.compute_full_precision_at(top, metric, target_subscenes, query_scene_name,
+                                                                       query_object, context_objects,
+                                                                       computed_precisions, target_to_query_map)
+                else:
+                    precision_at[top] = self.compute_precision_at(top, metric, target_subscenes, query_scene_name,
+                                                                  query_object, context_objects, computed_precisions)
             mAP = np.mean(list(precision_at.values()))
         query_model = (self.curr_df['query_name'] == query_name) & \
                       (self.curr_df['model_name'] == model_name) & \
@@ -247,8 +335,8 @@ class Evaluate:
 
 def main():
     run_evalulation = False
-    run_aggregation = True
-    plot_comparisons = True
+    run_aggregation = False
+    plot_comparisons = False
     plot_name = 'GK++_base_GNN_base_cat_dir_linear_Randoms_base.png'
     remove_model = False
     visualize_loss = False
@@ -258,8 +346,8 @@ def main():
 
     # define paths and parameters
     mode = 'val'
-    model_name = 'GNN'
-    experiment_name = 'linear'
+    model_name = 'GK++'
+    experiment_name = 'base'
     query_results_path = '../results/matterport3d/{}/query_dict_{}_{}.json'.format(model_name, mode, experiment_name)
     evaluation_path = '../results/matterport3d/evaluation.csv'
     scene_graph_dir = '../data/matterport3d/scene_graphs'
@@ -276,11 +364,12 @@ def main():
 
     # initialize the evaluator
     evaluator = Evaluate(query_results=query_results, evaluation_path=evaluation_path, scene_graph_dir=scene_graph_dir,
-                         curr_df=curr_df, mode=mode, distance_threshold=0.1, overlap_threshold=0)
+                         curr_df=curr_df, mode=mode, distance_threshold=0, overlap_threshold=0)
 
     if run_evalulation:
         # compute distance or overlap mAP per query for each threshold
-        for query_name, results_info in query_results.items():
+        for i, (query_name, results_info) in enumerate(query_results.items()):
+            print('Iteration {}/{}'.format(i+1, len(query_results)))
             for threshold in thresholds:
                 experiment_id = experiment_name + '-' + str(np.round(threshold, 3))
                 evaluator.add_to_tabular(model_name, query_name, experiment_id)
