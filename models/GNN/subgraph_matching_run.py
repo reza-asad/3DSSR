@@ -7,8 +7,7 @@ from time import time
 
 from scripts.helper import load_from_json, write_to_json
 from ring_dataset import RingDataset
-from gnn_models import LinearLayer, GCN_RES, Discriminator
-from train_subring_matching import normalize_adj_mp
+from gnn_models import LinearLayer, Discriminator
 
 
 def extract_edge_feature(graph, source_node, nb, edge_type):
@@ -101,21 +100,16 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
     sample_data = list(enumerate(loader))[1][1]
 
     input_dim = sample_data['features'].shape[-1]
-    num_edge_type = sample_data['adj'].shape[2]
     lin_layer = LinearLayer(input_dim=input_dim, output_dim=hidden_dim)
-    gcn_res = GCN_RES(input_dim, hidden_dim, 'prelu', num_edge_type, num_layers)
     disc = Discriminator(hidden_dim=hidden_dim)
 
     lin_layer = lin_layer.to(device=device)
-    gcn_res = gcn_res.to(device=device)
     disc = disc.to(device=device)
 
     lin_layer.load_state_dict(torch.load(os.path.join(checkpoint_dir, model_names['lin_layer'])))
-    gcn_res.load_state_dict(torch.load(os.path.join(checkpoint_dir, model_names['gcn_res'])))
     disc.load_state_dict(torch.load(os.path.join(checkpoint_dir, model_names['disc'])))
 
     lin_layer.eval()
-    gcn_res.eval()
     disc.eval()
 
     # extract the features for the query node
@@ -188,14 +182,14 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
 def main():
     mode = 'val'
     experiment_name = 'linear'
-    checkpoints_dir = '../../results/matterport3d/GNN/subring_matching_linear'
+    checkpoint_folder = 'subring_matching_{}'.format(experiment_name)
 
     query_dict_input_path = '../../queries/matterport3d/query_dict_{}.json'.format(mode)
     query_dict_output_path = '../../results/matterport3d/GNN/query_dict_{}_{}.json'.format(mode, experiment_name)
     model_names = {'lin_layer': 'CP_lin_layer_best.pth',
-                   'gcn_res': 'CP_gcn_res_best.pth',
                    'disc': 'CP_disc_best.pth'}
     ring_data_dir = '../../results/matterport3d/GNN/scene_graphs_cl'
+    checkpoints_dir = '../../results/matterport3d/GNN/{}'.format(checkpoint_folder)
     hidden_dim = 256
     num_layers = 2
     device = torch.device('cuda')

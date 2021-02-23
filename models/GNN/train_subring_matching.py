@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 
 from ring_dataset import RingDataset
-from gnn_models import Discriminator, LinearLayer, GCN_RES
+from gnn_models import Discriminator, LinearLayer
 
 
 def normalize_adj_mp(adj, nb_nodes, device):
@@ -108,21 +108,20 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=
     # load the models and prepare for training
     sample_data = list(enumerate(train_loader))[1][1]
     input_dim = sample_data['features'].shape[-1]
-    num_edge_type = sample_data['adj'].shape[2]
     lin_layer = LinearLayer(input_dim=input_dim, output_dim=hidden_dim)
-    gcn_res = GCN_RES(input_dim, hidden_dim, 'prelu', num_edge_type, num_layers)
     disc = Discriminator(hidden_dim=hidden_dim)
 
     lin_layer = lin_layer.to(device=device)
-    gcn_res = gcn_res.to(device=device)
     disc = disc.to(device=device)
     lin_layer.train()
-    gcn_res.train()
     disc.train()
-    models_dic = {'lin_layer': lin_layer, 'gcn_res': gcn_res, 'disc': disc}
+    models_dic = {'lin_layer': lin_layer, 'disc': disc}
 
     # define the optimizer and loss criteria
-    optimizer = optim.Adam(disc.parameters(), lr=lr)
+    params = []
+    for model_name, model in models_dic.items():
+        params += list(model.parameters())
+    optimizer = optim.Adam(params, lr=lr)
     criterion = torch.nn.BCEWithLogitsLoss()
 
     training_losses = []
