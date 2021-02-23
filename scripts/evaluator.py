@@ -335,9 +335,9 @@ class Evaluate:
 
 def main():
     run_evalulation = False
-    run_aggregation = False
-    plot_comparisons = False
-    plot_name = 'GK++_base_GNN_base_cat_dir_linear_Randoms_base.png'
+    run_aggregation = True
+    plot_comparisons = True
+    plot_name = 'GK++_GNN_Randoms.png'
     remove_model = False
     visualize_loss = False
 
@@ -346,8 +346,9 @@ def main():
 
     # define paths and parameters
     mode = 'val'
-    model_name = 'GK++'
-    experiment_name = 'base'
+    model_name = 'GNN'
+    experiment_name = 'cat_angle'
+    subring_matching_folder = 'subring_matching_{}'.format(experiment_name)
     query_results_path = '../results/matterport3d/{}/query_dict_{}_{}.json'.format(model_name, mode, experiment_name)
     evaluation_path = '../results/matterport3d/evaluation.csv'
     scene_graph_dir = '../data/matterport3d/scene_graphs'
@@ -425,8 +426,7 @@ def main():
         curr_df.to_csv(evaluation_path, index=False)
 
     if visualize_loss:
-        subring_matching_folder = 'subring_matching_cat'
-        checkpoints_dir = '../results/matterport3d/GNN/{}'.format(subring_matching_folder)
+        checkpoints_dir = '../results/matterport3d/{}/{}'.format(model_name, subring_matching_folder)
         # load train and validation losses
         train_loss = np.load(os.path.join(checkpoints_dir, 'training_loss.npy'))
         valid_loss = np.load(os.path.join(checkpoints_dir, 'valid_loss.npy'))
@@ -441,7 +441,7 @@ def main():
         leg = ax.legend()
 
         # save and show the plot
-        plt.savefig('../results/matterport3d/evaluation_plots/train_valid_losses.png')
+        # plt.savefig('../results/matterport3d/evaluation_plots/train_valid_losses.png')
         plt.show()
 
 
