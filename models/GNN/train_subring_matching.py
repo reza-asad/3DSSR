@@ -95,8 +95,8 @@ def evaluate_net(models_dic, valid_loader, criterion, device):
     return total_validation_loss/num_samples, per_class_accuracy
 
 
-def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=True, model_name='subring_matching',
-              eval_itr=1000, patience=5):
+def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=True,
+              model_name='subring_matching_cat_dir', eval_itr=1000, patience=5):
     # create a directory for checkpoints
     check_point_dir = '/'.join(data_dir.split('/')[:-1])
     model_dir = os.path.join(check_point_dir, model_name)
@@ -128,7 +128,10 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=
     models_dic = {'lin_layer': lin_layer, 'gcn_res': gcn_res, 'disc': disc}
 
     # define the optimizer and loss criteria
-    optimizer = optim.Adam(disc.parameters(), lr=lr)
+    params = []
+    for model_name, model in models_dic.items():
+        params += list(model.parameters())
+    optimizer = optim.Adam(params, lr=lr)
     criterion = torch.nn.BCEWithLogitsLoss()
 
     training_losses = []
