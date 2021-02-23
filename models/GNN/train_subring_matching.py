@@ -10,7 +10,7 @@ import numpy as np
 from ring_dataset import RingDataset
 from gnn_models import Discriminator, LinearLayer, GCN_RES, Regression
 
-lambda_1, lambda_2 = 0, 1
+lambda_1, lambda_2 = 1, 1
 
 
 def normalize_adj_mp(adj, nb_nodes, device):

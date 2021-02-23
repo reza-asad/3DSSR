@@ -422,7 +422,9 @@ def main():
             plt.show()
 
     if remove_model:
-        curr_df = curr_df[curr_df['model_name'] != model_name]
+        model_exclude = curr_df['model_name'] != model_name
+        experiment_exclude = curr_df['experiment_id'].apply(lambda x: x.split('-')[0] != experiment_name)
+        curr_df = curr_df[model_exclude | experiment_exclude]
         curr_df.to_csv(evaluation_path, index=False)
 
     if visualize_loss:
