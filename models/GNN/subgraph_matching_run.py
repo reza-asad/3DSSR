@@ -192,13 +192,15 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
 def main():
     mode = 'val'
     experiment_name = 'base'
+    checkpoint_folder = 'subring_matching_{}'.format(experiment_name)
+
     query_dict_input_path = '../../queries/matterport3d/query_dict_{}.json'.format(mode)
     query_dict_output_path = '../../results/matterport3d/GNN/query_dict_{}_{}.json'.format(mode, experiment_name)
     model_names = {'lin_layer': 'CP_lin_layer_best.pth',
                    'gcn_res': 'CP_gcn_res_best.pth',
                    'disc': 'CP_disc_best.pth'}
     ring_data_dir = '../../results/matterport3d/GNN/scene_graphs_cl'
-    checkpoints_dir = '../../results/matterport3d/GNN/subring_matching_base'
+    checkpoints_dir = '../../results/matterport3d/GNN/{}'.format(checkpoint_folder)
     hidden_dim = 128
     num_layers = 2
     device = torch.device('cuda')
