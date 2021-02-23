@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+import numpy as np
 
 
 class GCN(nn.Module):
@@ -107,6 +107,26 @@ class Discriminator(nn.Module):
         logits = torch.squeeze(self.f_k(hidden, summary), 2)
 
         return logits
+
+
+class Regression(nn.Module):
+    def __init__(self, hidden_dim):
+        super(Regression, self).__init__()
+        self.lin_layer = nn.Linear(hidden_dim*2, 1, bias=False)
+
+        for m in self.modules():
+            self.weights_init(m)
+
+    def weights_init(self, m):
+        if isinstance(m, nn.Linear):
+            torch.nn.init.xavier_uniform_(m.weight.data)
+            if m.bias is not None:
+                m.bias.data.fill_(0.0)
+
+    def forward(self, summaries):
+        theta_hat = torch.sigmoid(self.lin_layer(summaries)) * (2 * np.pi)
+
+        return theta_hat
 
 
 class LinearLayer(torch.nn.Module):

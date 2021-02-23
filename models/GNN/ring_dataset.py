@@ -38,8 +38,8 @@ class RingDataset(Dataset):
     @staticmethod
     def compute_feature_size(graph):
         node = list(graph.keys())[0]
-        # feature size is the size of the on-hot-encoding of the category + distance + iou
-        feature_size = len(graph[node]['cat_vec']) + 1 + 1
+        # feature size is the size of the on-hot-encoding of the category + distance + iou + angle
+        feature_size = len(graph[node]['cat_vec']) + 1 + 1 + 1
 
         return feature_size
 
@@ -54,8 +54,19 @@ class RingDataset(Dataset):
         edge_type_ious = graph[source_node]['ring_info'][edge_type]['iou']
         iou_feature = [iou for n, iou in edge_type_ious if n == nb]
 
+        # compute the vector connecting the centroids of the nb to the source node.
+        c_source_nb = np.asarray(graph[nb]['obbox'][0]) - np.asarray(graph[source_node]['obbox'][0])
+        c_source_nb_xy = c_source_nb[:-1]
+
+        # compute the counterclockwise angle between x axis in the scene and the vector.
+        x_unit = np.asarray([1, 0])
+        cos_angle = np.dot(c_source_nb_xy, x_unit) / np.linalg.norm(c_source_nb_xy)
+        angle_feature = np.arccos(cos_angle)
+        if c_source_nb_xy[1] < 0:
+            angle_feature = 2*np.pi - angle_feature
+
         # concat features and create the edge feature
-        nb_feature = nb_cat_feature + distance_feature + iou_feature
+        nb_feature = nb_cat_feature + distance_feature + iou_feature + [angle_feature]
 
         # convert the features to torch
         nb_feature = torch.from_numpy(np.asarray(nb_feature, dtype=np.float))
@@ -118,7 +129,8 @@ class RingDataset(Dataset):
             if obj == source_node:
                 # take the cat vec for source node and replicate it for nb. distance feature is 0 and iou is 1.
                 source_cat_feature = graph[source_node]['cat_vec']
-                feature = source_cat_feature + [0] + [1]
+                # cat_feature, distance, iou and angle
+                feature = source_cat_feature + [0] + [1] + [0]
                 feature = torch.from_numpy(np.asarray(feature))
             else:
                 relations = graph[source_node]['neighbours'][obj]
@@ -164,6 +176,11 @@ class RingDataset(Dataset):
 
             # add the index of the source node
             data['source_node_idx'] = obj_to_index[source_node]
+
+            # sample a random rotation for the positive subring
+            theta = torch.zeros(1, 1)
+            theta[0, 0] = np.random.uniform(0, 2*np.pi)
+            data['theta'] = theta
         else:
             # determine the potential source nodes; i.e nodes with the same category as query node
             source_nodes = [node for node in graph.keys() if graph[node]['category'][0] == self.query_cat]

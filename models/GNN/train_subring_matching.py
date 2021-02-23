@@ -8,7 +8,9 @@ from torch.utils.data import DataLoader
 import numpy as np
 
 from ring_dataset import RingDataset
-from gnn_models import Discriminator, LinearLayer, GCN_RES
+from gnn_models import Discriminator, LinearLayer, GCN_RES, Regression
+
+lambda_1, lambda_2 = 0, 1
 
 
 def normalize_adj_mp(adj, nb_nodes, device):
@@ -40,7 +42,7 @@ def compute_accuracy(per_class_accuracy, predicted_labels, labels):
         per_class_accuracy[c] = (num_correct, num_total)
 
 
-def evaluate_net(models_dic, valid_loader, criterion, device):
+def evaluate_net(models_dic, valid_loader, bce_criterion, reg_criterion, device):
     # set models to evaluation mode
     for model_name, model in models_dic.items():
         model.eval()
@@ -55,26 +57,48 @@ def evaluate_net(models_dic, valid_loader, criterion, device):
             features = data['features'].squeeze(dim=0)
             adj = data['adj'].squeeze(dim=0)
             label = data['label'].squeeze(dim=0)
+            theta = data['theta'].squeeze(dim=0)
 
             features = features.to(device=device, dtype=torch.float32)
             adj = adj.to(device=device, dtype=torch.float32)
             label = label.to(device=device, dtype=torch.float32)
+            theta = theta.to(device=device, dtype=torch.float32)
 
-            # apply linear layer and find the mean summary of the positive features
+            # clone the features for rotation
+            rot_features = features.clone()
+
+            # randomly rotate the positives by theta
             pos_idx = label == 1
-            hidden_pos = models_dic['lin_layer'](features[:, pos_idx[0, :], :])
-            summary = torch.sigmoid(torch.mean(hidden_pos, dim=1))
+            positives = features[:, pos_idx[0, :], :].clone()
+            positives[:, :, -1] += theta[0, 0].item()
+
+            # apply linear layer and find the mean summary of the rotated positive features
+            hidden_pos = models_dic['lin_layer'](positives)
+            pos_summary = torch.sigmoid(torch.mean(hidden_pos, dim=1))
+
+            # apply linear layer and find the mean summary of all the original features
+            hidden_linear = models_dic['lin_layer'](features)
+            summary = torch.sigmoid(torch.mean(hidden_linear, dim=1))
+
+            # predict theta from by comparing pos_summary and summary
+            summaries = torch.cat([summary, pos_summary], dim=1)
+            theta_hat = models_dic['regression'](summaries)
+
+            # shift the features by the predicted theta
+            rot_features[:, :, -1] += theta_hat[0, 0].item()
 
             # add self loops and normalize the adj
             nb_nodes = adj.shape[-1]
             adj = normalize_adj_mp(adj, nb_nodes, device)
 
             # apply gnn on the full ring
-            hidden = models_dic['gcn_res'](features, adj)
+            hidden = models_dic['gcn_res'](rot_features, adj)
 
             # apply the discriminator to separate the positive and negative node embeddings.
-            logits = models_dic['disc'](summary, hidden)
-            loss = criterion(logits, label)
+            logits = models_dic['disc'](pos_summary, hidden)
+
+            # compute the loss
+            loss = lambda_1 * bce_criterion(logits, label) + lambda_2 * reg_criterion(theta_hat, theta)
 
             # predict if an edge connection is positive or negative
             prediction = torch.sigmoid(logits) > 0.5
@@ -95,11 +119,11 @@ def evaluate_net(models_dic, valid_loader, criterion, device):
     return total_validation_loss/num_samples, per_class_accuracy
 
 
-def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=True, model_name='subring_matching_cat',
+def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=True, cp_folder='subring_matching_cat',
               eval_itr=1000, patience=5):
     # create a directory for checkpoints
     check_point_dir = '/'.join(data_dir.split('/')[:-1])
-    model_dir = os.path.join(check_point_dir, model_name)
+    model_dir = os.path.join(check_point_dir, cp_folder)
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
 
@@ -111,25 +135,38 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=
     train_loader = DataLoader(train_dataset, batch_size=1, num_workers=4, shuffle=True)
     valid_loader = DataLoader(valid_dataset, batch_size=1, num_workers=4, shuffle=True)
 
-    # load the models and prepare for training
+    # find the input dim and number of edge types, required for instantiating models.
     sample_data = list(enumerate(train_loader))[1][1]
     input_dim = sample_data['features'].shape[-1]
     num_edge_type = sample_data['adj'].shape[2]
+
+    # instantiate the models
     lin_layer = LinearLayer(input_dim=input_dim, output_dim=hidden_dim)
+    regression = Regression(hidden_dim)
     gcn_res = GCN_RES(input_dim, hidden_dim, 'prelu', num_edge_type, num_layers)
     disc = Discriminator(hidden_dim=hidden_dim)
 
+    # set the right device
     lin_layer = lin_layer.to(device=device)
+    regression = regression.to(device=device)
     gcn_res = gcn_res.to(device=device)
     disc = disc.to(device=device)
+
+    # prepare for training
     lin_layer.train()
+    regression.train()
     gcn_res.train()
     disc.train()
-    models_dic = {'lin_layer': lin_layer, 'gcn_res': gcn_res, 'disc': disc}
+
+    models_dic = {'lin_layer': lin_layer, 'regression': regression, 'gcn_res': gcn_res, 'disc': disc}
 
     # define the optimizer and loss criteria
-    optimizer = optim.Adam(disc.parameters(), lr=lr)
-    criterion = torch.nn.BCEWithLogitsLoss()
+    params = []
+    for model_name, model in models_dic.items():
+        params += list(model.parameters())
+    optimizer = optim.Adam(params, lr=lr)
+    bce_criterion = torch.nn.BCEWithLogitsLoss()
+    reg_criterion = torch.nn.SmoothL1Loss()
 
     training_losses = []
     validation_losses = []
@@ -155,28 +192,48 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=
             features = data['features'].squeeze(dim=0)
             adj = data['adj'].squeeze(dim=0)
             label = data['label'].squeeze(dim=0)
+            theta = data['theta'].squeeze(dim=0)
 
             features = features.to(device=device, dtype=torch.float32)
             adj = adj.to(device=device, dtype=torch.float32)
             label = label.to(device=device, dtype=torch.float32)
+            theta = theta.to(device=device, dtype=torch.float32)
 
-            # apply linear layer and find the mean summary of the positive features
+            # clone the features for rotation
+            rot_features = features.clone()
+
+            # randomly rotate the positives by theta
             pos_idx = label == 1
-            hidden_pos = models_dic['lin_layer'](features[:, pos_idx[0, :], :])
+            positives = features[:, pos_idx[0, :], :].clone()
+            positives[:, :, -1] += theta[0, 0].item()
+
+            # apply linear layer and find the mean summary of the rotated positive features
+            hidden_pos = models_dic['lin_layer'](positives)
             pos_summary = torch.sigmoid(torch.mean(hidden_pos, dim=1))
+
+            # apply linear layer and find the mean summary of all the original features
+            hidden_linear = models_dic['lin_layer'](features)
+            summary = torch.sigmoid(torch.mean(hidden_linear, dim=1))
+
+            # predict theta from by comparing pos_summary and summary
+            summaries = torch.cat([summary, pos_summary], dim=1)
+            theta_hat = models_dic['regression'](summaries)
+
+            # shift the features by the predicted theta
+            rot_features[:, :, -1] += theta_hat[0, 0].item()
 
             # add self loops and normalize the adj
             nb_nodes = adj.shape[-1]
             adj = normalize_adj_mp(adj, nb_nodes, device)
 
             # apply gnn on the full ring
-            hidden = gcn_res(features, adj)
+            hidden = models_dic['gcn_res'](rot_features, adj)
 
             # apply the discriminator to separate the positive and negative node embeddings.
-            logits = disc(pos_summary, hidden)
+            logits = models_dic['disc'](pos_summary, hidden)
 
             # compute the loss
-            loss = criterion(logits, label)
+            loss = lambda_1 * bce_criterion(logits, label) + lambda_2 * reg_criterion(theta_hat, theta)
 
             # optimize
             optimizer.zero_grad()
@@ -189,7 +246,8 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=
 
             # compute accuracy and loss on validation data to pick the best model
             if (i+1) % eval_itr == 0:
-                validation_loss, accuracy_dic = evaluate_net(models_dic, valid_loader, criterion, device=device)
+                validation_loss, accuracy_dic = evaluate_net(models_dic, valid_loader, bce_criterion, reg_criterion,
+                                                             device=device)
                 validation_losses.append(validation_loss)
                 if validation_loss < best_validation_loss:
                     best_model_dic = copy.deepcopy(models_dic)
@@ -228,10 +286,11 @@ def get_args():
     parser.add_option('--epochs', dest='epochs', default=50, type='int', help='number of epochs')
     parser.add_option('--data-dir', dest='data_dir', default='../../results/matterport3d/GNN/scene_graphs_cl',
                       help='data directory')
-    parser.add_option('--hidden_dim', dest='hidden_dim', default=256, type='int')
+    parser.add_option('--hidden_dim', dest='hidden_dim', default=1024, type='int')
     parser.add_option('--num_layers', dest='num_layers', default=2, type='int')
     parser.add_option('--patience', dest='patience', default=20, type='int')
     parser.add_option('--eval_iter', dest='eval_iter', default=1000, type='int')
+    parser.add_option('--cp_folder', dest='cp_folder', default='subring_matching_cat_angle')
     parser.add_option('--gpu', action='store_true', dest='gpu', default=True, help='use cuda')
 
     (options, args) = parser.parse_args()
@@ -250,7 +309,7 @@ def main():
     # time the training
     t = time()
     train_net(data_dir=args.data_dir, num_epochs=args.epochs, lr=1e-5, device=device, hidden_dim=args.hidden_dim,
-              num_layers=args.num_layers, patience=args.patience, eval_itr=args.eval_iter)
+              num_layers=args.num_layers, patience=args.patience, eval_itr=args.eval_iter, cp_folder=args.cp_folder)
     t2 = time()
     print("Training took %.3f minutes" % ((t2 - t) / 60))
 

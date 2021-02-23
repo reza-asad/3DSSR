@@ -7,7 +7,7 @@ from time import time
 
 from scripts.helper import load_from_json, write_to_json
 from ring_dataset import RingDataset
-from gnn_models import LinearLayer, GCN_RES, Discriminator
+from gnn_models import LinearLayer, GCN_RES, Discriminator, Regression
 from train_subring_matching import normalize_adj_mp
 
 
@@ -21,8 +21,19 @@ def extract_edge_feature(graph, source_node, nb, edge_type):
     edge_type_ious = graph[source_node]['ring_info'][edge_type]['iou']
     iou_feature = [iou for n, iou in edge_type_ious if n == nb]
 
+    # compute the vector connecting the centroids of the nb to the source node.
+    c_source_nb = np.asarray(graph[nb]['obbox'][0]) - np.asarray(graph[source_node]['obbox'][0])
+    c_source_nb_xy = c_source_nb[:-1]
+
+    # compute the counterclockwise angle between x axis in the scene and the vector.
+    x_unit = np.asarray([1, 0])
+    cos_angle = np.dot(c_source_nb_xy, x_unit) / np.linalg.norm(c_source_nb_xy)
+    angle_feature = np.arccos(cos_angle)
+    if c_source_nb_xy[1] < 0:
+        angle_feature = 2 * np.pi - angle_feature
+
     # concat features and create the edge feature
-    nb_feature = nb_cat_feature + distance_feature + iou_feature
+    nb_feature = nb_cat_feature + distance_feature + iou_feature + [angle_feature]
 
     # convert the features to torch
     nb_feature = torch.from_numpy(np.asarray(nb_feature, dtype=np.float))
@@ -99,22 +110,26 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
 
     # load the saved models
     sample_data = list(enumerate(loader))[1][1]
-
     input_dim = sample_data['features'].shape[-1]
     num_edge_type = sample_data['adj'].shape[2]
+
     lin_layer = LinearLayer(input_dim=input_dim, output_dim=hidden_dim)
+    regression = Regression(hidden_dim)
     gcn_res = GCN_RES(input_dim, hidden_dim, 'prelu', num_edge_type, num_layers)
     disc = Discriminator(hidden_dim=hidden_dim)
 
     lin_layer = lin_layer.to(device=device)
+    regression = regression.to(device=device)
     gcn_res = gcn_res.to(device=device)
     disc = disc.to(device=device)
 
     lin_layer.load_state_dict(torch.load(os.path.join(checkpoint_dir, model_names['lin_layer'])))
+    regression.load_state_dict(torch.load(os.path.join(checkpoint_dir, model_names['regression'])))
     gcn_res.load_state_dict(torch.load(os.path.join(checkpoint_dir, model_names['gcn_res'])))
     disc.load_state_dict(torch.load(os.path.join(checkpoint_dir, model_names['disc'])))
 
     lin_layer.eval()
+    regression.eval()
     gcn_res.eval()
     disc.eval()
 
@@ -125,6 +140,9 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
         feature = extract_edge_feature(query_scene, query_node, nb, edge_type)
         positives[:, i, :] = feature
     positives = positives.to(device=device)
+
+    # rotate the positive bt 2pi
+    positives[:, :, -1] += (2 * np.pi)
 
     # apply linear layer and find the mean summary of the positive features
     hidden_pos = lin_layer(positives)
@@ -148,6 +166,15 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
 
         num_nodes = features.shape[1]
         for j in range(num_nodes):
+            # compute the rotation first
+            hidden_target = lin_layer(features[:, j, :, :])
+            summary = torch.sigmoid(torch.mean(hidden_target, dim=1))
+            summaries = torch.cat([summary, pos_summary], dim=1)
+            theta_hat = regression(summaries)
+
+            # shift the features by the predicted theta
+            features[:, j, :, -1] += theta_hat[0, 0].item()
+
             # add self loops and normalize the adj
             nb_nodes = adj.shape[-1]
             adj_j = normalize_adj_mp(adj[:, j, :, :, :], nb_nodes, device)
@@ -176,7 +203,6 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
                 gates[0, non_context_objects_indices] = 0
 
                 # compute the gated mean of the features for the given ring
-                hidden_target = lin_layer(features[:, j, :, :])
                 hidden_target = hidden_target[0, :, :] * gates[:, :].t()
                 target_summary = torch.sigmoid(torch.mean(hidden_target, dim=0))
 
@@ -194,15 +220,18 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
 
 def main():
     mode = 'val'
-    experiment_name = 'cat'
+    experiment_name = 'cat_angle'
+    checkpoint_folder = 'subring_matching_{}'.format(experiment_name)
+
     query_dict_input_path = '../../queries/matterport3d/query_dict_{}.json'.format(mode)
     query_dict_output_path = '../../results/matterport3d/GNN/query_dict_{}_{}.json'.format(mode, experiment_name)
     model_names = {'lin_layer': 'CP_lin_layer_best.pth',
+                   'regression': 'CP_regression_best.pth',
                    'gcn_res': 'CP_gcn_res_best.pth',
                    'disc': 'CP_disc_best.pth'}
     ring_data_dir = '../../results/matterport3d/GNN/scene_graphs_cl'
-    checkpoints_dir = '../../results/matterport3d/GNN/subring_matching_cat'
-    hidden_dim = 256
+    checkpoints_dir = '../../results/matterport3d/GNN/{}'.format(checkpoint_folder)
+    hidden_dim = 1024
     num_layers = 2
     device = torch.device('cuda')
 
