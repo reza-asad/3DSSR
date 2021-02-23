@@ -128,7 +128,10 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=
     models_dic = {'lin_layer': lin_layer, 'gcn_res': gcn_res, 'disc': disc}
 
     # define the optimizer and loss criteria
-    optimizer = optim.Adam(disc.parameters(), lr=lr)
+    params = []
+    for model_name, model in models_dic.items():
+        params += list(model.parameters())
+    optimizer = optim.Adam(params, lr=lr)
     criterion = torch.nn.BCEWithLogitsLoss()
 
     training_losses = []
