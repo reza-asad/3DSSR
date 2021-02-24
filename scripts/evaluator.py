@@ -347,7 +347,7 @@ def main():
     # define paths and parameters
     mode = 'val'
     model_name = 'GNN'
-    experiment_name = 'cat_angle'
+    experiment_name = 'cat_angle2'
     subring_matching_folder = 'subring_matching_{}'.format(experiment_name)
     query_results_path = '../results/matterport3d/{}/query_dict_{}_{}.json'.format(model_name, mode, experiment_name)
     evaluation_path = '../results/matterport3d/evaluation.csv'

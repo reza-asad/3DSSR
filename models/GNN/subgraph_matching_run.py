@@ -220,7 +220,7 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
 
 def main():
     mode = 'val'
-    experiment_name = 'cat_angle'
+    experiment_name = 'cat_angle2'
     checkpoint_folder = 'subring_matching_{}'.format(experiment_name)
 
     query_dict_input_path = '../../queries/matterport3d/query_dict_{}.json'.format(mode)
