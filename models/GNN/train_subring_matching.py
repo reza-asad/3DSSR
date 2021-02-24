@@ -290,7 +290,7 @@ def get_args():
     parser.add_option('--num_layers', dest='num_layers', default=2, type='int')
     parser.add_option('--patience', dest='patience', default=20, type='int')
     parser.add_option('--eval_iter', dest='eval_iter', default=1000, type='int')
-    parser.add_option('--cp_folder', dest='cp_folder', default='subring_matching_cat_angle')
+    parser.add_option('--cp_folder', dest='cp_folder', default='subring_matching_cat_angle2')
     parser.add_option('--gpu', action='store_true', dest='gpu', default=True, help='use cuda')
 
     (options, args) = parser.parse_args()
