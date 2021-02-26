@@ -209,7 +209,7 @@ def apply_ring_gnn(query_info, model_names, data_dir, checkpoint_dir, hidden_dim
                 # record the target summary vector
                 sim = torch.dot(target_summary, pos_summary[0]) / (torch.norm(target_summary) * torch.norm(pos_summary[0]))
                 target_subscene = {'scene_name': file_name, 'target': t_node, 'context_objects': t_context_objects,
-                                   'sim': sim.item()}
+                                   'sim': sim.item(), 'theta': theta_hat[0, 0].item()}
                 target_subscenes.append(target_subscene)
 
     # sort the target subscenes based on how close each target embedding is to the positive summary

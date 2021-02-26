@@ -4,14 +4,16 @@ import pandas as pd
 from time import time
 from matplotlib import pyplot as plt
 
-from scripts.helper import load_from_json
+from scripts.helper import load_from_json, write_to_json
 from scripts.box import Box
 from scripts.iou import IoU
+
+query_to_target_map = {}
 
 
 class Evaluate:
     def __init__(self, query_results, evaluation_path, scene_graph_dir, curr_df, mode, distance_threshold,
-                 overlap_threshold):
+                 overlap_threshold, precision_threshold=0.5):
         self.query_results = query_results
         self.evaluation_path = evaluation_path
         self.scene_graph_dir = scene_graph_dir
@@ -21,6 +23,7 @@ class Evaluate:
         self.metrics = {'distance_mAP': [self.compute_distance_match, distance_threshold, 'all'],
                         'overlap_mAP': [self.compute_overlap_match, overlap_threshold, 'all']
                         }
+        self.precision_threshold = precision_threshold
 
     def sort_by_distance(self, scene_name, query_object, context_objects, mode):
         # load the query scene
@@ -207,11 +210,12 @@ class Evaluate:
                     if target_scene[target_c_node]['category'][0] == query_scene[query_c_node]['category'][0]:
                         visited.add(target_c_node)
                         correspondence[query_c_node] = target_c_node
+                        break
 
         return correspondence
 
     def compute_full_precision_at(self, top, metric, target_subscenes, query_scene_name, query_object, context_objects,
-                                  computed_precisions, query_to_target_map):
+                                  computed_precisions):
         accuracies = []
         for i in range(top):
             # the case where there are no longer results
@@ -220,12 +224,13 @@ class Evaluate:
             else:
                 # compute the correspondence between the current query and target scene if its not already computed
                 target_subscene_name = target_subscenes[i]['scene_name']
-                if target_subscene_name not in query_to_target_map:
-                    query_to_target_map[target_subscene_name] = self.compute_target_to_query_corr(target_subscenes[i],
-                                                                                                  query_scene_name,
-                                                                                                  query_object,
-                                                                                                  context_objects)
-                query_to_target_corr = query_to_target_map[target_subscene_name]
+                corr_key = '-'.join([query_scene_name, query_object, str(i)])
+                if corr_key not in query_to_target_map:
+                    query_to_target_map[corr_key] = self.compute_target_to_query_corr(target_subscenes[i],
+                                                                                      query_scene_name,
+                                                                                      query_object,
+                                                                                      context_objects)
+                query_to_target_corr = query_to_target_map[corr_key]
 
                 # consider each node in the query subgraph as a potential query
                 query_and_context = context_objects + [query_object]
@@ -254,7 +259,11 @@ class Evaluate:
                             acc = self.metrics[metric][0](target_subscene, query_scene_name, curr_query_object,
                                                           curr_context_objects)
                             computed_precisions[key] = acc
+
+                    # record the precision and save it in the target_subscene as well
                     target_scene_accuracies.append(acc)
+                    if (self.metrics[metric][1] == self.precision_threshold) and (target_subscene['target'] is not None):
+                        target_subscenes[i][metric][target_subscene['target']] = acc
 
                 # average the computed accuracies for all possible target nodes in the target scene
                 acc = np.mean(target_scene_accuracies)
@@ -280,6 +289,10 @@ class Evaluate:
                     acc = self.metrics[metric][0](target_subscenes[i], query_scene_name, query_object, context_objects)
                     computed_precisions[key] = acc
 
+                # record the precision
+                if self.metrics[metric][1] == self.precision_threshold:
+                    target_subscenes[i][metric][target_object] = acc
+
             accuracies.append(acc)
         return np.mean(accuracies)
 
@@ -298,8 +311,13 @@ class Evaluate:
             # load the target subgraphs up to topk
             target_subscenes = self.query_results[query_name]['target_subscenes'][:topk]
 
-            # memorize the correspondence between each query and target scene
-            target_to_query_map = {}
+            # initialize precision values for the target subscenes
+            if self.metrics[metric][1] == self.precision_threshold:
+                for target_subscene in target_subscenes:
+                    target_subscene[metric] = {}
+                    target_and_context = [target_subscene['target']] + target_subscene['context_objects']
+                    for n in target_and_context:
+                        target_subscene[metric][n] = None
 
             # memorize the precisions that you already computed in a dict
             computed_precisions = {}
@@ -309,7 +327,7 @@ class Evaluate:
                 if self.metrics[metric][2] == 'all':
                     precision_at[top] = self.compute_full_precision_at(top, metric, target_subscenes, query_scene_name,
                                                                        query_object, context_objects,
-                                                                       computed_precisions, target_to_query_map)
+                                                                       computed_precisions)
                 else:
                     precision_at[top] = self.compute_precision_at(top, metric, target_subscenes, query_scene_name,
                                                                   query_object, context_objects, computed_precisions)
@@ -335,11 +353,11 @@ class Evaluate:
 
 def main():
     run_evalulation = False
-    run_aggregation = True
-    plot_comparisons = True
+    run_aggregation = False
+    plot_comparisons = False
     plot_name = 'GK++_GNN_Randoms.png'
     remove_model = False
-    visualize_loss = False
+    visualize_loss = True
 
     thresholds = np.linspace(0.1, 0.9, num=9)
     metrics = ['distance_mAP', 'overlap_mAP']
@@ -347,7 +365,7 @@ def main():
     # define paths and parameters
     mode = 'val'
     model_name = 'GNN'
-    experiment_name = 'cat_angle2'
+    experiment_name = 'cat_angle'
     subring_matching_folder = 'subring_matching_{}'.format(experiment_name)
     query_results_path = '../results/matterport3d/{}/query_dict_{}_{}.json'.format(model_name, mode, experiment_name)
     evaluation_path = '../results/matterport3d/evaluation.csv'
@@ -377,7 +395,10 @@ def main():
                 for metric in metrics:
                     evaluator.metrics[metric][1] = threshold
                     evaluator.compute_mAP(metric, query_name, model_name, experiment_id)
+        # save evaluation results in tabular format
         evaluator.to_tabular()
+        # save the query dict with added precisions
+        write_to_json(query_results, query_results_path)
 
     if run_aggregation:
         # average the evaluation results across all queries for each model
@@ -443,7 +464,7 @@ def main():
         leg = ax.legend()
 
         # save and show the plot
-        # plt.savefig('../results/matterport3d/evaluation_plots/train_valid_losses.png')
+        plt.savefig('../results/matterport3d/evaluation_plots/train_valid_losses.png')
         plt.show()
 
 

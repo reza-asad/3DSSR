@@ -36,18 +36,14 @@ class RingDataset(Dataset):
         return filtered_file_names
 
     @staticmethod
-    def compute_feature_size(graph):
-        node = list(graph.keys())[0]
-        # feature size is the size of the on-hot-encoding of the category + distance + iou + angle
-        feature_size = len(graph[node]['cat_vec']) + 1 + 1 + 1
+    def compute_feature_size():
+        # distance + iou + angle
+        feature_size = 1 + 1 + 1
 
         return feature_size
 
     @staticmethod
     def extract_edge_feature(graph, source_node, nb, edge_type):
-        # extract cat features
-        nb_cat_feature = graph[nb]['cat_vec']
-
         # extract distance and iou for the neighbour node
         edge_type_distances = graph[source_node]['ring_info'][edge_type]['distance']
         distance_feature = [dist for n, dist in edge_type_distances if n == nb]
@@ -66,12 +62,32 @@ class RingDataset(Dataset):
             angle_feature = 2*np.pi - angle_feature
 
         # concat features and create the edge feature
-        nb_feature = nb_cat_feature + distance_feature + iou_feature + [angle_feature]
+        nb_feature = distance_feature + iou_feature + [angle_feature]
 
         # convert the features to torch
         nb_feature = torch.from_numpy(np.asarray(nb_feature, dtype=np.float))
 
         return nb_feature
+
+    def draw_positive(self, graph, source_node, num_neighbours):
+        # populate the ring with edge types and node ids
+        ring = []
+        ring_info = graph[source_node]['ring_info']
+        for edge_type in ring_info.keys():
+            node_cats = ring_info[edge_type]['cat']
+            for node, _ in node_cats:
+                ring.append((edge_type, node))
+
+        # randomly choose a subring. the minimum number of neighbours that we sample is 1.
+        subring_size = int(np.floor(np.random.uniform(self.low_prob, self.high_prob) * num_neighbours))
+        subring_size = np.maximum(subring_size, 1)
+        rand_idx = np.random.choice(len(ring), subring_size, replace=False)
+        subring = np.asarray(ring)[rand_idx]
+
+        # print('Ring size: ', len(ring))
+        # print('Subring size: ', len(subring))
+        # print('*' * 50)
+        return subring
 
     @staticmethod
     def build_adj(graph, source_node):
@@ -97,40 +113,21 @@ class RingDataset(Dataset):
                 idx = relation_dic[relation]
                 adj[idx, obj_to_index[nb], obj_to_index[source_node]] = 1
 
-            # test the adj is symmetric for contact relation
-            assert np.all(adj[4, :, :] == adj[4, :, :].transpose())
-
+        # test the adj is symmetric for contact relation
+        assert np.all(adj[4, :, :] == adj[4, :, :].transpose())
+        # test every node is only connected to the source node
+        adj_all = np.sum(adj, axis=0)
+        assert np.sum(adj_all, axis=1)[obj_to_index[source_node]] == (len(objects) - 1)
+        assert np.sum(adj_all, axis=0)[obj_to_index[source_node]] == (len(objects) - 1)
         return torch.from_numpy(adj)
 
-    def draw_positive(self, graph, source_node, num_neighbours):
-        # populate the ring with edge types and node ids
-        ring = []
-        ring_info = graph[source_node]['ring_info']
-        for edge_type in ring_info.keys():
-            node_cats = ring_info[edge_type]['cat']
-            for node, _ in node_cats:
-                ring.append((edge_type, node))
-
-        # randomly choose a subring. the minimum number of neighbours that we sample is 1.
-        subring_size = int(np.floor(np.random.uniform(self.low_prob, self.high_prob) * num_neighbours))
-        subring_size = np.maximum(subring_size, 1)
-        rand_idx = np.random.choice(len(ring), subring_size, replace=False)
-        subring = np.asarray(ring)[rand_idx]
-
-        # print('Ring size: ', len(ring))
-        # print('Subring size: ', len(subring))
-        # print('*' * 50)
-        return subring
-
     def extract_all_edge_features(self, graph, source_node, objects):
-        features = torch.zeros(len(objects), self.compute_feature_size(graph))
+        features = torch.zeros(len(objects), self.compute_feature_size())
         for i, obj in enumerate(objects):
             # case where we add features for the source node
             if obj == source_node:
-                # take the cat vec for source node and replicate it for nb. distance feature is 0 and iou is 1.
-                source_cat_feature = graph[source_node]['cat_vec']
-                # cat_feature, distance, iou and angle
-                feature = source_cat_feature + [0] + [1] + [0]
+                # features are distance, iou and angle
+                feature = [0] + [1] + [0]
                 feature = torch.from_numpy(np.asarray(feature))
             else:
                 relations = graph[source_node]['neighbours'][obj]
@@ -161,7 +158,7 @@ class RingDataset(Dataset):
             subring = self.draw_positive(graph, source_node, num_neighbours)
 
             # extract all features for the given source node
-            features = torch.zeros(1, len(objects), self.compute_feature_size(graph))
+            features = torch.zeros(1, len(objects), self.compute_feature_size())
             features[0, :, :] = self.extract_all_edge_features(graph, source_node, objects)
 
             # extract adj matrix
@@ -173,6 +170,13 @@ class RingDataset(Dataset):
             for _, node in subring:
                 idx = obj_to_index[node]
                 data['label'][:, idx] = 1
+
+            # create a mask to filter nodes that have category other than the query subring.
+            data['mask'] = torch.zeros(len(objects), 1)
+            query_cats = set([graph[n]['category'][0] for _, n in subring])
+            for idx, obj in enumerate(objects):
+                if graph[obj]['category'][0] in query_cats:
+                    data['mask'][idx, 0] = 1
 
             # add the index of the source node
             data['source_node_idx'] = obj_to_index[source_node]
@@ -186,7 +190,7 @@ class RingDataset(Dataset):
             source_nodes = [node for node in graph.keys() if graph[node]['category'][0] == self.query_cat]
 
             # extract features for all potential source nodes and the corresponding adj matrices
-            features = torch.zeros(len(source_nodes), len(objects), self.compute_feature_size(graph))
+            features = torch.zeros(len(source_nodes), len(objects), self.compute_feature_size())
             adj = torch.zeros(len(source_nodes), num_edge_types, len(objects), len(objects))
             data['source_node_idx'] = torch.zeros(len(source_nodes))
             for i, source_node in enumerate(source_nodes):

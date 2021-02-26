@@ -91,10 +91,11 @@ def create_img_table(img_dir, img_folder, imgs, html_file_name, topk=25, ncols=5
         file.write('<img src="{}" />\n'.format(img_path))
         file.write('<br />\n')
         # add caption
-        if caption is None:
-            file.write(img_name)
-        else:
+        file.write(img_name)
+        file.write('<br />\n')
+        if caption is not None:
             file.write(caption)
+            file.write('<br />\n')
         file.write('</td>\n')
         file.write('\n')
 

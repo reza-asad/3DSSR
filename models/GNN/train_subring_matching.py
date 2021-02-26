@@ -57,11 +57,13 @@ def evaluate_net(models_dic, valid_loader, bce_criterion, reg_criterion, device)
             features = data['features'].squeeze(dim=0)
             adj = data['adj'].squeeze(dim=0)
             label = data['label'].squeeze(dim=0)
+            mask = data['mask'].squeeze(dim=0)
             theta = data['theta'].squeeze(dim=0)
 
             features = features.to(device=device, dtype=torch.float32)
             adj = adj.to(device=device, dtype=torch.float32)
             label = label.to(device=device, dtype=torch.float32)
+            mask = mask.to(device=device, dtype=torch.float32)
             theta = theta.to(device=device, dtype=torch.float32)
 
             # clone the features for rotation
@@ -132,7 +134,8 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=
     valid_dataset = RingDataset(data_dir, mode='val')
 
     # create dataloaders
-    train_loader = DataLoader(train_dataset, batch_size=1, num_workers=4, shuffle=True)
+    # TODO: shuffle and num_workers
+    train_loader = DataLoader(train_dataset, batch_size=1, num_workers=0, shuffle=False)
     valid_loader = DataLoader(valid_dataset, batch_size=1, num_workers=4, shuffle=True)
 
     # find the input dim and number of edge types, required for instantiating models.
@@ -192,11 +195,13 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, num_layers, save_cp=
             features = data['features'].squeeze(dim=0)
             adj = data['adj'].squeeze(dim=0)
             label = data['label'].squeeze(dim=0)
+            mask = data['mask'].squeeze(dim=0)
             theta = data['theta'].squeeze(dim=0)
 
             features = features.to(device=device, dtype=torch.float32)
             adj = adj.to(device=device, dtype=torch.float32)
             label = label.to(device=device, dtype=torch.float32)
+            mask = mask.to(device=device, dtype=torch.float32)
             theta = theta.to(device=device, dtype=torch.float32)
 
             # clone the features for rotation
@@ -286,7 +291,7 @@ def get_args():
     parser.add_option('--epochs', dest='epochs', default=50, type='int', help='number of epochs')
     parser.add_option('--data-dir', dest='data_dir', default='../../results/matterport3d/GNN/scene_graphs_cl',
                       help='data directory')
-    parser.add_option('--hidden_dim', dest='hidden_dim', default=1024, type='int')
+    parser.add_option('--hidden_dim', dest='hidden_dim', default=512, type='int')
     parser.add_option('--num_layers', dest='num_layers', default=2, type='int')
     parser.add_option('--patience', dest='patience', default=20, type='int')
     parser.add_option('--eval_iter', dest='eval_iter', default=1000, type='int')
