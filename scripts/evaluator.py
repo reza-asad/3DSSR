@@ -19,7 +19,6 @@ class Evaluate:
         self.scene_graph_dir = scene_graph_dir
         self.curr_df = curr_df
         self.mode = mode
-
         self.metrics = {'distance_mAP': [self.compute_distance_match, distance_threshold, 'all'],
                         'overlap_mAP': [self.compute_overlap_match, overlap_threshold, 'all']
                         }
@@ -55,35 +54,20 @@ class Evaluate:
         return np.linalg.norm(q_cent - context_obj_cent)
 
     @staticmethod
-    def compute_translation(graph, source_node, nb):
-        # load the source obbox and centroid
-        source_obbox_vertices = np.asarray(graph[source_node]['obbox'])
-        obbox_source = Box(source_obbox_vertices)
-
-        # load the obbox and centroid of the neighbour
-        nb_obbox_vertices = np.asarray(graph[nb]['obbox'])
-        obbox_nb = Box(nb_obbox_vertices)
-
-        # compute translation
-        translation = obbox_source.translation - obbox_nb.translation
-
-        return translation
-
-    @staticmethod
-    def compute_iou(graph, source_node, nb, translation):
-        # load the source obbox and centroid
-        source_obbox_vertices = np.asarray(graph[source_node]['obbox'])
-        obbox_source = Box(source_obbox_vertices)
-
-        # load the obbox and centroid of the neighbour
-        nb_obbox_vertices = np.asarray(graph[nb]['obbox'])
-        obbox_nb = Box(nb_obbox_vertices)
+    def translate_obbox(obbox, translation):
+        # build the transformation matrix
         transformation = np.eye(4)
         transformation[:3, 3] = translation
-        obbox_nb = obbox_nb.apply_transformation(transformation)
 
+        # apply tranlsation to the obbox
+        obbox = obbox.apply_transformation(transformation)
+
+        return obbox
+
+    @staticmethod
+    def compute_iou(obbox1, obbox2):
         # compute the iou
-        iou_computer = IoU(obbox_source, obbox_nb)
+        iou_computer = IoU(obbox1, obbox2)
         iou = iou_computer.iou()
 
         return iou
@@ -102,40 +86,59 @@ class Evaluate:
         if obj_to_cat_query[query_object] != obj_to_cat_target[target_object]:
             return 0
 
+        # create a obbox object for the query and target objects
+        query_obbox_vertices = np.asarray(query_scene[query_object]['obbox'])
+        obbox_query = Box(query_obbox_vertices)
+
+        target_obbox_vertices = np.asarray(target_scene[target_object]['obbox'])
+        obbox_target = Box(target_obbox_vertices)
+
         # for each context object in the query scene find the object in the target subscene with maximum overlap that
         # satisfies the overlap threshold. Find the percentage of such matches relative to the total number of context
         # objects.
         visited = set()
         for context_object in context_objects:
             context_object_cat = obj_to_cat_query[context_object]
-            # compute the translation vector and iou for the context object
-            translation_q = self.compute_translation(query_scene, query_object, context_object)
-            dist_q = np.linalg.norm(translation_q)
-            iou_query = self.compute_iou(query_scene, query_object, context_object, translation_q)
+            # create a obbox object for the context object
+            context_obj_obbox_vertices = np.asarray(query_scene[context_object]['obbox'])
+            obbox_context_object = Box(context_obj_obbox_vertices)
+
+            # find the distance between the query and context objects.
+            dist_q = np.linalg.norm(obbox_query.translation - obbox_context_object.translation)
+
+            # translate the context object to the origin
+            translation_q = -obbox_context_object.translation
+            obbox_context_object = self.translate_obbox(obbox_context_object, translation_q)
 
             # find the object in the target subscene with the same category that has maximum overlap with the context
             # object.
-            best_diff = 1000
+            best_iou = 0
             best_candidate = None
             for candidate in target_subscene['context_objects']:
                 if candidate not in visited:
                     candidate_cat = obj_to_cat_target[candidate]
                     if candidate_cat == context_object_cat:
-                        # compute the translation vector between the target node and the candidate node
-                        translation_t = self.compute_translation(target_scene, target_object, candidate)
+                        # create a obbox object for the candidate object
+                        candidate_obj_obbox_vertices = np.asarray(target_scene[candidate]['obbox'])
+                        obbox_candidate_object = Box(candidate_obj_obbox_vertices)
+
+                        # compute the unit vector pointing form the candidate node to the target node.
+                        translation_t = obbox_target.translation - obbox_candidate_object.translation
                         dir_t = translation_t / max(np.linalg.norm(translation_t), 0.00001)
+
+                        # translate the context object by the the vector that translates the target object to origin
+                        obbox_candidate_object = self.translate_obbox(obbox_candidate_object, -obbox_target.translation)
 
                         # move the candidate dist_q units in the direction of dir_t.
                         translation = dir_t * dist_q
+                        obbox_candidate_object = self.translate_obbox(obbox_candidate_object, translation)
 
-                        # use the rotated translation vector to compute iou for the candidate and target node.
-                        iou_target = self.compute_iou(target_scene, target_object, candidate, translation)
-                        # see if the target_iou is within a threshold of query_iou
-                        relative_diff = abs(iou_query - iou_target) / max(iou_query,
-                                                                          0.00001)
+                        # compute the iou between the context and the candidate objects
+                        iou = self.compute_iou(obbox_context_object, obbox_candidate_object)
+
                         # compute the threshold relative to the distance between the query and context object
-                        if relative_diff < best_diff and relative_diff < self.metrics['overlap_mAP'][1]:
-                            best_diff = relative_diff
+                        if iou > best_iou and iou > self.metrics['overlap_mAP'][1]:
+                            best_iou = iou
                             best_candidate = candidate
 
             # add the best candidate to visited nodes
@@ -332,6 +335,7 @@ class Evaluate:
                     precision_at[top] = self.compute_precision_at(top, metric, target_subscenes, query_scene_name,
                                                                   query_object, context_objects, computed_precisions)
             mAP = np.mean(list(precision_at.values()))
+
         query_model = (self.curr_df['query_name'] == query_name) & \
                       (self.curr_df['model_name'] == model_name) & \
                       (self.curr_df['experiment_id'] == experiment_id)
@@ -355,9 +359,9 @@ def main():
     run_evalulation = False
     run_aggregation = False
     plot_comparisons = False
-    plot_name = 'GK++_GNN_Randoms.png'
+    plot_name = 'Random_BipartiteMatching.png'
     remove_model = False
-    visualize_loss = True
+    visualize_loss = False
 
     thresholds = np.linspace(0.1, 0.9, num=9)
     metrics = ['distance_mAP', 'overlap_mAP']
@@ -365,7 +369,7 @@ def main():
     # define paths and parameters
     mode = 'val'
     model_name = 'GNN'
-    experiment_name = 'cat_angle'
+    experiment_name = 'dev'
     subring_matching_folder = 'subring_matching_{}'.format(experiment_name)
     query_results_path = '../results/matterport3d/{}/query_dict_{}_{}.json'.format(model_name, mode, experiment_name)
     evaluation_path = '../results/matterport3d/evaluation.csv'

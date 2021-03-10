@@ -110,9 +110,11 @@ class Discriminator(nn.Module):
 
 
 class Regression(nn.Module):
-    def __init__(self, hidden_dim):
+    def __init__(self, input_dim, hidden_dim):
         super(Regression, self).__init__()
-        self.lin_layer = nn.Linear(hidden_dim*2, 1, bias=False)
+        self.lin_layer1 = nn.Linear(input_dim, hidden_dim, bias=False)
+        self.lin_layer2 = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.lin_layer3 = nn.Linear(hidden_dim, 1, bias=False)
 
         for m in self.modules():
             self.weights_init(m)
@@ -123,19 +125,24 @@ class Regression(nn.Module):
             if m.bias is not None:
                 m.bias.data.fill_(0.0)
 
-    def forward(self, summaries):
-        theta_hat = torch.sigmoid(self.lin_layer(summaries)) * (2 * np.pi)
+    def forward(self, positives_rot, all_features):
+        # find positive summary
+        hidden_pos = self.lin_layer1(positives_rot)
+        hidden_pos = hidden_pos + torch.sin(hidden_pos)**2
+        hidden_pos = self.lin_layer2(hidden_pos)
+        hidden_pos = hidden_pos + torch.sin(hidden_pos)**2
+        pos_summary = torch.mean(hidden_pos, dim=1)
 
-        return theta_hat
+        # find all features summary
+        hidden_all = self.lin_layer1(all_features)
+        hidden_all = hidden_all + torch.sin(hidden_all)**2
+        hidden_all = self.lin_layer2(hidden_all)
+        hidden_all = hidden_all + torch.sin(hidden_all)**2
+        summary = torch.mean(hidden_all, dim=1)
 
+        # concat summary features and predict the rotation
+        # summaries = torch.cat([pos_summary, summary], dim=1)
+        delta_summary = pos_summary - summary
+        rot_hat = self.lin_layer3(delta_summary)
 
-class LinearLayer(torch.nn.Module):
-    def __init__(self, input_dim, output_dim):
-        super(LinearLayer, self).__init__()
-        self.linear = torch.nn.Linear(input_dim, output_dim)
-
-    def forward(self, x):
-        outputs = self.linear(x)
-        return outputs
-
-
+        return rot_hat

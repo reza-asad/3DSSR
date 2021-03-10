@@ -29,6 +29,20 @@ class Scene:
                 filtered_graph[node] = node_info
         self.graph = filtered_graph
 
+    @staticmethod
+    def compute_angle(graph, source_node, nb):
+        # compute the vector connecting the centroids of the nb to the source node.
+        source_nb_vec = np.asarray(graph[nb]['obbox'][0]) - np.asarray(graph[source_node]['obbox'][0])
+        source_nb_vec_xy = source_nb_vec[:-1]
+
+        x_unit = np.asarray([1, 0])
+        cos_angle = np.dot(source_nb_vec_xy, x_unit) / (np.linalg.norm(source_nb_vec_xy) + 0.00001)
+        angle = np.arccos(cos_angle)
+        if source_nb_vec_xy[1] < 0:
+            angle = 2 * np.pi - angle
+
+        return angle
+
     def test_sort_features(self, source_node, nb):
         # load the source obbox and centroid
         source_obbox_vertices = np.asarray(self.graph[source_node]['obbox'])
@@ -39,13 +53,32 @@ class Scene:
         nb_obbox_vertices = np.asarray(self.graph[nb]['obbox'])
         centroid_nb = nb_obbox_vertices[0].copy()
         obbox_nb = Box(nb_obbox_vertices)
+
         transformation = np.eye(4)
-        transformation[:3, 3] = obbox_source.translation - obbox_nb.translation
+        # compute translation
+        # transformation[:3, 3] = obbox_source.translation - obbox_nb.translation
+
+        # compute rotation
+        theta1 = self.compute_angle(self.graph, source_node, nb)
+        theta2 = 1.5*np.pi
+        delta_theta = theta2 - theta1
+        rotation = np.asarray([[np.cos(delta_theta), -np.sin(delta_theta), 0],
+                               [np.sin(delta_theta), np.cos(delta_theta), 0],
+                               [0, 0, 1]])
+        source_obbox_vertices -= centroid_source
+        nb_obbox_vertices -= centroid_source
+        transformation[:3, :3] = rotation
+        # nb_obbox_vertices_rot = np.dot(rotation, nb_obbox_vertices.transpose())
+        # nb_obbox_vertices_rot = nb_obbox_vertices_rot.transpose()
+        # obbox_nb = Box(nb_obbox_vertices_rot)
+        # t=y
+
+        # apply transformation
         obbox_nb = obbox_nb.apply_transformation(transformation)
 
-        print(self.compute_dist(centroid_source, centroid_nb))
-        print(centroid_source, centroid_nb)
-        print(self.find_cat(source_node), self.find_cat(nb))
+        # print(self.compute_dist(centroid_source, centroid_nb))
+        # print(centroid_source, centroid_nb)
+        # print(self.find_cat(source_node), self.find_cat(nb))
         iou_computer = IoU(obbox_source, obbox_nb)
         print('IoU: ', iou_computer.iou())
         s = trimesh.creation.box(obbox_source.scale, transform=obbox_source.transformation)
@@ -110,8 +143,8 @@ def process_scenes(scene_names, scene_graph_dir_input, models_dir, edge_types, a
         print('Processing scene {} ... '.format(scene_name))
         print('Iteration {}/{}'.format(idx, len(scene_names)))
         t2 = time()
-        if scene_name in visited:
-            continue
+        # if scene_name in visited:
+        #     continue
 
         # create an instance of a scene and filter it by accepted cats.
         scene_graph = Scene(scene_graph_dir_input, scene_name, edge_types, accepted_cats)

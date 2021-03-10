@@ -64,7 +64,7 @@ def prepare_scene_for_rendering(graph, objects, models_dir, query_objects=[], fa
 
         # highlight node if its important
         if obj in query_objects:
-            mesh.visual.vertex_colors = trimesh.visual.color.hex_to_rgba("#0000ff")
+            mesh.visual.vertex_colors = trimesh.visual.color.hex_to_rgba("#1E90FF")
 
         # faded color if object is not important
         if obj in faded_nodes:
