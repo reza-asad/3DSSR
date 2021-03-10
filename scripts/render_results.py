@@ -43,14 +43,20 @@ def render_model_results(query_results, scene_graph_dir, models_dir, rendering_p
                 target_graph_path = os.path.join(scene_graph_dir, 'all', target_scene_name)
                 target_graph = load_from_json(target_graph_path)
                 t = target_subscene['target']
+                highlighted_objects = [t]
                 t_context = set(target_subscene['context_objects'] + [t])
+                # TODO: remove this
+                if 'best_iou_obj' in target_subscene and target_subscene['best_iou_obj'] is not None:
+                    best_iou_obj = target_subscene['best_iou_obj'][0]
+                    highlighted_objects.append(best_iou_obj)
 
                 # render the image
                 faded_nodes = [obj for obj in target_graph.keys() if obj not in t_context]
                 path = os.path.join(rendering_path, query, 'imgs', 'top_{}_{}_{}.png'
                                     .format(chunk_idx * chunk_size + j + 1, target_scene_name.split('.')[0], t))
-                render_single_scene(graph=target_graph, objects=target_graph.keys(), highlighted_object=[t],
-                                    faded_nodes=faded_nodes, path=path, model_dir=models_dir, colormap=colormap)
+                render_single_scene(graph=target_graph, objects=target_graph.keys(),
+                                    highlighted_object=highlighted_objects, faded_nodes=faded_nodes, path=path,
+                                    model_dir=models_dir, colormap=colormap)
 
             visited.add(query)
 
@@ -59,19 +65,20 @@ def main(num_chunks, chunk_idx):
     # define initial parameters
     make_folders = False
     render = False
-    with_img_table = True
+    with_img_table = False
     filter_queries = ['sink-34', 'chair-26', 'chest_of_drawers-25', 'table-17', 'sofa-39']
     mode = 'val'
     model_name = 'GNN'
-    experiment_name = 'cat_angle'
+    experiment_name = 'dev'
     topk = 50
     query_results_path = '../results/matterport3d/{}/query_dict_{}_{}.json'.format(model_name, mode, experiment_name)
     scene_graph_dir = '../data/matterport3d/scene_graphs'
     rendering_path = '../results/matterport3d/{}/rendered_results/{}'.format(model_name, experiment_name)
     models_dir = '../data/matterport3d/models'
     colormap = load_from_json('../data/matterport3d/color_map.json')
-    captionmap = {'distance_mAP': 'distance_precision', 'overlap_mAP': 'overlap_precision', 'theta': 'angle',
-                  'sim': 'cosine_similarity'}
+    # captionmap = {'distance_mAP': 'distance_precision', 'overlap_mAP': 'overlap_precision', 'theta': 'angle',
+    #               'sim': 'cosine_similarity'}
+    captionmap = {'distance_mAP': 'distance_precision', 'overlap_mAP': 'overlap_precision'}
 
     # load the query results and filter it if necessary
     query_results = load_from_json(query_results_path)
