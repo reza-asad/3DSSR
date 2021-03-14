@@ -107,28 +107,6 @@ class Scene(Dataset):
 
         return bp_graph
 
-    def update_matches(self, iou_nodes, curr_q_context, bp_graph, visited):
-        match = (-1, 0)
-        while len(iou_nodes) > 0:
-            max_iou, t_context = heapq.heappop(iou_nodes)
-            max_iou = -max_iou
-            if t_context not in visited:
-                match = (t_context, max_iou)
-                visited[t_context] = (curr_q_context, max_iou)
-                break
-            else:
-                prev_q_context, prev_iou = visited[t_context]
-                if max_iou > prev_iou:
-                    # the current match is better than previous.
-                    visited[t_context] = (curr_q_context, max_iou)
-                    match = (t_context, max_iou)
-                    # find a replacement for the previous match
-                    new_match = self.update_matches(bp_graph[prev_q_context]['IoUs'], prev_q_context, bp_graph, visited)
-                    bp_graph[prev_q_context]['match'] = new_match
-                    break
-
-        return match
-
     def find_correspondence(self, bp_graph, query_obbox, target_obbox):
         q_obbox = Box(query_obbox)
         visited = {}
