@@ -2,6 +2,8 @@ import os
 import sys
 import numpy as np
 from time import time
+from matplotlib import pyplot as plt
+from PIL import Image
 
 from scripts.helper import load_from_json, render_single_scene, create_img_table
 
@@ -46,9 +48,9 @@ def render_model_results(query_results, scene_graph_dir, models_dir, rendering_p
                 highlighted_objects = [t]
                 t_context = set(target_subscene['context_objects'] + [t])
                 # TODO: remove this
-                if 'best_iou_obj' in target_subscene and target_subscene['best_iou_obj'] is not None:
-                    best_iou_obj = target_subscene['best_iou_obj'][0]
-                    highlighted_objects.append(best_iou_obj)
+                # if 'best_iou_obj' in target_subscene and target_subscene['best_iou_obj'] is not None:
+                #     best_iou_obj = target_subscene['best_iou_obj']
+                #     highlighted_objects.append(best_iou_obj)
 
                 # render the image
                 faded_nodes = [obj for obj in target_graph.keys() if obj not in t_context]
@@ -61,6 +63,14 @@ def render_model_results(query_results, scene_graph_dir, models_dir, rendering_p
             visited.add(query)
 
 
+def plot_evaluations(x, y, fig, ax, label, output_path):
+    ax.plot(x, y, label=label)
+    plt.title("Distance and Overlap mAPs")
+    plt.xlabel("Thresholds")
+    plt.ylabel('mAP')
+    leg = ax.legend()
+
+
 def main(num_chunks, chunk_idx):
     # define initial parameters
     make_folders = False
@@ -68,17 +78,18 @@ def main(num_chunks, chunk_idx):
     with_img_table = False
     filter_queries = ['sink-34', 'chair-26', 'chest_of_drawers-25', 'table-17', 'sofa-39']
     mode = 'val'
-    model_name = 'GNN'
-    experiment_name = 'dev'
+    model_name = 'CategoryRandom'
+    experiment_name = 'base'
     topk = 50
-    query_results_path = '../results/matterport3d/{}/query_dict_{}_{}.json'.format(model_name, mode, experiment_name)
+    query_results_path = '../results/matterport3d/{}/query_dict_{}_{}_evaluated.json'.format(model_name, mode,
+                                                                                             experiment_name)
     scene_graph_dir = '../data/matterport3d/scene_graphs'
     rendering_path = '../results/matterport3d/{}/rendered_results/{}'.format(model_name, experiment_name)
     models_dir = '../data/matterport3d/models'
     colormap = load_from_json('../data/matterport3d/color_map.json')
     # captionmap = {'distance_mAP': 'distance_precision', 'overlap_mAP': 'overlap_precision', 'theta': 'angle',
     #               'sim': 'cosine_similarity'}
-    captionmap = {'distance_mAP': 'distance_precision', 'overlap_mAP': 'overlap_precision'}
+    caption_keys = {'distance_mAP', 'distance_precision', 'overlap_mAP', 'overlap_precision', 'overlap_rotation'}
 
     # load the query results and filter it if necessary
     query_results = load_from_json(query_results_path)
@@ -102,12 +113,23 @@ def main(num_chunks, chunk_idx):
 
     if with_img_table:
         for query, results in filtered_query_results.items():
+            # plot the distance and overlap mAP for the query
+            evaluation_plot_name = 'evaluation.png'
+            evaluation_plot_path = os.path.join(rendering_path, query, 'imgs', evaluation_plot_name)
+            fig, ax = plt.subplots()
+            for metric in ['distance_mAP', 'overlap_mAP']:
+                x, y = list(zip(*results[metric]['mAP']))
+                plot_evaluations(x, y, fig, ax, metric, evaluation_plot_path)
+            plt.savefig(evaluation_plot_path)
+
+            # read images in the img directory and find the query img
             imgs_path = os.path.join(rendering_path, query, 'imgs')
             imgs = os.listdir(imgs_path)
             query_img = [e for e in imgs if 'query' in e]
 
             # sort the topk images
             imgs.remove(query_img[0])
+            imgs.remove(evaluation_plot_name)
             ranks = [int(img_name.split('_')[1]) for img_name in imgs]
             ranks_imgs = zip(ranks, imgs)
             ranks_imgs = sorted(ranks_imgs, key=lambda x: x[0])
@@ -117,30 +139,30 @@ def main(num_chunks, chunk_idx):
             captions = []
             target_subscenes = results['target_subscenes']
             topk = 10
-            num_context_objects = len(results['example']['context_objects'])
+            num_objects = len(results['example']['context_objects']) + 1
             for i in range(len(sorted_imgs)):
                 caption = '<br />\n'
                 # add number of context matches
                 if i < topk:
                     num_context_match = len(target_subscenes[i]['context_objects'])
-                    caption += 'num_context_objects: {} <br />\n'.format(num_context_match)
+                    caption += 'num_objects: {} <br />\n'.format(num_context_match + 1)
                 for key, value in target_subscenes[i].items():
-                    if key in captionmap:
-                        caption_key = captionmap[key]
-                        if 'mAP' in key:
-                            # pick the target object
-                            target_obj = target_subscenes[i]['target']
-                            caption_value = '{}/{}'.format(int(value[target_obj] * num_context_objects),
-                                                           num_context_objects)
+                    if key in caption_keys:
+                        if 'precision' in key:
+                            caption_value = '{}/{}'.format(int(value * num_objects),
+                                                           num_objects)
                         elif 'theta' in key:
+                            caption_value = np.round(value * 180 / np.pi, 0)
+                        elif 'overlap_rotation' in key:
                             caption_value = np.round(value * 180 / np.pi, 0)
                         else:
                             caption_value = value
-                        caption += ' {}: {} <br />\n'.format(caption_key, caption_value)
+                        caption += ' {}: {} <br />\n'.format(key, caption_value)
                 captions.append(caption)
 
             create_img_table(imgs_path, 'imgs', sorted_imgs, with_query_scene=True, query_img=query_img[0],
-                             html_file_name='img_table.html', topk=len(imgs), ncols=3, captions=captions)
+                             evaluation_plot=evaluation_plot_name, html_file_name='img_table.html', topk=len(imgs),
+                             ncols=3, captions=captions)
 
 
 if __name__ == '__main__':

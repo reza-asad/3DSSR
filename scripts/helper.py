@@ -83,7 +83,7 @@ def prepare_scene_for_rendering(graph, objects, models_dir, query_objects=[], fa
 
 
 def create_img_table(img_dir, img_folder, imgs, html_file_name, topk=25, ncols=5, captions=[],
-                     with_query_scene=False, query_img=None, query_caption=None):
+                     with_query_scene=False, evaluation_plot=None, query_img=None, query_caption=None):
     def insert_into_table(file, img_name, caption=None):
         img_path = os.path.join(img_folder, img_name)
         file.write('\n')
@@ -91,9 +91,9 @@ def create_img_table(img_dir, img_folder, imgs, html_file_name, topk=25, ncols=5
         file.write('<img src="{}" />\n'.format(img_path))
         file.write('<br />\n')
         # add caption
-        file.write(img_name)
         file.write('<br />\n')
         if caption is not None:
+            file.write(img_name)
             file.write(caption)
             file.write('<br />\n')
         file.write('</td>\n')
@@ -109,6 +109,9 @@ def create_img_table(img_dir, img_folder, imgs, html_file_name, topk=25, ncols=5
         if with_query_scene:
             f.write('<tr>\n')
             insert_into_table(f, query_img, query_caption)
+            # insert the evaluation plot for the query, if necessary.
+            if evaluation_plot is not None:
+                insert_into_table(f, evaluation_plot, caption=None)
             f.write('</tr>\n')
 
         # add the rows of the table
