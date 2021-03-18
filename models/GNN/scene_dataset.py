@@ -27,6 +27,7 @@ class Scene(Dataset):
 
         self.min_num_nbs = min_num_nbs
         self.max_num_nbs = max_num_nbs
+        self.feature_names = ['volumes', 'distances', 'cosines', 'sines', 'IoUs', 'matches']
 
     def __len__(self):
         return len(self.file_names)
@@ -54,10 +55,10 @@ class Scene(Dataset):
         # print('Subring size: ', len(query_subring))
         # print('*' * 50)
 
-        return query_subring
+        return query_subring.tolist()
 
     @staticmethod
-    def map_cats_to_obj(cats, graph, source_node):
+    def map_cat_to_objects(cats, graph, source_node):
         cat_to_objects = {cat: [] for cat in cats}
         for node, node_info in graph.items():
             if node != source_node:
@@ -68,175 +69,393 @@ class Scene(Dataset):
         return cat_to_objects
 
     @staticmethod
-    def compute_angle(graph, source_node, nb):
+    def compute_angle(source_obbox, nb_obbox):
         # compute the vector connecting the centroids of the nb to the source node.
-        source_nb_vec = np.asarray(graph[nb]['obbox'][0]) - np.asarray(graph[source_node]['obbox'][0])
+        source_nb_vec = nb_obbox.translation - source_obbox.translation
         source_nb_vec_xy = source_nb_vec[:-1]
 
         x_unit = np.asarray([1, 0])
-        cos_angle = np.dot(source_nb_vec_xy, x_unit) / (np.linalg.norm(source_nb_vec_xy) + 0.00001)
+        cos_angle = np.dot(source_nb_vec_xy, x_unit) / (np.linalg.norm(source_nb_vec_xy))
         angle = np.arccos(cos_angle)
         if source_nb_vec_xy[1] < 0:
             angle = 2 * np.pi - angle
 
         return angle
 
-    def build_bipartite_graph(self, query_graph, target_graph, query_subring, query_node, target_node, cat_to_objects):
-        bp_graph = {}
-        # find the translation from the query and target nodes to origin
-        q_to_origin = -np.asarray(query_graph[query_node]['obbox'][0])
-        t_to_origin = -np.asarray(target_graph[target_node]['obbox'][0])
+    @staticmethod
+    def translate_obbox(obbox, translation):
+        # build the transformation matrix
+        transformation = np.eye(4)
+        transformation[:3, 3] = translation
 
-        # for each context object find its neighbours and translate their obbox
+        # apply tranlsation to the obbox
+        obbox = obbox.apply_transformation(transformation)
+
+        return obbox
+
+    def build_bipartite_graph(self, query_graph, target_graph, query_subring, query_node, target_node, cat_to_objects,
+                              clean_objects):
+        bp_graph = {}
+        # build obbox for the query object and translate it to the origin
+        query_obbox_vertices = np.asarray(query_graph[query_node]['obbox'])
+        q_obbox = Box(query_obbox_vertices)
+        q_translation = -q_obbox.translation
+        q_obbox = self.translate_obbox(q_obbox, q_translation)
+
+        # build obbox for the target object and find its translation to the origin
+        target_obbox_vertices = np.asarray(target_graph[target_node]['obbox'])
+        t_obbox = Box(target_obbox_vertices)
+        t_translation = -t_obbox.translation
+        t_obbox = self.translate_obbox(t_obbox, t_translation)
+
+        # for each context object populate features for its neighbours of the same category
         for context_obj in query_subring:
             # add the neighbours
             context_obj_cat = query_graph[context_obj]['category'][0]
-            bp_graph[context_obj] = {'neighbours': cat_to_objects[context_obj_cat]}
+            bp_graph[context_obj] = {'candidates': cat_to_objects[context_obj_cat]}
 
-            # translate the obbox for the context object and add the angle
-            bp_graph[context_obj]['obbox'] = np.asarray(query_graph[context_obj]['obbox']) + q_to_origin
-            context_obj_angle = self.compute_angle(query_graph, query_node, context_obj)
-            bp_graph[context_obj]['angle'] = context_obj_angle
+            # translate the obbox of the context object using the vector that translates the query object to the origin.
+            q_context_obbox_vertices = np.asarray(query_graph[context_obj]['obbox'])
+            q_c_obbox = Box(q_context_obbox_vertices)
+            q_c_obbox = self.translate_obbox(q_c_obbox, q_translation)
 
-            # translate the neighbours obboxes and add their angles
-            bp_graph[context_obj]['obboxes'] = []
-            bp_graph[context_obj]['angles'] = []
-            for nb in bp_graph[context_obj]['neighbours']:
-                bp_graph[context_obj]['obboxes'] += [np.asarray(target_graph[nb]['obbox']) + t_to_origin]
-                bp_graph[context_obj]['angles'] += [self.compute_angle(target_graph, target_node, nb)]
+            # compute the angle for the context object centered around the query object.
+            context_obj_angle = self.compute_angle(q_obbox, q_c_obbox)
 
-        return bp_graph
+            # populate features for each corresponding candidate
+            bp_graph[context_obj]['volumes'] = []
+            bp_graph[context_obj]['distances'] = []
+            bp_graph[context_obj]['cosines'] = []
+            bp_graph[context_obj]['sines'] = []
+            bp_graph[context_obj]['IoUs'] = []
+            bp_graph[context_obj]['matches'] = []
+            for candidate in bp_graph[context_obj]['candidates']:
+                if candidate in clean_objects and candidate == context_obj:
+                    bp_graph[context_obj]['matches'] += [1.0]
+                else:
+                    bp_graph[context_obj]['matches'] += [0.0]
+                # translate the obbox of the candidate object using a vector that translates the target object to the
+                # origin
+                t_candidate_obbox_vertices = np.asarray(target_graph[candidate]['obbox'])
+                t_c_obbox = Box(t_candidate_obbox_vertices)
+                t_c_obbox = self.translate_obbox(t_c_obbox, t_translation)
 
-    def find_correspondence(self, bp_graph, query_obbox, target_obbox):
-        q_obbox = Box(query_obbox)
-        visited = {}
-        for q_context, node_info in bp_graph.items():
-            # read the angle and obbox for the context object in query scene
-            q_context_angle = node_info['angle']
-            q_c_obbox = Box(node_info['obbox'])
+                # add the volume of each candidate
+                bp_graph[context_obj]['volumes'] += [t_c_obbox.volume]
 
-            # find the rotation angle from a t_context to the q_context
-            node_info['IoUs'] = []
-            for i, t_context in enumerate(node_info['neighbours']):
-                # find the rotation angle and extract the obbox
-                t_context_angle = node_info['angles'][i]
-                delta_theta = q_context_angle - t_context_angle
+                # add the distances
+                distance = np.linalg.norm(t_c_obbox.translation - t_obbox.translation)
+                bp_graph[context_obj]['distances'] += [distance]
 
-                # create box objects for the target node and t_context
-                t_obbox = Box(target_obbox.copy())
-                t_c_obbox = Box(node_info['obboxes'][i].copy())
+                # add the cosines and sines for the delta angle between the context object and the candidate
+                candidate_obj_angle = self.compute_angle(t_obbox, t_c_obbox)
+                delta_angle = context_obj_angle - candidate_obj_angle
+                bp_graph[context_obj]['cosines'] += [np.cos(delta_angle)]
+                bp_graph[context_obj]['sines'] += [np.sin(delta_angle)]
 
-                # apply rotation to the pair of obboxes (t, t_c_context)
+                # create a new target obbox that you will rotate
+                target_obbox_vertices = np.asarray(target_graph[target_node]['obbox'])
+                t_obbox = Box(target_obbox_vertices)
+                t_obbox = self.translate_obbox(t_obbox, -t_obbox.translation)
+
+                # rotate the pair (candidate, target) based on the angle between that pair and (context, query)
                 transformation = np.eye(4)
-                rotation = np.asarray([[np.cos(delta_theta), -np.sin(delta_theta), 0],
-                                       [np.sin(delta_theta), np.cos(delta_theta), 0],
+                rotation = np.asarray([[np.cos(delta_angle), -np.sin(delta_angle), 0],
+                                       [np.sin(delta_angle), np.cos(delta_angle), 0],
                                        [0, 0, 1]])
                 transformation[:3, :3] = rotation
-
-                # beofre rotation
-                # if delta_theta > 0:
-                #     import trimesh
-                #     t = trimesh.creation.box(t_obbox.scale, transform=t_obbox.transformation)
-                #     t.visual.vertex_colors = trimesh.visual.color.hex_to_rgba("#0000ff")
-                #     q_c = trimesh.creation.box(q_c_obbox.scale, transform=q_c_obbox.transformation)
-                #     q_c.visual.vertex_colors = trimesh.visual.color.hex_to_rgba("#FF0000")
-                #     t_c = trimesh.creation.box(t_c_obbox.scale, transform=t_c_obbox.transformation)
-                #     trimesh.Scene([t, q_c, t_c]).show()
-
                 t_obbox = t_obbox.apply_transformation(transformation)
                 t_c_obbox = t_c_obbox.apply_transformation(transformation)
 
-                    # # after rotation
-                    # t = trimesh.creation.box(t_obbox.scale, transform=t_obbox.transformation)
-                    # t_c = trimesh.creation.box(t_c_obbox.scale, transform=t_c_obbox.transformation)
-                    # trimesh.Scene([t, t_c]).show()
+                # compute the iou between the pair (candidate, target) and (context, query)
+                iou1 = IoU(t_obbox, q_obbox).iou()
+                iou2 = IoU(t_c_obbox, q_c_obbox).iou()
+                bp_graph[context_obj]['IoUs'] += [iou1 + iou2]
+                if bp_graph[context_obj]['matches'][-1] == 1:
+                    if (iou1 + iou2) < 0.5:
+                        print(context_obj, candidate, clean_objects, context_obj_angle, candidate_obj_angle)
+                        print(iou1 + iou2)
+                        t=y
 
-                # compute the iou between the pair (t, c_1) and (q, c_2)
-                iou = IoU(t_obbox, q_obbox).iou() + IoU(t_c_obbox, q_c_obbox).iou()
-                node_info['IoUs'].append((-iou, t_context))
+        return bp_graph
 
-            # update matches
-            heapq.heapify(node_info['IoUs'])
-            match = self.update_matches(node_info['IoUs'], q_context, bp_graph, visited)
-            node_info['match'] = match
+    @staticmethod
+    def combine_features(bp_graph, feature_names):
+        features = []
+        for q_context, q_context_info in bp_graph.items():
+            curr_candidate_features = []
+            for feature_name in feature_names:
+                feature = torch.from_numpy(np.asarray(q_context_info[feature_name]))
+                feature.unsqueeze_(dim=1)
+                curr_candidate_features.append(feature)
+
+            # combine the features for the candidates of the current context object
+            curr_candidate_features = torch.cat(curr_candidate_features, dim=1)
+            features.append(curr_candidate_features)
+
+        # combine features across the candidates of all context objects
+        features = torch.cat(features, dim=0)
+
+        return features
+
+    @staticmethod
+    def perturb_volume(obbox, lower_bound=0.67, upper_bound=1.33):
+        # for each dimension randomly shrink or expand it
+        old_scale = obbox.scale
+        x_factor = np.random.uniform(lower_bound, upper_bound)
+        y_factor = np.random.uniform(lower_bound, upper_bound)
+        z_factor = np.random.uniform(lower_bound, upper_bound)
+        new_scale = old_scale * np.asarray([x_factor, y_factor, z_factor])
+        # make sure the scale is not zero
+        for i in range(len(old_scale)):
+            if new_scale[i] < 0.00001:
+                new_scale[i] = old_scale[i]
+                print(old_scale, new_scale)
+            # new_scale = np.maximum(new_scale, 0.0001)
+        obbox = obbox.from_transformation(obbox.rotation, obbox.translation, new_scale)
+        return obbox
+
+    def perturb_centroid(self, obbox, corrupt=False, num_excluded_vertices=3):
+        # randomly exclude one or two of the corner vertices of the obbox and compute the mean
+        vertices = obbox.vertices[1:].copy()
+        # if the object is corrupted exclude more vertices with probability of 0.5
+        if corrupt and np.random.uniform(0, 1) > 0.5:
+            indices = np.random.choice(np.arange(8), num_excluded_vertices, replace=False)
+
+            included = (np.arange(8) != indices[0])
+            for i in range(1, num_excluded_vertices):
+                included = included * (np.arange(8) != indices[i])
+        else:
+            idx = np.random.randint(0, 8)
+            included = np.arange(8) != idx
+
+        vertices = vertices[included, :]
+        new_centroid = np.mean(vertices, axis=0)
+
+        # translate the obbox to the new centroid
+        obbox = self.translate_obbox(obbox, new_centroid - obbox.vertices[0])
+
+        return obbox
+
+    @staticmethod
+    def find_different_angle(curr_angles):
+        # add pi/4 and 7pi/4 to the list of angles
+        angle_list = curr_angles.copy()
+        if np.pi/4 not in angle_list:
+            angle_list.append(np.pi/4)
+        if 7*np.pi/4 not in angle_list:
+            angle_list.append(7*np.pi/4)
+
+        # sort the angles
+        sorted_angles = sorted(angle_list)
+
+        # find the largest segment
+        largest_segment = []
+        largest_length = 0
+        for i in range(1, len(sorted_angles)):
+            curr_length = sorted_angles[i] - sorted_angles[i-1]
+            if curr_length > largest_length:
+                largest_segment = [sorted_angles[i-1], sorted_angles[i]]
+                largest_length = curr_length
+
+        # sample an angle approximately in the middle of the largest segment
+        middle_angle = (largest_segment[0] + largest_segment[1]) / 2
+        if np.random.uniform(0, 1) > 0.5:
+            new_angle = middle_angle + largest_length / 8
+        else:
+            new_angle = middle_angle - largest_length / 8
+
+        return new_angle
+
+    def build_query(self, target_graph, query_node, context_objects, rotation_angle):
+        query_and_context = [query_node] + context_objects
+        query_graph = {n: target_graph[n].copy() for n in query_and_context}
+
+        # pick the majority of the context objects to corrupt
+        if len(context_objects) == 3:
+            clean_objects = context_objects[:2]
+        elif len(context_objects) > 3:
+            # pick less than half of the context objects as corresponding objects
+            num_clean = int(np.floor(len(context_objects) / 2))
+            # make sure to pick at least two clean objects
+            num_clean = np.random.randint(2, num_clean+1)
+            clean_objects = context_objects[:num_clean]
+        else:
+            clean_objects = context_objects
+
+        # translate the query obbox to the global origin and save it
+        obj_to_obbox = {}
+        vertices = np.asarray(query_graph[query_node]['obbox'])
+        obj_to_obbox[query_node] = Box(vertices)
+        q_translation = -obj_to_obbox[query_node].translation
+        obj_to_obbox[query_node] = self.translate_obbox(obj_to_obbox[query_node], q_translation)
+
+        # perturb the volume of the query object
+        # obj_to_obbox[query_node] = self.perturb_volume(obj_to_obbox[query_node])
+
+        # create obbox for context objects
+        obj_to_old_obbox = {}
+        for obj in context_objects:
+            vertices = np.asarray(query_graph[obj]['obbox'])
+            obj_to_obbox[obj] = Box(vertices)
+            # translate the obbox according to the query translation.
+            obj_to_obbox[obj] = self.translate_obbox(obj_to_obbox[obj], q_translation)
+
+            # perturb the volume of all obboxes
+            old_obbox_vertices = obj_to_obbox[obj].vertices.copy()
+            old_obbox = Box(old_obbox_vertices)
+            obj_to_old_obbox[obj] = old_obbox
+            # obj_to_obbox[obj] = self.perturb_volume(obj_to_obbox[obj], lower_bound=0.8, upper_bound=1.2)
+
+            # perturb all context objects so that the center of the new obbox is the average of 7 random corners of the
+            # original obbox
+            # corrupt = obj not in clean_objects
+            # obj_to_obbox[obj] = self.perturb_centroid(obj_to_obbox[obj], corrupt=corrupt)
+
+        # rotate the corrupt objects by an angle different from the rotation_angle. rotate maximum n-1 of the corrupt
+        # objects by the exact same angle where n is the number of clean objects
+        default_rotation = np.random.uniform(np.pi / 4, 7 * np.pi / 4)
+        num_clean = np.maximum(len(clean_objects), 2)
+        num_same_angle = np.random.randint(1, num_clean)
+        same_angle_count = 0
+        corrupt_angles = [default_rotation]
+        iou_clean = []
+        iou_corrupt = []
+        for obj in context_objects:
+            if obj not in clean_objects:
+                if same_angle_count < num_same_angle:
+                    rotation_angle_corrupt = default_rotation
+                    same_angle_count += 1
+                    # iou = IoU(obj_to_old_obbox[obj], obj_to_obbox[obj]).iou()
+                else:
+                    rotation_angle_corrupt = self.find_different_angle(corrupt_angles)
+                    corrupt_angles.append(rotation_angle_corrupt)
+                transformation = np.eye(4)
+                rotation = np.asarray([[np.cos(rotation_angle_corrupt), -np.sin(rotation_angle_corrupt), 0],
+                                       [np.sin(rotation_angle_corrupt), np.cos(rotation_angle_corrupt), 0],
+                                       [0, 0, 1]])
+                transformation[:3, :3] = rotation
+                obj_to_obbox[obj] = obj_to_obbox[obj].apply_transformation(transformation)
+            # else:
+            #     iou = IoU(obj_to_old_obbox[obj], obj_to_obbox[obj]).iou()
+            # iou_clean.append(iou)
+        # if np.sum(iou_clean) < np.sum(iou_corrupt):
+        #     print(iou_clean, iou_corrupt)
+        #     t=y
+
+        # rotate all the perturbed and corrupted context objects by the rotation_angle
+        transformation = np.eye(4, dtype=np.float)
+        rotation = np.asarray([[np.cos(rotation_angle), -np.sin(rotation_angle), 0],
+                               [np.sin(rotation_angle), np.cos(rotation_angle), 0],
+                               [0, 0, 1]])
+        transformation[:3, :3] = rotation
+        for obj in query_and_context:
+            obj_to_obbox[obj] = obj_to_obbox[obj].apply_transformation(transformation)
+        #     if obj in clean_objects:
+        #         iou = IoU(obj_to_old_obbox[obj], obj_to_obbox[obj]).iou()
+        #         iou_clean.append(iou)
+        #         if iou < 0.5:
+        #             print(iou)
+        #             t=y
+        #     elif obj in context_objects:
+        #         iou = IoU(obj_to_old_obbox[obj], obj_to_obbox[obj]).iou()
+        #         iou_corrupt.append(iou)
+        # if np.sum(iou_clean) < np.sum(iou_corrupt):
+        #     print(iou_clean, iou_corrupt)
+        #     t=y
+
+        # beofre rotation
+        # import trimesh
+        # q = trimesh.creation.box(obj_to_obbox[query_node].scale, transform=obj_to_obbox[query_node].transformation)
+        # q.visual.vertex_colors = trimesh.visual.color.hex_to_rgba("#0000ff")
+        # boxes = [q]
+        # for obj in context_objects:
+        #     c = trimesh.creation.box(obj_to_obbox[obj].scale, transform=obj_to_obbox[obj].transformation)
+        #     if obj in corrputed_objects:
+        #         c.visual.vertex_colors = trimesh.visual.color.hex_to_rgba("#FF0000")
+        #     boxes.append(c)
+        # trimesh.Scene(boxes).show()
+
+        # after rotation
+        # q = trimesh.creation.box(obj_to_obbox[query_node].scale, transform=obj_to_obbox[query_node].transformation)
+        # q.visual.vertex_colors = trimesh.visual.color.hex_to_rgba("#0000ff")
+        # boxes = [q]
+        # for obj in context_objects:
+        #     c = trimesh.creation.box(obj_to_obbox[obj].scale, transform=obj_to_obbox[obj].transformation)
+        #     if obj in corrputed_objects:
+        #         c.visual.vertex_colors = trimesh.visual.color.hex_to_rgba("#FF0000")
+        #     boxes.append(c)
+        # trimesh.Scene(boxes).show()
+        # t=y
+
+        # update the obboxes in the query graph
+        for node, node_info in query_graph.items():
+            node_info['obbox'] = obj_to_obbox[node].vertices
+
+        return query_graph, clean_objects
 
     def __getitem__(self, idx):
         # load the graph
         graph_path = os.path.join(self.data_dir, self.mode, self.file_names[idx])
-        graph = load_from_json(graph_path)
-        objects = list(graph.keys())
+        target_graph = load_from_json(graph_path)
+        objects = list(target_graph.keys())
 
         data = {'file_name': self.file_names[idx]}
         # if a query ring is not given draw random positives by randomly selecting a subring.
         if self.query_scene_name is None:
-            # choose a random source node and its associate ring
+            # choose a random query object
             query_node = np.random.choice(objects, 1)[0]
 
-            # choose a query subring.
+            # choose a random set of context objects for the query.
             num_neighbours = np.random.randint(self.min_num_nbs, self.max_num_nbs+1)
             num_neighbours = np.minimum(len(objects) - 1, num_neighbours)
-            q_cotnext_objects = self.sample_context_objects(graph, query_node, num_neighbours)
+            q_cotnext_objects = self.sample_context_objects(target_graph, query_node, num_neighbours)
 
             # find the categories of the context objects in the query subring.
-            query_cats = [graph[c]['category'][0] for c in q_cotnext_objects]
+            query_cats = [target_graph[c]['category'][0] for c in q_cotnext_objects]
 
             # map the categories found to the nodes in the entire scene
-            cat_to_objects = self.map_cats_to_obj(query_cats, graph, query_node)
+            cat_to_objects = self.map_cat_to_objects(query_cats, target_graph, query_node)
 
-            # build a bipartite graph connecting each context object in the query to a candidate in the target graph.
-            bp_graph = self.build_bipartite_graph(graph, graph, q_cotnext_objects, query_node, query_node,
-                                                  cat_to_objects)
+            # perturb the context objects in the query and rotate them by a random angle.
+            data['theta'] = np.random.uniform(0, 2*np.pi)
+            query_graph, clean_objects = self.build_query(target_graph, query_node, q_cotnext_objects, data['theta'])
 
-            # extract the query and target obboxes and translate them to the origin
-            query_obbox = np.asarray(graph[query_node]['obbox'])
-            query_obbox -= query_obbox[0]
-
-            target_obbox = np.asarray(graph[query_node]['obbox'])
-            target_obbox -= target_obbox[0]
-
-            bp_graphs = [bp_graph]
-            translated_target_obboxes = [target_obbox]
+            # build a bipartite graph connecting each context object in the query to a candidate in the target
+            # graph.
+            bp_graph = self.build_bipartite_graph(query_graph, target_graph, q_cotnext_objects, query_node,
+                                                  query_node, cat_to_objects, clean_objects)
+            # combine the features recorded in the bp_graph into a tensor
+            features = self.combine_features(bp_graph, self.feature_names)
+            features.unsqueeze_(dim=0)
         else:
             # determine the potential target nodes; i.e nodes with the same category as query node
             query_cat = self.query_graph[self.query_node]['category'][0]
-            target_nodes = [node for node in graph.keys() if graph[node]['category'][0] == query_cat]
-            data['target_nodes'] = target_nodes
+            target_nodes = [node for node in target_graph.keys() if target_graph[node]['category'][0] == query_cat]
 
-            # extract the query obbox and translate it to the origin
-            query_obbox = np.asarray(self.query_graph[self.query_node]['obbox'])
-            query_obbox -= query_obbox[0]
-
-            # find the correspondences for each bipartite graph
-            bp_graphs = []
-            translated_target_obboxes = []
+            # build the features for each target node
+            features = []
             for target_node in target_nodes:
                 # find the categories of the context objects in the query subring.
                 query_cats = [self.query_graph[c]['category'][0] for c in self.q_context_objects]
 
                 # map the categories found to the nodes in the entire scene
-                cat_to_objects = self.map_cats_to_obj(query_cats, graph, target_node)
+                cat_to_objects = self.map_cat_to_objects(query_cats, target_graph, target_node)
 
                 # build a bipartite graph connecting each context object in the query to a candidate in the target
                 # graph.
-                bp_graph = self.build_bipartite_graph(self.query_graph, graph, self.q_context_objects, self.query_node,
-                                                      target_node, cat_to_objects)
-                bp_graphs.append(bp_graph)
+                bp_graph, _ = self.build_bipartite_graph(self.query_graph, target_graph, self.q_context_objects,
+                                                         self.query_node, target_node, cat_to_objects)
 
-                # extract the target obbox and translate it to the origin
-                target_obbox = np.asarray(graph[target_node]['obbox'])
-                target_obbox -= target_obbox[0]
-                translated_target_obboxes.append(target_obbox)
+                # combine the features recorded in the bp_graph into a tensor
+                target_features = self.combine_features(bp_graph, self.feature_names)
+                target_features.unsqueeze_(dim=0)
+                features.append(target_features)
 
-        # find the correspondence by comparing IoU of each pair (t, c_1) and (q, c_2). c_1 and c_2 are on each side
-        # of the bipartite graph and connect to each other.
-        for i in range(len(bp_graphs)):
-            # find the correspondence by comparing IoU of each pair (t, c_1) and (q, c_2)
-            self.find_correspondence(bp_graphs[i], query_obbox, translated_target_obboxes[i])
-            filtered_bp = {}
-            for q_context, q_context_info in bp_graphs[i].items():
-                filtered_bp[q_context] = {'match': q_context_info['match']}
-        data['bp_graphs'] = bp_graphs
-        # print(filtered_bp)
+            # concat the features for each target candidate
+            features = torch.cat(features, dim=0)
+
+        data['features'] = features
 
         return data
 
