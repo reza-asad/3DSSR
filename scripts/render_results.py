@@ -46,11 +46,7 @@ def render_model_results(query_results, scene_graph_dir, models_dir, rendering_p
                 target_graph = load_from_json(target_graph_path)
                 t = target_subscene['target']
                 highlighted_objects = [t]
-                t_context = set(target_subscene['context_objects'] + [t])
-                # TODO: remove this
-                # if 'best_iou_obj' in target_subscene and target_subscene['best_iou_obj'] is not None:
-                #     best_iou_obj = target_subscene['best_iou_obj']
-                #     highlighted_objects.append(best_iou_obj)
+                t_context = set(list(target_subscene['correspondence'].keys()) + [t])
 
                 # render the image
                 faded_nodes = [obj for obj in target_graph.keys() if obj not in t_context]
@@ -75,11 +71,11 @@ def main(num_chunks, chunk_idx):
     # define initial parameters
     make_folders = False
     render = False
-    with_img_table = False
+    with_img_table = True
     filter_queries = ['sink-34', 'chair-26', 'chest_of_drawers-25', 'table-17', 'sofa-39']
     mode = 'val'
-    model_name = 'CategoryRandom'
-    experiment_name = 'base'
+    model_name = 'LearningBased'
+    experiment_name = 'lstm'
     topk = 50
     query_results_path = '../results/matterport3d/{}/query_dict_{}_{}_evaluated.json'.format(model_name, mode,
                                                                                              experiment_name)
@@ -87,9 +83,7 @@ def main(num_chunks, chunk_idx):
     rendering_path = '../results/matterport3d/{}/rendered_results/{}'.format(model_name, experiment_name)
     models_dir = '../data/matterport3d/models'
     colormap = load_from_json('../data/matterport3d/color_map.json')
-    # captionmap = {'distance_mAP': 'distance_precision', 'overlap_mAP': 'overlap_precision', 'theta': 'angle',
-    #               'sim': 'cosine_similarity'}
-    caption_keys = {'distance_mAP', 'distance_precision', 'overlap_mAP', 'overlap_precision', 'overlap_rotation'}
+    caption_keys = {'distance_mAP', 'distance_precision', 'overlap_mAP', 'overlap_precision', 'overlap_rotation', 'theta'}
 
     # load the query results and filter it if necessary
     query_results = load_from_json(query_results_path)
@@ -144,8 +138,7 @@ def main(num_chunks, chunk_idx):
                 caption = '<br />\n'
                 # add number of context matches
                 if i < topk:
-                    num_context_match = len(target_subscenes[i]['context_objects'])
-                    caption += 'num_objects: {} <br />\n'.format(num_context_match + 1)
+                    caption += 'num_objects: {} <br />\n'.format(target_subscenes[i]['context_match'] + 1)
                 for key, value in target_subscenes[i].items():
                     if key in caption_keys:
                         if 'precision' in key:

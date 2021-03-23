@@ -55,10 +55,18 @@ def Random(query_info, model_names, scene_graph_dir, mode, topk):
         all_except_target = [obj for obj in scene.keys() if obj != target]
         if num_context_objects <= len(all_except_target):
             sample_context = np.random.choice(all_except_target, num_context_objects, replace=False).tolist()
+            num_sample = num_context_objects
         else:
             sample_context = all_except_target
-        subscene = {'scene_name': scene_name, 'target': target, 'context_objects': sample_context,
-                    'context_match': len(sample_context)}
+            num_sample = len(sample_context)
+
+        # assign a random correspondence between the sample and the query objects.
+        correspondence = {}
+        for i in range(num_sample):
+            correspondence[sample_context[i]] = query_info['example']['context_objects'][i]
+
+        subscene = {'scene_name': scene_name, 'target': target, 'correspondence': correspondence,
+                    'context_match': len(correspondence)}
         target_subscenes.append(subscene)
 
     # sort the target subscenes based on the number of matching context objects
@@ -74,8 +82,15 @@ def CategoryRandom(query_info, query_mode, scene_graph_dir, mode, cat_to_scene_o
     context_objects = query_info['example']['context_objects']
     query_scene = load_from_json(os.path.join(scene_graph_dir, query_mode, query_scene_name))
     query_cat = query_scene[query]['category'][0]
-    context_cats = [query_scene[obj]['category'][0] for obj in context_objects]
-    context_cat_to_freq = Counter(context_cats)
+    context_obj_to_cat = {obj: query_scene[obj]['category'][0] for obj in context_objects}
+
+    # map the category of each context object to the objects having that category
+    q_context_cat_to_objects = {}
+    for obj, cat in context_obj_to_cat.items():
+        if cat not in q_context_cat_to_objects:
+            q_context_cat_to_objects[cat] = [obj]
+        else:
+            q_context_cat_to_objects[cat].append(obj)
 
     # for each target object that has the same category as query cat sample context objects
     target_objects = cat_to_scene_objects[query_cat]
@@ -86,24 +101,29 @@ def CategoryRandom(query_info, query_mode, scene_graph_dir, mode, cat_to_scene_o
         if scene_name == query_scene_name:
             continue
         target_object = target_object.split('-')[-1]
-        context_objects = []
-        target_subscene = {'scene_name': scene_name, 'target': target_object, 'context_objects': context_objects,
-                           'context_match': 0}
 
         # load the scene and map its cats to the objects
         scene = load_from_json(os.path.join(scene_graph_dir, mode, scene_name))
-        cat_to_objects = map_cat_to_objects(scene, target_object)
+        t_cat_to_objects = map_cat_to_objects(scene, target_object)
 
         # for each context object in the query scene sample an object with the same category from the current scene.
-        for cat, freq in context_cat_to_freq.items():
-            if cat in cat_to_objects:
-                if freq <= len(cat_to_objects[cat]):
-                    sample = np.random.choice(cat_to_objects[cat], freq, replace=False).tolist()
+        correspondence = {}
+        for cat, objects in q_context_cat_to_objects.items():
+            if cat in t_cat_to_objects:
+                if len(objects) <= len(t_cat_to_objects[cat]):
+                    sample = np.random.choice(t_cat_to_objects[cat], len(objects), replace=False).tolist()
+                    num_sample = len(objects)
                 else:
-                    sample = cat_to_objects[cat]
-                context_objects += sample
-        target_subscene['context_objects'] = context_objects
-        target_subscene['context_match'] = len(context_objects)
+                    sample = t_cat_to_objects[cat]
+                    num_sample = len(sample)
+
+                # assign a random correspondence between the context objects in query and selected candidates in target.
+                for i in range(num_sample):
+                    correspondence[sample[i]] = objects[i]
+
+        # populate the subscene attributes and save it.
+        target_subscene = {'scene_name': scene_name, 'target': target_object, 'correspondence': correspondence,
+                           'context_match': len(correspondence)}
         target_subscenes.append(target_subscene)
 
     # sort the target subscenes based on the number of matching context objects
@@ -155,7 +175,7 @@ def main():
     for query, query_info in query_dict.items():
         for target_subscene in query_info['target_subscenes']:
             t = target_subscene['target']
-            context_objects = target_subscene['context_objects']
+            context_objects = target_subscene['correspondence'].keys()
             if t in context_objects:
                 raise Exception('Target node was included in the context objects.')
 

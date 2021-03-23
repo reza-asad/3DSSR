@@ -19,27 +19,10 @@ class Evaluate:
         self.scene_graph_dir = scene_graph_dir
         self.curr_df = curr_df
         self.mode = mode
-        self.metrics = {'distance_mAP': [self.compute_distance_match, distance_threshold, [0]],
-                        'overlap_mAP': [self.compute_overlap_match, overlap_threshold,
-                                        [0, np.pi/4, np.pi/2, 3*np.pi/4, np.pi, 5*np.pi/4, 1.5*np.pi, 7*np.pi/4]]
+        self.metrics = {'distance_mAP': [self.compute_distance_match, distance_threshold],
+                        'overlap_mAP': [self.compute_overlap_match, overlap_threshold]
                         }
         self.precision_threshold = precision_threshold
-
-    def sort_by_distance(self, scene_name, query_object, context_objects, mode):
-        # load the query scene
-        scene = load_from_json(os.path.join(self.scene_graph_dir, mode, scene_name))
-        # find the centroid of the query object
-        q_cent = np.asarray(scene[query_object]['obbox'][0])
-
-        # record the distance between each context object and the query object
-        dist_info = []
-        for context_object in context_objects:
-            context_obj_cent = np.asarray(scene[context_object]['obbox'][0])
-            dist = np.linalg.norm(context_obj_cent - q_cent)
-            dist_info.append((context_object, dist))
-        sorted_obj_dist = sorted(dist_info, key=lambda x: x[1])
-        sorted_context_objects = [obj for obj, _ in sorted_obj_dist]
-        return sorted_context_objects
 
     @staticmethod
     def map_obj_to_cat(scene):
@@ -99,68 +82,66 @@ class Evaluate:
         if obj_to_cat_query[query_object] != obj_to_cat_target[target_object]:
             return 0
 
-        # create a obbox object for the query and target objects
+        # create a obbox object for the query object and translate it to the origin
         query_obbox_vertices = np.asarray(query_scene[query_object]['obbox'])
         obbox_query = Box(query_obbox_vertices)
+        q_translation = -obbox_query.translation
+        obbox_query = self.translate_obbox(obbox_query, q_translation)
 
+        # create the obboxes for the target object and translate it to the origin
         target_obbox_vertices = np.asarray(target_scene[target_object]['obbox'])
         obbox_target = Box(target_obbox_vertices)
+        t_translation = -obbox_target.translation
+        obbox_target = self.translate_obbox(obbox_target, t_translation)
 
-        # compute the iou between the query and target objects (assumes query is at the origin)
-        visited = set()
-        target_obbox_vertices_copy = target_obbox_vertices.copy()
-        obbox_target_copy = Box(target_obbox_vertices_copy)
-        obbox_target_copy = self.translate_obbox(obbox_target_copy, -obbox_target_copy.translation)
-        query_target_iou = self.compute_iou(obbox_target_copy, obbox_query)
+        # rotate the target obbox if rotation angle is predicted and is greater than 0
+        if 'theta' in target_subscene and target_subscene['theta'] > 0:
+            obbox_target = self.rotate_obbox(obbox_target, target_subscene['theta'])
+
+        # compute the iou between the query and target objects
+        num_matches = 0
+        query_target_iou = self.compute_iou(obbox_target, obbox_query)
         if query_target_iou > self.metrics['overlap_mAP'][1]:
-            visited.add(target_object)
+            num_matches += 1
 
-        # for each context object in the query scene find the object in the target subscene with maximum overlap that
-        # satisfies the overlap threshold. Find the percentage of such matches relative to the total number of context
-        # objects.
-        for context_object in context_objects:
-            context_object_cat = obj_to_cat_query[context_object]
-            # create a obbox object for the context object
-            context_obj_obbox_vertices = np.asarray(query_scene[context_object]['obbox'])
-            obbox_context_object = Box(context_obj_obbox_vertices)
+        # for each candidate object in the query scene, examine its corresponding context object in the query scene.
+        # a match is detected if the IoU between the translated candidate and context objects are within a threshold.
+        # the translation is dictated by the query scene and is the vector connecting the context object to query.
+        for candidate, context_object in target_subscene['correspondence'].items():
+            # if the candidate and context objects have different categories, no match is counted.
+            if obj_to_cat_query[context_object] != obj_to_cat_target[candidate]:
+                continue
 
-            # find the translation between the query and the current context object.
-            translation_q_c = obbox_query.translation - obbox_context_object.translation
+            # create a obbox object for the context object and translated it according to the query object
+            q_context_obbox_vertices = np.asarray(query_scene[context_object]['obbox'])
+            q_c_obbox = Box(q_context_obbox_vertices)
+            q_c_obbox = self.translate_obbox(q_c_obbox, q_translation)
 
-            # translate the context object to the origin
-            translation_c = -obbox_context_object.translation
-            obbox_context_object = self.translate_obbox(obbox_context_object, translation_c)
+            # find the translation that brings the context object to the origin
+            q_c_translation = -q_c_obbox.translation
+            q_c_obbox = self.translate_obbox(q_c_obbox, q_c_translation)
 
-            # find the object in the target subscene with the same category that has maximum overlap with the context
-            # object.
-            best_iou = 0
-            best_candidate = None
-            for candidate in target_subscene['context_objects']:
-                if candidate not in visited:
-                    candidate_cat = obj_to_cat_target[candidate]
-                    if candidate_cat == context_object_cat:
-                        # create a obbox object for the candidate object
-                        candidate_obj_obbox_vertices = np.asarray(target_scene[candidate]['obbox'])
-                        obbox_candidate_object = Box(candidate_obj_obbox_vertices)
+            # create a obbox object for the candidate and translated it according to the target object
+            t_context_obbox_vertices = np.asarray(target_scene[candidate]['obbox'])
+            t_c_obbox = Box(t_context_obbox_vertices)
+            t_c_obbox = self.translate_obbox(t_c_obbox, t_translation)
 
-                        # translate the candidate object by the the vector that translates the target object to origin
-                        obbox_candidate_object = self.translate_obbox(obbox_candidate_object, -obbox_target.translation)
+            # rotate the candidate obbox around the target object (origin), if rotation is predicted and is greater
+            # than 0.
+            if 'theta' in target_subscene and target_subscene['theta'] > 0:
+                t_c_obbox = self.rotate_obbox(t_c_obbox, target_subscene['theta'])
 
-                        # move the candidate object using the translation vector that brings context to query.
-                        obbox_candidate_object = self.translate_obbox(obbox_candidate_object, translation_q_c)
+            # translate the candidate obbox according to the translation of context to query
+            t_c_obbox = self.translate_obbox(t_c_obbox, q_c_translation)
 
-                        # compute the iou between the context and the candidate objects
-                        iou = self.compute_iou(obbox_context_object, obbox_candidate_object)
+            # compute the IoU between the candidate and context obboxes.
+            iou = self.compute_iou(t_c_obbox, q_c_obbox)
 
-                        # compute the threshold relative to the distance between the query and context object
-                        if iou > best_iou and iou > self.metrics['overlap_mAP'][1]:
-                            best_iou = iou
-                            best_candidate = candidate
+            # compute the threshold relative to the distance between the query and context object
+            if iou > self.metrics['overlap_mAP'][1]:
+                num_matches += 1.0
 
-            # add the best candidate to visited nodes
-            if best_candidate is not None:
-                visited.add(best_candidate)
-        return len(visited) / (len(context_objects) + 1)
+        return num_matches / (len(context_objects) + 1)
 
     def compute_distance_match(self, query_scene, query_object, context_objects, target_subscene):
         # load the target scene
@@ -175,34 +156,28 @@ class Evaluate:
         if obj_to_cat_query[query_object] != obj_to_cat_target[target_object]:
             return 0
 
-        # for each context object in the query scene find the closet object in the target subscene that satisfies a
-        # distance threshold. Find the percentage of such matches relative to the total number of context objects.
-        visited = set()
-        for context_object in context_objects:
-            context_object_cat = obj_to_cat_query[context_object]
-            # find the closest node in the target subscene with the same category as the current context object
-            # that is not visited
-            best_diff = 1000
-            best_candidate = None
-            for candidate in target_subscene['context_objects']:
-                if candidate not in visited:
-                    candidate_cat = obj_to_cat_target[candidate]
-                    if candidate_cat == context_object_cat:
-                        # find the difference between distances of a context object and its source (in both query and
-                        # target subscenes)
-                        candidate_distance = self.find_distance(target_scene, target_subscene['target'], candidate)
-                        context_obj_distance = self.find_distance(query_scene, query_object, context_object)
-                        relative_diff = abs(candidate_distance - context_obj_distance) / max(context_obj_distance,
-                                                                                             0.00001)
-                        # compute the threshold relative to the distance between the query and context object
-                        if relative_diff < best_diff and relative_diff < self.metrics['distance_mAP'][1]:
-                            best_diff = relative_diff
-                            best_candidate = candidate
+        # for each candidate object in the target scene, examine its corresponding context object from the query scene.
+        # a match is detected if the difference between the candidate-target and context-query distances are within a
+        # threshold
+        num_matches = 0.0
+        for candidate, context_object in target_subscene['correspondence'].items():
+            # if the candidate and context objects have different categories, no match is counted.
+            if obj_to_cat_query[context_object] != obj_to_cat_target[candidate]:
+                continue
 
-            # add the best candidate to visited nodes
-            if best_candidate is not None:
-                visited.add(best_candidate)
-        return len(visited) / len(context_objects)
+            # distance between candidate and the target node.
+            candidate_distance = self.find_distance(target_scene, target_subscene['target'], candidate)
+
+            # distance between the context object and the query node.
+            context_obj_distance = self.find_distance(query_scene, query_object, context_object)
+
+            # check if the difference between the distances is within a threshold.
+            relative_diff = abs(candidate_distance - context_obj_distance) / max(context_obj_distance,
+                                                                                 0.00001)
+            if relative_diff < self.metrics['distance_mAP'][1]:
+                num_matches += 1.0
+
+        return num_matches / len(context_objects)
 
     def compute_precision_at(self, query_scene, query_scene_name, query_object, context_objects, target_subscenes,
                              top, metric, computed_precisions):
@@ -210,70 +185,26 @@ class Evaluate:
         for i in range(top):
             # the case where there are no longer results
             if i >= len(target_subscenes):
-                best_acc = 0
-                best_rotation = 0
+                acc = 0
             else:
                 target_subscene_name = target_subscenes[i]['scene_name']
                 target_object = target_subscenes[i]['target']
-                # try different rotations of the query scene
-                best_acc = 0
-                best_rotation = 0
-                for rotation in self.metrics[metric][2]:
-                    # read the accuracy if you have computed it before.
-                    key = '-'.join([query_scene_name, query_object, str(rotation), target_subscene_name, target_object])
-                    if key in computed_precisions:
-                        acc = computed_precisions[key]
-                    else:
-                        # rotate the query scene
-                        query_scene_rotated = self.rotate_query_scene(query_scene, query_object, context_objects,
-                                                                      rotation)
-                        acc = self.metrics[metric][0](query_scene_rotated, query_object, context_objects,
-                                                      target_subscenes[i])
-                        computed_precisions[key] = acc
 
-                    if acc > best_acc:
-                        best_acc = acc
-                        best_rotation = rotation
+                # read the accuracy if you have computed it before.
+                key = '-'.join([query_scene_name, query_object, target_subscene_name, target_object])
+                if key in computed_precisions:
+                    acc = computed_precisions[key]
+                else:
+                    acc = self.metrics[metric][0](query_scene, query_object, context_objects, target_subscenes[i])
+                    computed_precisions[key] = acc
 
                 # record the precision
                 if self.metrics[metric][1] == self.precision_threshold:
                     precision_key = metric.split('_')[0] + '_precision'
-                    rotation_key = metric.split('_')[0] + '_rotation'
-                    target_subscenes[i][precision_key] = best_acc
-                    target_subscenes[i][rotation_key] = best_rotation
+                    target_subscenes[i][precision_key] = acc
 
-            accuracies.append(best_acc)
+            accuracies.append(acc)
         return np.mean(accuracies)
-
-    def rotate_query_scene(self, query_scene, query_object, context_objects, rotation):
-        q_and_context = [query_object] + context_objects
-        query_scene_rotated = {obj: query_scene[obj].copy() for obj in q_and_context}
-
-        # create the obbox of the query object
-        query_obj_obbox_vertices = np.asarray(query_scene_rotated[query_object]['obbox'])
-        obbox_query_obj = Box(query_obj_obbox_vertices)
-
-        # translate and rotate each context object
-        for obj in context_objects:
-            # create a obbox of the context object
-            context_obj_obbox_vertices = np.asarray(query_scene_rotated[obj]['obbox'])
-            obbox_context_obj = Box(context_obj_obbox_vertices)
-
-            # translate the context object according to the vector that translates the query object to the origin.
-            obbox_context_obj = self.translate_obbox(obbox_context_obj, -obbox_query_obj.translation)
-
-            # rotate the object based on the rotation angle
-            obbox_context_obj = self.rotate_obbox(obbox_context_obj, rotation)
-
-            # populate the rotated query scene
-            query_scene_rotated[obj]['obbox'] = obbox_context_obj.vertices.tolist()
-
-        # translate the query object to the origin and rotate it
-        obbox_query_obj = self.translate_obbox(obbox_query_obj, -obbox_query_obj.translation)
-        obbox_query_obj = self.rotate_obbox(obbox_query_obj, rotation)
-        query_scene_rotated[query_object]['obbox'] = obbox_query_obj.vertices.tolist()
-
-        return query_scene_rotated
 
     def compute_mAP(self, metric, query_name, model_name, experiment_id, topk=10):
         # Find the query and context objects
@@ -285,19 +216,14 @@ class Evaluate:
             mAP = 1
             print('No context objects in the query, hence the mAP is trivially 1')
         else:
-            # sort the context objects in the query scene by their distance to the query (low to high)
-            context_objects = self.sort_by_distance(query_scene_name, query_object, context_objects, mode=self.mode)
-
             # load the target subgraphs up to topk
             target_subscenes = self.query_results[query_name]['target_subscenes'][:topk]
 
             # initialize precision values for the target subscenes
             if self.metrics[metric][1] == self.precision_threshold:
                 precision_key = metric.split('_')[0] + '_precision'
-                rotation_key = metric.split('_')[0] + '_rotation'
                 for target_subscene in target_subscenes:
                     target_subscene[precision_key] = None
-                    target_subscene[rotation_key] = None
 
             # memorize the precisions that you already computed in a dict
             computed_precisions = {}
@@ -344,13 +270,12 @@ def main():
 
     # define paths and parameters
     mode = 'val'
-    model_name = 'CategoryRandom'
-    experiment_name = 'base'
-    subring_matching_folder = 'subring_matching_{}'.format(experiment_name)
+    model_name = 'LearningBased'
+    experiment_name = 'lstm'
     query_results_input_path = '../results/matterport3d/{}/query_dict_{}_{}.json'.format(model_name, mode,
                                                                                          experiment_name)
     query_results_output_path = '../results/matterport3d/{}/query_dict_{}_{}_evaluated.json'.format(model_name, mode,
-                                                                                          experiment_name)
+                                                                                                    experiment_name)
     evaluation_path = '../results/matterport3d/evaluation.csv'
     scene_graph_dir = '../data/matterport3d/scene_graphs'
     aggregated_csv_path = '../results/matterport3d/evaluation_aggregated.csv'
@@ -437,7 +362,7 @@ def main():
         curr_df.to_csv(evaluation_path, index=False)
 
     if visualize_loss:
-        checkpoints_dir = '../results/matterport3d/{}/{}'.format(model_name, subring_matching_folder)
+        checkpoints_dir = '../results/matterport3d/{}/{}'.format(model_name, experiment_name)
         # load train and validation losses
         train_loss = np.load(os.path.join(checkpoints_dir, 'training_loss.npy'))
         valid_loss = np.load(os.path.join(checkpoints_dir, 'valid_loss.npy'))
@@ -452,7 +377,7 @@ def main():
         leg = ax.legend()
 
         # save and show the plot
-        plt.savefig('../results/matterport3d/evaluation_plots/train_valid_losses.png')
+        plt.savefig('../results/matterport3d/evaluation_plots/train_valid_losses_{}.png'.format(experiment_name))
         plt.show()
 
 

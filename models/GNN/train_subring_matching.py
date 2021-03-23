@@ -5,13 +5,17 @@ from time import time
 import torch
 from torch import optim
 from torch.utils.data import DataLoader
+import numpy as np
 
 from scene_dataset import Scene
 from models import DeepSetAlign, LstmAlign, LinLayer
 
 
-def evaluate_net(model, valid_loader, loss_criterion, lambda_reg, device):
-    model.eval()
+def evaluate_net(model_dic, valid_loader, loss_criterion, lambda_reg, device):
+    # set models to evaluation mode
+    for model_name, model in model_dic.items():
+        model.eval()
+
     num_samples = 0
     total_validation_loss = 0
     with torch.no_grad():
@@ -24,16 +28,31 @@ def evaluate_net(model, valid_loader, loss_criterion, lambda_reg, device):
             cos_sin[0, 1] = torch.sin(theta)
             cos_sin_sum_squared = torch.ones(1)
 
+            # TODO: remove this after you remove the match column
+            features = features[:, :, :-1]
+
             features = features.to(device=device, dtype=torch.float32)
             cos_sin = cos_sin.to(device=device, dtype=torch.float32)
             cos_sin_sum_squared = cos_sin_sum_squared.to(device=device, dtype=torch.float32)
 
-            # apply the model and predict the best alignment
-            cos_sin_hat = model(features)
+            # # apply the model and predict the best alignment
+            # cos_sin_hat = model(features)
+
+            # sort the features by their IoU
+            indices = torch.sort(features[:, :, -1], descending=False)[1]
+            sorted_features = features[:, indices[0], :]
+
+            # apply the lstm model
+            h = model_dic['lstm'].init_hidden(batch_size=1)
+            output, h = model_dic['lstm'](sorted_features, h)
+
+            # apply a fc layer to regress the output of the lstm
+            mean_output = torch.mean(output, dim=1).unsqueeze_(dim=1)
+            cos_sin_hat = model_dic['lin_layer'](mean_output)
 
             # compute loss
-            loss = loss_criterion(cos_sin_hat[:, 0], cos_sin[:, 0]) + \
-                   loss_criterion(cos_sin_hat[:, 1], cos_sin[:, 1]) + \
+            loss = loss_criterion(cos_sin_hat[0, :, 0], cos_sin[:, 0]) + \
+                   loss_criterion(cos_sin_hat[0, :, 1], cos_sin[:, 1]) + \
                    lambda_reg * loss_criterion(torch.sum(cos_sin_hat**2).unsqueeze_(dim=0), cos_sin_sum_squared)
 
             total_validation_loss += loss.item()
@@ -53,7 +72,7 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_fol
 
     # create the training dataset
     # TODO: turn this back to train
-    train_dataset = Scene(data_dir, mode='val')
+    train_dataset = Scene(data_dir, mode='train')
     valid_dataset = Scene(data_dir, mode='val')
 
     # create the dataloaders
@@ -66,10 +85,15 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_fol
     lin_layer = LinLayer(hidden_dim)
     lstm = lstm.to(device=device)
     lin_layer = lin_layer.to(device=device)
-    lin_layer.train()
+    model_dic = {'lstm': lstm, 'lin_layer': lin_layer}
+    for model_name, model in model_dic.items():
+        model.train()
 
     # define the optimizer and loss criteria
-    optimizer = optim.Adam(list(lstm.parameters()) + list(lin_layer.parameters()), lr=lr)
+    params = []
+    for model_name, model in model_dic.items():
+        params += list(model.parameters())
+    optimizer = optim.Adam(params, lr=lr)
     smooth_l1_criterion = torch.nn.SmoothL1Loss()
 
     # track losses and use that along with patience to stop early.
@@ -77,7 +101,7 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_fol
     validation_losses = []
     best_validation_loss = float('inf')
     best_epoch = 0
-    best_model = lstm
+    best_model_dic = model_dic
     bad_epoch = 0
 
     print('Training...')
@@ -111,8 +135,8 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_fol
             cos_sin_sum_squared = cos_sin_sum_squared.to(device=device, dtype=torch.float32)
 
             # sort the features by their IoU
-            # indices = torch.sort(features[:, :, -1], descending=True)[1]
-            sorted_features = features #features[:, indices[0], :]
+            indices = torch.sort(features[:, :, -1], descending=False)[1]
+            sorted_features = features[:, indices[0], :]
 
             # apply the model and predict the best alignment
             # cos_sin_hat = model(features)
@@ -143,45 +167,50 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_fol
             epoch_loss += loss.item()
             num_samples += len(features)
 
-            # # compute validation loss to pick the best model
-            # if (i + 1) % eval_itr == 0:
-            #     validation_loss = evaluate_net(model, valid_loader, smooth_l1_criterion, lambda_reg, device=device)
-            #     validation_losses.append(validation_loss)
-            #     if validation_loss < best_validation_loss:
-            #         best_model = copy.deepcopy(model)
-            #         best_validation_loss = validation_loss
-            #         best_epoch = epoch
-            #         bad_epoch = 0
-            #     else:
-            #         bad_epoch += 1
+            # compute validation loss to pick the best model
+            if (i + 1) % eval_itr == 0:
+                validation_loss = evaluate_net(model_dic, valid_loader, smooth_l1_criterion, lambda_reg, device=device)
+                validation_losses.append(validation_loss)
+                if validation_loss < best_validation_loss:
+                    best_model_dic = copy.deepcopy(model_dic)
+                    best_validation_loss = validation_loss
+                    best_epoch = epoch
+                    bad_epoch = 0
+                else:
+                    bad_epoch += 1
+                # set the models back to training mode
+                for model_name, model in model_dic.items():
+                    model.train()
 
         # save model from every nth epoch
         print('Epoch %d finished! - Loss: %.6f' % (epoch + 1, epoch_loss / (i + 1)))
         print(cos_sin_hat[0, 0, 0].item(), cos_sin[0, 0].item(), cos_sin_hat[0, 0, 1].item(), cos_sin[0, 1].item())
         print('-' * 50)
-    #     if save_cp and ((epoch + 1) % 20 == 0):
-    #         torch.save(model.state_dict(), os.path.join(model_dir, 'CP_{}.pth'.format(epoch + 1)))
-    #         print('Checkpoint %d saved !' % (epoch + 1))
-    #     training_losses.append(epoch_loss / num_samples)
-    #
-    # # save train/valid losses and the best model
-    # if save_cp:
-    #     np.save(os.path.join(model_dir, 'training_loss'), training_losses)
-    #     np.save(os.path.join(model_dir, 'valid_loss'), validation_losses)
-    #     torch.save(best_model.state_dict(), os.path.join(model_dir, 'CP_best.pth'))
-    #
-    # # report the attributes for the best model
-    # print('Best Validation loss is {}'.format(best_validation_loss))
-    # print('Best model comes from epoch: {}'.format(best_epoch))
+        if save_cp and ((epoch + 1) % 20 == 0):
+            for model_name, model in model_dic.items():
+                torch.save(model.state_dict(), os.path.join(model_dir, 'CP_{}_{}.pth'.format(model_name, epoch + 1)))
+            print('Checkpoint %d saved !' % (epoch + 1))
+        training_losses.append(epoch_loss / num_samples)
+
+    # save train/valid losses and the best model
+    if save_cp:
+        np.save(os.path.join(model_dir, 'training_loss'), training_losses)
+        np.save(os.path.join(model_dir, 'valid_loss'), validation_losses)
+        for model_name, model in best_model_dic.items():
+            torch.save(model.state_dict(), os.path.join(model_dir, 'CP_{}_best.pth'.format(model_name)))
+
+    # report the attributes for the best model
+    print('Best Validation loss is {}'.format(best_validation_loss))
+    print('Best model comes from epoch: {}'.format(best_epoch))
 
 
 def get_args():
     parser = OptionParser()
-    parser.add_option('--epochs', dest='epochs', default=400, type='int', help='number of epochs')
-    parser.add_option('--data-dir', dest='data_dir', default='../../results/matterport3d/GNN/scene_graphs_cl',
+    parser.add_option('--epochs', dest='epochs', default=200, type='int', help='number of epochs')
+    parser.add_option('--data-dir', dest='data_dir', default='../../results/matterport3d/LearningBased/scene_graphs_cl',
                       help='data directory')
     parser.add_option('--hidden_dim', dest='hidden_dim', default=512, type='int')
-    parser.add_option('--patience', dest='patience', default=50, type='int')
+    parser.add_option('--patience', dest='patience', default=20, type='int')
     parser.add_option('--eval_iter', dest='eval_iter', default=1000, type='int')
     parser.add_option('--cp_folder', dest='cp_folder', default='scene_alignment_lstm')
     parser.add_option('--input_dim', dest='input_dim', default=5)
