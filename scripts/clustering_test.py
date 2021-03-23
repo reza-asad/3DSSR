@@ -46,7 +46,7 @@ for graph_name in graph_names:
 embeddings = np.concatenate(embeddings, axis=0)
 
 # apply Kmeans to the set of embeddings.
-k = int(len(unique_cats) / 2)
+k = len(unique_cats)
 kmeans = KMeans(n_clusters=k).fit(embeddings)
 pred_clusters = kmeans.predict(embeddings)
 
