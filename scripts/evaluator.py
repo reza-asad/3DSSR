@@ -13,7 +13,7 @@ query_to_target_map = {}
 
 class Evaluate:
     def __init__(self, query_results, evaluation_path, scene_graph_dir, curr_df, mode, distance_threshold,
-                 overlap_threshold, precision_threshold=0.05):
+                 overlap_threshold, precision_threshold=0.15625):
         self.query_results = query_results
         self.evaluation_path = evaluation_path
         self.scene_graph_dir = scene_graph_dir
@@ -107,6 +107,8 @@ class Evaluate:
         # for each candidate object in the query scene, examine its corresponding context object in the query scene.
         # a match is detected if the IoU between the translated candidate and context objects are within a threshold.
         # the translation is dictated by the query scene and is the vector connecting the context object to query.
+        min_iou = query_target_iou
+        max_iou = query_target_iou
         for candidate, context_object in target_subscene['correspondence'].items():
             # if the candidate and context objects have different categories, no match is counted.
             if obj_to_cat_query[context_object] != obj_to_cat_target[candidate]:
@@ -141,7 +143,16 @@ class Evaluate:
             if iou > self.metrics['overlap_mAP'][1]:
                 num_matches += 1.0
 
-        return num_matches / (len(context_objects) + 1)
+            # record the min and max of the IoUs for context and candidate
+            if iou <= min_iou:
+                min_iou = iou
+
+            if iou >= max_iou:
+                max_iou = iou
+
+        min_max_ious = [float(np.round(min_iou, 2)), float(np.round(max_iou, 2))]
+
+        return num_matches / (len(context_objects) + 1), min_max_ious
 
     def compute_distance_match(self, query_scene, query_object, context_objects, target_subscene):
         # load the target scene
@@ -160,6 +171,10 @@ class Evaluate:
         # a match is detected if the difference between the candidate-target and context-query distances are within a
         # threshold
         num_matches = 0.0
+        min_dist_diff = np.inf
+        max_dist_diff = 0
+        min_context_candidate_dist = (np.inf, np.inf)
+        max_context_candidate_dist = (0, 0)
         for candidate, context_object in target_subscene['correspondence'].items():
             # if the candidate and context objects have different categories, no match is counted.
             if obj_to_cat_query[context_object] != obj_to_cat_target[candidate]:
@@ -177,7 +192,20 @@ class Evaluate:
             if relative_diff < self.metrics['distance_mAP'][1]:
                 num_matches += 1.0
 
-        return num_matches / len(context_objects)
+            # record the min and max of the distances for context and candidate
+            if relative_diff < min_dist_diff:
+                min_context_candidate_dist = (float(np.round(context_obj_distance, 2)),
+                                              float(np.round(candidate_distance, 2)))
+                min_dist_diff = relative_diff
+
+            if relative_diff > max_dist_diff:
+                max_context_candidate_dist = (float(np.round(context_obj_distance, 2)),
+                                              float(np.round(candidate_distance, 2)))
+                max_dist_diff = relative_diff
+
+        min_max_distances = [min_context_candidate_dist, max_context_candidate_dist]
+
+        return num_matches / len(context_objects), min_max_distances
 
     def compute_precision_at(self, query_scene, query_scene_name, query_object, context_objects, target_subscenes,
                              top, metric, computed_precisions):
@@ -193,15 +221,21 @@ class Evaluate:
                 # read the accuracy if you have computed it before.
                 key = '-'.join([query_scene_name, query_object, target_subscene_name, target_object])
                 if key in computed_precisions:
-                    acc = computed_precisions[key]
+                    acc, min_max_metric = computed_precisions[key]
                 else:
-                    acc = self.metrics[metric][0](query_scene, query_object, context_objects, target_subscenes[i])
-                    computed_precisions[key] = acc
+                    acc, min_max_metric = self.metrics[metric][0](query_scene, query_object, context_objects,
+                                                                  target_subscenes[i])
+                    computed_precisions[key] = (acc, min_max_metric)
 
-                # record the precision
+                # record the precision and raw distance and overlap (only for min and max).
                 if self.metrics[metric][1] == self.precision_threshold:
                     precision_key = metric.split('_')[0] + '_precision'
                     target_subscenes[i][precision_key] = acc
+
+                    min_metric_key = 'min_' + metric.split('_')[0]
+                    max_metric_key = 'max_' + metric.split('_')[0]
+                    target_subscenes[i][min_metric_key] = min_max_metric[0]
+                    target_subscenes[i][max_metric_key] = min_max_metric[1]
 
             accuracies.append(acc)
         return np.mean(accuracies)
@@ -222,8 +256,12 @@ class Evaluate:
             # initialize precision values for the target subscenes
             if self.metrics[metric][1] == self.precision_threshold:
                 precision_key = metric.split('_')[0] + '_precision'
+                min_metric_key = 'min_' + metric.split('_')[0]
+                max_metric_key = 'max_' + metric.split('_')[0]
                 for target_subscene in target_subscenes:
                     target_subscene[precision_key] = None
+                    target_subscene[min_metric_key] = None
+                    target_subscene[max_metric_key] = None
 
             # memorize the precisions that you already computed in a dict
             computed_precisions = {}
@@ -259,8 +297,8 @@ class Evaluate:
 
 def main():
     run_evalulation = False
-    run_aggregation = False
-    plot_comparisons = False
+    run_aggregation = True
+    plot_comparisons = True
     plot_name = 'Random_BipartiteMatching.png'
     remove_model = False
     visualize_loss = False

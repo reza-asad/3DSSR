@@ -42,14 +42,14 @@ def render_single_scene(graph, objects, highlighted_object, path, model_dir, col
 
 
 def prepare_scene_for_rendering(graph, objects, models_dir, query_objects=[], faded_nodes=[], colormap={},
-                                ceiling_cat='ceiling'):
+                                ceiling_cats=['ceiling', 'void']):
     default_color = '#aec7e8'
     scene = []
     for obj in objects:
         cat = graph[obj]['category'][0]
 
         # if the mesh is a ceiling mesh skip
-        if cat == ceiling_cat:
+        if cat in ceiling_cats:
             continue
 
         # load the mesh
@@ -183,7 +183,10 @@ def visualize_scene(scene_graph_dir, models_dir, scene_name, accepted_cats=set()
 
     # if no objects specified the entire scene is visualized
     if len(objects) == 0:
-        objects = set(graph.keys()).difference(visited)
+        for obj in graph.keys():
+            if graph[obj]['category'][0] in accepted_cats and obj not in visited:
+                objects.append(obj)
+
     # include the requested objects in the visualization
     for obj in objects:
         mesh = prepare_mesh_for_scene(models_dir, graph, obj)

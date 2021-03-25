@@ -83,7 +83,8 @@ def main(num_chunks, chunk_idx):
     rendering_path = '../results/matterport3d/{}/rendered_results/{}'.format(model_name, experiment_name)
     models_dir = '../data/matterport3d/models'
     colormap = load_from_json('../data/matterport3d/color_map.json')
-    caption_keys = {'distance_mAP', 'distance_precision', 'overlap_mAP', 'overlap_precision', 'overlap_rotation', 'theta'}
+    caption_keys = {'distance_mAP', 'distance_precision', 'overlap_mAP', 'overlap_precision', 'overlap_rotation',
+                    'theta', 'min_distance', 'max_distance', 'min_overlap', 'max_overlap'}
 
     # load the query results and filter it if necessary
     query_results = load_from_json(query_results_path)
