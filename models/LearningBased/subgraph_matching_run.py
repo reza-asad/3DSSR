@@ -246,7 +246,7 @@ def get_args():
     parser.add_option('--mode', dest='mode', default='val', help='val or test')
     parser.add_option('--data-dir', dest='data_dir', default='../../results/matterport3d/LearningBased/scene_graphs_cl',
                       help='data directory')
-    parser.add_option('--experiment_name', dest='experiment_name', default='lstm')
+    parser.add_option('--experiment_name', dest='experiment_name', default='lstm_with_cats')
     parser.add_option('--hidden_dim', dest='hidden_dim', default=512, type='int')
     parser.add_option('--input_dim', dest='input_dim', default=5)
     parser.add_option('--gpu', action='store_true', dest='gpu', default=True, help='use cuda')

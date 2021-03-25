@@ -62,7 +62,7 @@ def evaluate_net(model_dic, valid_loader, loss_criterion, lambda_reg, device):
     return total_validation_loss/num_samples
 
 
-def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_folder='scene_alignment_lstm', input_dim=5,
+def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_folder='lstm_with_cats', input_dim=5,
               eval_itr=1000, patience=5, lambda_reg=1):
     # create a directory for checkpoints
     check_point_dir = '/'.join(data_dir.split('/')[:-1])
@@ -212,7 +212,7 @@ def get_args():
     parser.add_option('--hidden_dim', dest='hidden_dim', default=512, type='int')
     parser.add_option('--patience', dest='patience', default=20, type='int')
     parser.add_option('--eval_iter', dest='eval_iter', default=1000, type='int')
-    parser.add_option('--cp_folder', dest='cp_folder', default='scene_alignment_lstm')
+    parser.add_option('--cp_folder', dest='cp_folder', default='lstm_with_cats')
     parser.add_option('--input_dim', dest='input_dim', default=5)
     parser.add_option('--gpu', action='store_true', dest='gpu', default=True, help='use cuda')
 
