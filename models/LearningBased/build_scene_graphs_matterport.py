@@ -45,12 +45,12 @@ def process_scenes(scene_names, models_dir, scene_graph_dir_input, graphviz_dir,
 
 def main(num_chunks, chunk_idx):
     build_scenes = False
-    split_train_test_val = True
+    split_train_test_val = False
 
     # define the paths
     models_dir = '../../data/matterport3d/models'
     scene_graph_dir_input = '../../data/matterport3d/scene_graphs/all'
-    graphviz_dir = '../../results/matterport3d/GNN/graphviz_samples'
+    graphviz_dir = '../../results/matterport3d/LearningBased/graphviz_samples'
     if not os.path.exists(graphviz_dir):
         os.makedirs(graphviz_dir)
 
@@ -71,7 +71,7 @@ def main(num_chunks, chunk_idx):
 
     if split_train_test_val:
         data_dir = '../../data/matterport3d'
-        scene_graph_dir = '../../results/matterport3d/GNN/scene_graphs'
+        scene_graph_dir = '../../results/matterport3d/LearningBased/scene_graphs'
         train_path = os.path.join(data_dir, 'scenes_train.txt')
         val_path = os.path.join(data_dir, 'scenes_val.txt')
         test_path = os.path.join(data_dir, 'scenes_test.txt')
@@ -79,7 +79,7 @@ def main(num_chunks, chunk_idx):
 
 
 if __name__ == '__main__':
-    scene_graph_dir_output = '../../results/matterport3d/GNN/scene_graphs/all'
+    scene_graph_dir_output = '../../results/matterport3d/LearningBased/scene_graphs/all'
     if not os.path.exists(scene_graph_dir_output):
         os.makedirs(scene_graph_dir_output)
         visited = set()

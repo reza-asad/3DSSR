@@ -31,27 +31,9 @@ class DeepSetAlign(nn.Module):
         return cos_sin
 
 
-# class LstmAlign(nn.Module):
-#     def __init__(self, input_dim, hidden_dim, device):
-#         super(LstmAlign, self).__init__()
-#         self.hidden_dim = hidden_dim
-#         self.device = device
-#
-#         self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=1, batch_first=True)
-#
-#     def forward(self, x, hidden):
-#         lstm_out, hidden = self.lstm(x, hidden)
-#         return lstm_out, hidden
-#
-#     def init_hidden(self, batch_size):
-#         weight = next(self.parameters()).data
-#         hidden = (weight.new(1, batch_size, self.hidden_dim).zero_().to(self.device),
-#                   weight.new(1, batch_size, self.hidden_dim).zero_().to(self.device))
-#         return hidden
-
-class LstmAlign(nn.Module):
+class Lstm(nn.Module):
     def __init__(self, input_dim, hidden_dim, device, num_layers=2, num_direction=2):
-        super(LstmAlign, self).__init__()
+        super(Lstm, self).__init__()
         self.hidden_dim = hidden_dim
         self.device = device
         self.num_layers = num_layers
@@ -73,9 +55,9 @@ class LstmAlign(nn.Module):
         return hidden
 
 
-class LinLayer(nn.Module):
+class CosSinRegressor(nn.Module):
     def __init__(self, hidden_dim):
-        super(LinLayer, self).__init__()
+        super(CosSinRegressor, self).__init__()
         self.lin_layer = nn.Linear(hidden_dim * 2, 2, bias=False)
 
         for m in self.modules():
@@ -91,3 +73,24 @@ class LinLayer(nn.Module):
         cos_sin = torch.tanh(self.lin_layer(x))
 
         return cos_sin
+
+
+class CorrClassifier(nn.Module):
+    def __init__(self, hidden_dim):
+        super(CorrClassifier, self).__init__()
+        # self.normalization = nn.LayerNorm(hidden_dim * 2)
+        self.lin_layer = nn.Linear(hidden_dim * 2, 1, bias=False)
+        for m in self.modules():
+            self.weights_init(m)
+
+    def weights_init(self, m):
+        if isinstance(m, nn.Linear):
+            torch.nn.init.xavier_uniform_(m.weight.data)
+            if m.bias is not None:
+                m.bias.data.fill_(0.0)
+
+    def forward(self, x):
+        # x = self.normalization(x)
+        out = self.lin_layer(x)
+
+        return out

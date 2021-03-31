@@ -297,8 +297,8 @@ class Evaluate:
 
 def main():
     run_evalulation = False
-    run_aggregation = True
-    plot_comparisons = True
+    run_aggregation = False
+    plot_comparisons = False
     plot_name = 'Random_BipartiteMatching.png'
     remove_model = False
     visualize_loss = False
@@ -309,7 +309,7 @@ def main():
     # define paths and parameters
     mode = 'val'
     model_name = 'LearningBased'
-    experiment_name = 'lstm'
+    experiment_name = 'lstm_with_cats'
     query_results_input_path = '../results/matterport3d/{}/query_dict_{}_{}.json'.format(model_name, mode,
                                                                                          experiment_name)
     query_results_output_path = '../results/matterport3d/{}/query_dict_{}_{}_evaluated.json'.format(model_name, mode,

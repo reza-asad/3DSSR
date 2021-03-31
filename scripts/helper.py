@@ -173,7 +173,7 @@ def visualize_scene(scene_graph_dir, models_dir, scene_name, accepted_cats=set()
     scene = []
     visited = set()
     # if true the backbone of the scene is included
-    if with_backbone:
+    if with_backbone and len(accepted_cats) > 0:
         for obj in graph.keys():
             cat = graph[obj]['category'][0]
             if cat not in accepted_cats:

@@ -2,7 +2,6 @@ import os
 import torch
 from torch.utils.data import Dataset
 import numpy as np
-import heapq
 
 from scripts.helper import load_from_json
 from scripts.box import Box

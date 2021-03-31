@@ -75,7 +75,7 @@ def main(num_chunks, chunk_idx):
     filter_queries = ['sink-34', 'chair-26', 'chest_of_drawers-25', 'table-17', 'sofa-39']
     mode = 'val'
     model_name = 'LearningBased'
-    experiment_name = 'lstm'
+    experiment_name = 'lstm_with_cats'
     topk = 50
     query_results_path = '../results/matterport3d/{}/query_dict_{}_{}_evaluated.json'.format(model_name, mode,
                                                                                              experiment_name)

@@ -30,6 +30,17 @@ class Scene:
         self.graph = filtered_graph
 
     @staticmethod
+    def translate_obbox(obbox, translation):
+        # build the transformation matrix
+        transformation = np.eye(4)
+        transformation[:3, 3] = translation
+
+        # apply tranlsation to the obbox
+        obbox = obbox.apply_transformation(transformation)
+
+        return obbox
+
+    @staticmethod
     def compute_angle(graph, source_node, nb):
         # compute the vector connecting the centroids of the nb to the source node.
         source_nb_vec = np.asarray(graph[nb]['obbox'][0]) - np.asarray(graph[source_node]['obbox'][0])
@@ -46,13 +57,14 @@ class Scene:
     def test_sort_features(self, source_node, nb):
         # load the source obbox and centroid
         source_obbox_vertices = np.asarray(self.graph[source_node]['obbox'])
-        centroid_source = source_obbox_vertices[0].copy()
         obbox_source = Box(source_obbox_vertices)
+        source_translation = -obbox_source.translation
+        obbox_source = self.translate_obbox(obbox_source, source_translation)
 
         # load the obbox and centroid of the neighbour
         nb_obbox_vertices = np.asarray(self.graph[nb]['obbox'])
-        centroid_nb = nb_obbox_vertices[0].copy()
         obbox_nb = Box(nb_obbox_vertices)
+        obbox_nb = self.translate_obbox(obbox_nb, source_translation)
 
         transformation = np.eye(4)
         # compute translation
@@ -60,13 +72,12 @@ class Scene:
 
         # compute rotation
         theta1 = self.compute_angle(self.graph, source_node, nb)
-        theta2 = 1.5*np.pi
+        print(theta1)
+        theta2 = np.pi * 3/ 2
         delta_theta = theta2 - theta1
         rotation = np.asarray([[np.cos(delta_theta), -np.sin(delta_theta), 0],
                                [np.sin(delta_theta), np.cos(delta_theta), 0],
                                [0, 0, 1]])
-        source_obbox_vertices -= centroid_source
-        nb_obbox_vertices -= centroid_source
         transformation[:3, :3] = rotation
         # nb_obbox_vertices_rot = np.dot(rotation, nb_obbox_vertices.transpose())
         # nb_obbox_vertices_rot = nb_obbox_vertices_rot.transpose()
@@ -81,25 +92,28 @@ class Scene:
         # print(self.find_cat(source_node), self.find_cat(nb))
         iou_computer = IoU(obbox_source, obbox_nb)
         print('IoU: ', iou_computer.iou())
+        print('Source: {}'.format(self.graph[source_node]['category'][0]))
         s = trimesh.creation.box(obbox_source.scale, transform=obbox_source.transformation)
         nb = trimesh.creation.box(obbox_nb.scale, transform=obbox_nb.transformation)
         trimesh.Scene([s, nb]).show()
 
     def sort_features(self):
-        # treat each node as the source of the ring
+        # treat each node as the source of a ring
         for source_node in self.graph.keys():
-            obbox_source = np.asarray(self.graph[source_node]['obbox'])
-            centroid_source = obbox_source[0].copy()
-            obbox_source = Box(obbox_source)
+            # build the aabbox for the source node
+            obbox_source_vertices = np.asarray(self.graph[source_node]['obbox'])
+            obbox_source = Box(obbox_source_vertices)
+            aabbox_source_vertices = obbox_source.scaled_axis_aligned_vertices(obbox_source.scale)
+            aabbox_source = Box(aabbox_source_vertices)
+
+            # collect the ring info for each neighbour of the source node.
             ring_info = {edge_type: {'cat': [], 'distance': [], 'iou': []} for edge_type in self.edge_types}
             for nb, relations in self.graph[source_node]['neighbours'].items():
-                # read the obbox and centroid of the neighbour. translate the obbox to the origin (source node)
-                obbox_nb = np.asarray(self.graph[nb]['obbox'])
-                centroid_nb = obbox_nb[0].copy()
-                obbox_nb = Box(obbox_nb)
-                transformation = np.eye(4)
-                transformation[:3, 3] = obbox_source.translation - obbox_nb.translation
-                obbox_nb = obbox_nb.apply_transformation(transformation)
+                # find the aabbox of the neighbour object
+                obbox_nb_vertices = np.asarray(self.graph[nb]['obbox'])
+                obbox_nb = Box(obbox_nb_vertices)
+                aabbox_nb_vertices = obbox_nb.scaled_axis_aligned_vertices(obbox_nb.scale)
+                aabbox_nb = Box(aabbox_nb_vertices)
 
                 # for each edge type of the neighbour collect info about the neighbour
                 for relation in relations:
@@ -107,11 +121,12 @@ class Scene:
                     ring_info[relation]['cat'].append((nb, self.find_cat(nb)))
 
                     # compute the distance of the neighbour to the source node
-                    ring_info[relation]['distance'].append((nb, self.compute_dist(centroid_source, centroid_nb)))
+                    ring_info[relation]['distance'].append((nb, self.compute_dist(obbox_source.translation,
+                                                                                  obbox_nb.translation)))
 
                     # compute the iou of the obbox translated to the source node
-                    iou_computer = IoU(obbox_source, obbox_nb)
-                    ring_info[relation]['iou'].append((nb, iou_computer.iou()))
+                    iou = IoU(aabbox_source, aabbox_nb).iou()
+                    ring_info[relation]['iou'].append((nb, iou))
 
             # sort the features for distance and iou from closest to furthest
             for edge_type in self.edge_types:
@@ -123,16 +138,6 @@ class Scene:
             # save the ring info
             self.graph[source_node]['ring_info'] = ring_info
 
-    def vectorize_cats(self):
-        # map each category to an index
-        cat_to_idx = {cat: idx for idx, cat in enumerate(self.accepted_cats)}
-        for node, node_info in self.graph.items():
-            # initialize the one hot vector
-            one_hot_vec = np.zeros(len(cat_to_idx), dtype=np.float)
-            idx = cat_to_idx[node_info['category'][0]]
-            one_hot_vec[idx] = 1
-            node_info['cat_vec'] = one_hot_vec.tolist()
-
 
 def process_scenes(scene_names, scene_graph_dir_input, models_dir, edge_types, accepted_cats):
     t = time()
@@ -143,8 +148,8 @@ def process_scenes(scene_names, scene_graph_dir_input, models_dir, edge_types, a
         print('Processing scene {} ... '.format(scene_name))
         print('Iteration {}/{}'.format(idx, len(scene_names)))
         t2 = time()
-        # if scene_name in visited:
-        #     continue
+        if scene_name in visited:
+            continue
 
         # create an instance of a scene and filter it by accepted cats.
         scene_graph = Scene(scene_graph_dir_input, scene_name, edge_types, accepted_cats)
@@ -153,9 +158,6 @@ def process_scenes(scene_names, scene_graph_dir_input, models_dir, edge_types, a
         if len(scene_graph.graph) > 1:
             # sort the ring objects based on distance and obbox iou relative to the source node.
             scene_graph.sort_features()
-
-            # extract a on-hot encoding of the categories
-            scene_graph.vectorize_cats()
 
             # visualize the scene and test sort features if necessary
             # objects = ['10', '21']
@@ -181,13 +183,13 @@ def main(num_chunks, chunk_idx):
 
     # define paths and params
     edge_types = ['supported', 'supports', 'contact', 'enclosed', 'encloses', 'fc']
-    scene_graph_dir_input = '../../results/matterport3d/GNN/scene_graphs/all'
+    scene_graph_dir_input = '../../results/matterport3d/LearningBased/scene_graphs/all'
     models_dir = '../../data/matterport3d/models'
     accepted_cats = set(load_from_json('../../data/matterport3d/accepted_cats.json'))
 
     if build_rings:
         scene_names = os.listdir(scene_graph_dir_input)
-        scene_names = ['1pXnuDYAj8r_room18.json']
+        # scene_names = ['1pXnuDYAj8r_room18.json']
         # scene_names = ['8194nk5LbLH_room3.json']
         chunk_size = int(np.ceil(len(scene_names) / num_chunks))
         process_scenes(scene_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size], scene_graph_dir_input,
@@ -195,7 +197,7 @@ def main(num_chunks, chunk_idx):
 
     if split_train_test_val:
         data_dir = '../../data/matterport3d'
-        scene_graph_dir = '../../results/matterport3d/GNN/scene_graphs_cl'
+        scene_graph_dir = '../../results/matterport3d/LearningBased/scene_graphs_cl'
         train_path = os.path.join(data_dir, 'scenes_train.txt')
         val_path = os.path.join(data_dir, 'scenes_val.txt')
         test_path = os.path.join(data_dir, 'scenes_test.txt')
@@ -203,7 +205,7 @@ def main(num_chunks, chunk_idx):
 
 
 if __name__ == '__main__':
-    scene_graph_dir_output = '../../results/matterport3d/GNN/scene_graphs_cl/all'
+    scene_graph_dir_output = '../../results/matterport3d/LearningBased/scene_graphs_cl/all'
     if not os.path.exists(scene_graph_dir_output):
         os.makedirs(scene_graph_dir_output)
         visited = set()
@@ -213,5 +215,6 @@ if __name__ == '__main__':
         main(1, 0)
     else:
         # To run in parallel you can use the command:
+        # export PYTHONPATH="${PYTHONPATH}:/home/reza/Documents/research/3DSSR"
         # parallel -j5 "python3 -u build_cl_rings.py main {1} {2}" ::: 5 ::: 0 1 2 3 4
         main(int(sys.argv[2]), int(sys.argv[3]))

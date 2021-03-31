@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 
 from scene_dataset import Scene
-from models import DeepSetAlign, LstmAlign, LinLayer
+from models import DeepSetAlign, Lstm, CosSinRegressor
 
 
 def evaluate_net(model_dic, valid_loader, loss_criterion, lambda_reg, device):
@@ -81,8 +81,8 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_fol
 
     # load the model
     # model = DeepSetAlign(input_dim, hidden_dim)
-    lstm = LstmAlign(input_dim, hidden_dim, device)
-    lin_layer = LinLayer(hidden_dim)
+    lstm = Lstm(input_dim, hidden_dim, device)
+    lin_layer = CosSinRegressor(hidden_dim)
     lstm = lstm.to(device=device)
     lin_layer = lin_layer.to(device=device)
     model_dic = {'lstm': lstm, 'lin_layer': lin_layer}
@@ -212,7 +212,7 @@ def get_args():
     parser.add_option('--hidden_dim', dest='hidden_dim', default=512, type='int')
     parser.add_option('--patience', dest='patience', default=20, type='int')
     parser.add_option('--eval_iter', dest='eval_iter', default=1000, type='int')
-    parser.add_option('--cp_folder', dest='cp_folder', default='scene_alignment_lstm')
+    parser.add_option('--cp_folder', dest='cp_folder', default='lstm_alignment_with_cats')
     parser.add_option('--input_dim', dest='input_dim', default=5)
     parser.add_option('--gpu', action='store_true', dest='gpu', default=True, help='use cuda')
 
