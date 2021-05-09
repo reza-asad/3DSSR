@@ -282,8 +282,5 @@ class SceneGraph:
         # find the relationship between pairs of scene objects using their obboxes
         self.find_main_object_relations(objects)
 
-        # find the objects that are in the context (a fixed window size) of each object.
-        # self.find_context_relations(objects)
-
         # connect nodes that are not connected using: enclosure, support or contact.
         self.add_fc_edges(objects)

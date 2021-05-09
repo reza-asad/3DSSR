@@ -8,18 +8,19 @@ from PIL import Image
 from scripts.helper import load_from_json, render_single_scene, create_img_table
 
 
-def make_rendering_folders(query_results, rendering_path):
+def make_rendering_folders(query_results, rendering_path, img_folder='imgs'):
     if not os.path.exists(rendering_path):
         os.makedirs(rendering_path)
     for query, resutls in query_results.items():
-        query_path = os.path.join(rendering_path, query, 'imgs')
+        query_path = os.path.join(rendering_path, query, img_folder)
         if not os.path.exists(query_path):
             os.makedirs(query_path)
 
 
 def render_model_results(query_results, scene_graph_dir, models_dir, rendering_path, colormap, num_chunks, chunk_size,
-                         chunk_idx, mode, topk=50):
+                         chunk_idx, mode, topk=50, img_folder='imgs', with_bounding_box=False):
     # visualize the result of each query
+    crop = 'crop' in img_folder
     for i, (query, results) in enumerate(query_results.items()):
         if query not in visited:
             # render the query scene once only
@@ -31,30 +32,35 @@ def render_model_results(query_results, scene_graph_dir, models_dir, rendering_p
 
                 # render the image
                 faded_nodes = [obj for obj in query_graph.keys() if obj not in q_context]
-                path = os.path.join(rendering_path, query, 'imgs', 'query_{}_{}.png'.format(scene_name.split('.')[0],
-                                                                                            q))
+                path = os.path.join(rendering_path, query, img_folder, 'query_{}_{}.png'.format(scene_name.split('.')[0], q))
                 render_single_scene(graph=query_graph, objects=query_graph.keys(), highlighted_object=[q],
-                                    faded_nodes=faded_nodes, path=path, model_dir=models_dir, colormap=colormap)
+                                    faded_nodes=faded_nodes, path=path, model_dir=models_dir, colormap=colormap,
+                                    crop=crop, with_bounding_box=with_bounding_box, theta=0, scene_name=scene_name)
 
             # render the topk results from the model
             top_results_chunk = results['target_subscenes'][: topk][chunk_idx * chunk_size:
                                                                     (chunk_idx + 1) * chunk_size]
-
             for j, target_subscene in enumerate(top_results_chunk):
                 target_scene_name = target_subscene['scene_name']
                 target_graph_path = os.path.join(scene_graph_dir, 'all', target_scene_name)
                 target_graph = load_from_json(target_graph_path)
                 t = target_subscene['target']
-                highlighted_objects = [t]
+                # display the rotated coordinate frame if necessary.
+                if 'theta' in target_subscene:
+                    theta = target_subscene['theta']
+                else:
+                    theta = 0
+                highlighted_object = [t]
                 t_context = set(list(target_subscene['correspondence'].keys()) + [t])
 
                 # render the image
                 faded_nodes = [obj for obj in target_graph.keys() if obj not in t_context]
-                path = os.path.join(rendering_path, query, 'imgs', 'top_{}_{}_{}.png'
+                path = os.path.join(rendering_path, query, img_folder, 'top_{}_{}_{}.png'
                                     .format(chunk_idx * chunk_size + j + 1, target_scene_name.split('.')[0], t))
                 render_single_scene(graph=target_graph, objects=target_graph.keys(),
-                                    highlighted_object=highlighted_objects, faded_nodes=faded_nodes, path=path,
-                                    model_dir=models_dir, colormap=colormap)
+                                    highlighted_object=highlighted_object, faded_nodes=faded_nodes, path=path,
+                                    model_dir=models_dir, colormap=colormap, crop=crop, theta=theta,
+                                    with_bounding_box=with_bounding_box, scene_name=target_scene_name)
 
             visited.add(query)
 
@@ -69,18 +75,20 @@ def plot_evaluations(x, y, fig, ax, label, output_path):
 
 def main(num_chunks, chunk_idx):
     # define initial parameters
+    img_folder = 'imgs'
+    with_bounding_box = True
     make_folders = False
-    render = False
-    with_img_table = True
-    filter_queries = ['sink-34', 'chair-26', 'chest_of_drawers-25', 'table-17', 'sofa-39']
-    mode = 'val'
+    render = True
+    with_img_table = False
+    filter_queries = ['sofa-28']#['sink-34', 'chair-26', 'chest_of_drawers-25', 'table-17', 'sofa-39']
+    mode = 'test'
     model_name = 'LearningBased'
-    experiment_name = 'lstm_with_cats'
-    topk = 50
+    experiment_name = 'lstm_top1_predictions'
+    topk = 3
     query_results_path = '../results/matterport3d/{}/query_dict_{}_{}_evaluated.json'.format(model_name, mode,
                                                                                              experiment_name)
     scene_graph_dir = '../data/matterport3d/scene_graphs'
-    rendering_path = '../results/matterport3d/{}/rendered_results/{}'.format(model_name, experiment_name)
+    rendering_path = '../results/matterport3d/{}/rendered_results/{}/{}'.format(model_name, mode, experiment_name)
     models_dir = '../data/matterport3d/models'
     colormap = load_from_json('../data/matterport3d/color_map.json')
     caption_keys = {'distance_mAP', 'distance_precision', 'overlap_mAP', 'overlap_precision', 'overlap_rotation',
@@ -98,19 +106,19 @@ def main(num_chunks, chunk_idx):
 
     if make_folders:
         # make rending folders
-        make_rendering_folders(filtered_query_results, rendering_path)
+        make_rendering_folders(filtered_query_results, rendering_path, img_folder)
 
     if render:
         # render results from the model
         chunk_size = int(np.ceil(topk / num_chunks))
         render_model_results(filtered_query_results, scene_graph_dir, models_dir, rendering_path, colormap, num_chunks,
-                             chunk_size, chunk_idx, mode, topk)
+                             chunk_size, chunk_idx, mode, topk, img_folder, with_bounding_box)
 
     if with_img_table:
         for query, results in filtered_query_results.items():
             # plot the distance and overlap mAP for the query
             evaluation_plot_name = 'evaluation.png'
-            evaluation_plot_path = os.path.join(rendering_path, query, 'imgs', evaluation_plot_name)
+            evaluation_plot_path = os.path.join(rendering_path, query, img_folder, evaluation_plot_name)
             fig, ax = plt.subplots()
             for metric in ['distance_mAP', 'overlap_mAP']:
                 x, y = list(zip(*results[metric]['mAP']))
@@ -118,7 +126,7 @@ def main(num_chunks, chunk_idx):
             plt.savefig(evaluation_plot_path)
 
             # read images in the img directory and find the query img
-            imgs_path = os.path.join(rendering_path, query, 'imgs')
+            imgs_path = os.path.join(rendering_path, query, img_folder)
             imgs = os.listdir(imgs_path)
             query_img = [e for e in imgs if 'query' in e]
 
@@ -128,7 +136,9 @@ def main(num_chunks, chunk_idx):
             ranks = [int(img_name.split('_')[1]) for img_name in imgs]
             ranks_imgs = zip(ranks, imgs)
             ranks_imgs = sorted(ranks_imgs, key=lambda x: x[0])
-            sorted_imgs = list(list(zip(*ranks_imgs))[1])
+            sorted_imgs = []
+            if len(ranks_imgs) > 0:
+                sorted_imgs = list(list(zip(*ranks_imgs))[1])
 
             # add captions for the top10 results
             captions = []
@@ -154,7 +164,7 @@ def main(num_chunks, chunk_idx):
                         caption += ' {}: {} <br />\n'.format(key, caption_value)
                 captions.append(caption)
 
-            create_img_table(imgs_path, 'imgs', sorted_imgs, with_query_scene=True, query_img=query_img[0],
+            create_img_table(imgs_path, img_folder, sorted_imgs, with_query_scene=True, query_img=query_img[0],
                              evaluation_plot=evaluation_plot_name, html_file_name='img_table.html', topk=len(imgs),
                              ncols=3, captions=captions)
 

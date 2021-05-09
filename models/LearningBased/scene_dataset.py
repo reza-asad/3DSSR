@@ -9,18 +9,27 @@ from scripts.iou import IoU
 
 
 class Scene(Dataset):
-    def __init__(self, data_dir, mode, query_scene_name=None, q_context_objects=None, query_node=None, min_num_nbs=5,
-                 max_num_nbs=10):
+    def __init__(self, data_dir, mode, query_scene_name=None, q_context_objects=None, query_node=None,
+                 with_cat_predictions=False, with_clustering=False, min_num_nbs=5, max_num_nbs=10, q_theta=0):
         self.data_dir = data_dir
         self.mode = mode
         self.query_scene_name = query_scene_name
+        self.with_clustering = with_clustering
 
         if self.query_scene_name is not None:
             self.query_graph = load_from_json(os.path.join(self.data_dir, self.mode, query_scene_name))
             self.q_context_objects = q_context_objects
             self.query_node = query_node
-            self.file_names = self.filter_by_query_cat(os.listdir(os.path.join(self.data_dir, self.mode)),
-                                                       self.query_graph[query_node]['category'][0])
+            self.with_cat_predictions = with_cat_predictions
+            if self.with_clustering:
+                self.file_names = self.filter_by_query_node(os.listdir(os.path.join(self.data_dir, self.mode)),
+                                                            cluster_id=self.query_graph[query_node]['cluster_id'])
+            else:
+                self.file_names = self.filter_by_query_node(os.listdir(os.path.join(self.data_dir, self.mode)),
+                                                            query_cat=self.query_graph[query_node]['category'][0])
+            # if q_theta is greater than 0 roate it
+            if q_theta > 0:
+                self.rotate_query(q_theta)
         else:
             self.file_names = os.listdir(os.path.join(self.data_dir, self.mode))
 
@@ -31,18 +40,58 @@ class Scene(Dataset):
     def __len__(self):
         return len(self.file_names)
 
-    def filter_by_query_cat(self, file_names, query_cat):
+    def filter_by_query_node(self, file_names, query_cat=None, cluster_id=None):
+        # TODO: allowing for predicted cats and clustering methods
         filtered_file_names = []
         for file_name in file_names:
             graph = load_from_json(os.path.join(self.data_dir, self.mode, file_name))
             for _, node_info in graph.items():
-                if node_info['category'][0] == query_cat:
-                    filtered_file_names.append(file_name)
-                    break
+                if self.with_cat_predictions:
+                    if query_cat == node_info['category_predicted'][0]:
+                        filtered_file_names.append(file_name)
+                        break
+                elif self.with_clustering:
+                    if node_info['cluster_id'] == cluster_id:
+                        filtered_file_names.append(file_name)
+                        break
+                else:
+                    if query_cat == node_info['category'][0]:
+                        filtered_file_names.append(file_name)
+                        break
+
         return filtered_file_names
 
-    def sample_context_objects(self, graph, source_node, num_neighbours):
-        # ring consists of the id nof the neighbour nodes
+    def rotate_query(self, theta):
+        # create a box for each query and context object. translate the query subscene to the origin.
+        obj_to_obbox = {}
+        vertices = np.asarray(self.query_graph[self.query_node]['obbox'])
+        obj_to_obbox[self.query_node] = Box(vertices)
+        q_translation = -obj_to_obbox[self.query_node].translation
+        obj_to_obbox[self.query_node] = self.translate_obbox(obj_to_obbox[self.query_node], q_translation)
+
+        for c_obj in self.q_context_objects:
+            vertices = np.asarray(self.query_graph[c_obj]['obbox'])
+            obj_to_obbox[c_obj] = Box(vertices)
+            obj_to_obbox[c_obj] = self.translate_obbox(obj_to_obbox[c_obj], q_translation)
+
+        # rotate the query subscene
+        transformation = np.eye(4)
+        rotation = np.asarray([[np.cos(theta), -np.sin(theta), 0],
+                               [np.sin(theta), np.cos(theta), 0],
+                               [0, 0, 1]])
+        transformation[:3, :3] = rotation
+        for obj in obj_to_obbox.keys():
+            obj_to_obbox[obj] = obj_to_obbox[obj].apply_transformation(transformation)
+
+            # translate the query subscne back to where it was
+            obj_to_obbox[obj] = self.translate_obbox(obj_to_obbox[obj], -q_translation)
+
+            # record the obboxes for the rotated subscene.
+            self.query_graph[obj]['obbox'] = obj_to_obbox[obj].vertices.tolist()
+
+    @staticmethod
+    def sample_context_objects(graph, source_node, num_neighbours):
+        # ring consists of the id of the neighbour nodes
         ring = list(graph.keys())
         ring.remove(source_node)
 
@@ -56,16 +105,31 @@ class Scene(Dataset):
 
         return query_subring.tolist()
 
-    @staticmethod
-    def map_cat_to_objects(cats, graph, source_node):
-        cat_to_objects = {cat: [] for cat in cats}
+    def map_cat_to_objects(self, query_cats, graph, source_node):
+        # TODO: allow for predicted cats
+        cat_to_objects = {cat: [] for cat in query_cats}
         for node, node_info in graph.items():
             if node != source_node:
-                cat = node_info['category'][0]
-                if cat in cats:
-                    cat_to_objects[cat].append(node)
+                if self.with_cat_predictions:
+                    target_cat = node_info['category_predicted'][0]
+                else:
+                    target_cat = node_info['category'][0]
+                if target_cat in cat_to_objects:
+                    cat_to_objects[target_cat].append(node)
 
         return cat_to_objects
+
+    @staticmethod
+    def map_cluster_to_objects(query_clusters, graph, source_node):
+        # TODO: allow for clustering methods
+        cluster_to_objects = {cluster_id: [] for cluster_id in query_clusters}
+        for node, node_info in graph.items():
+            if node != source_node:
+                cluster_id = node_info['cluster_id']
+                if cluster_id in cluster_to_objects:
+                    cluster_to_objects[cluster_id].append(node)
+
+        return cluster_to_objects
 
     @staticmethod
     def compute_angle(source_obbox, nb_obbox, source_nb_vec=None):
@@ -93,8 +157,8 @@ class Scene(Dataset):
 
         return obbox
 
-    def build_bipartite_graph(self, query_graph, target_graph, query_subring, query_node, target_node, cat_to_objects,
-                              clean_objects=[]):
+    def build_bipartite_graph(self, query_graph, target_graph, context_objects, query_node, target_node,
+                              cat_to_objects=None, cluster_to_objects=None, clean_objects=[]):
         bp_graph = {}
         # build obbox for the query object and translate it to the origin
         query_obbox_vertices = np.asarray(query_graph[query_node]['obbox'])
@@ -109,10 +173,14 @@ class Scene(Dataset):
         t_obbox = self.translate_obbox(t_obbox, t_translation)
 
         # for each context object populate features for its neighbours of the same category
-        for context_obj in query_subring:
+        for context_obj in context_objects:
             # add the neighbours
-            context_obj_cat = query_graph[context_obj]['category'][0]
-            bp_graph[context_obj] = {'candidates': cat_to_objects[context_obj_cat]}
+            if cat_to_objects is not None:
+                context_obj_cat = query_graph[context_obj]['category'][0]
+                bp_graph[context_obj] = {'candidates': cat_to_objects[context_obj_cat]}
+            else:
+                context_obj_cluster_id = query_graph[context_obj]['cluster_id']
+                bp_graph[context_obj] = {'candidates': cluster_to_objects[context_obj_cluster_id]}
 
             # translate the obbox of the context object using the vector that translates the query object to the origin.
             q_context_obbox_vertices = np.asarray(query_graph[context_obj]['obbox'])
@@ -171,11 +239,6 @@ class Scene(Dataset):
                 iou1 = IoU(t_obbox, q_obbox).iou()
                 iou2 = IoU(t_c_obbox, q_c_obbox).iou()
                 bp_graph[context_obj]['IoUs'] += [iou1 + iou2]
-                # if bp_graph[context_obj]['matches'][-1] == 1:
-                #     if (iou1 + iou2) < 0.5:
-                #         print(context_obj, candidate, clean_objects, context_obj_angle, candidate_obj_angle)
-                #         print(iou1 + iou2)
-                #         t=y
 
         return bp_graph
 
@@ -323,14 +386,11 @@ class Scene(Dataset):
         num_same_angle = np.random.randint(1, num_clean)
         same_angle_count = 0
         corrupt_angles = [default_rotation]
-        iou_clean = []
-        iou_corrupt = []
         for obj in context_objects:
             if obj not in clean_objects:
                 if same_angle_count < num_same_angle:
                     rotation_angle_corrupt = default_rotation
                     same_angle_count += 1
-                    # iou = IoU(obj_to_old_obbox[obj], obj_to_obbox[obj]).iou()
                 else:
                     rotation_angle_corrupt = self.find_different_angle(corrupt_angles)
                     corrupt_angles.append(rotation_angle_corrupt)
@@ -340,12 +400,6 @@ class Scene(Dataset):
                                        [0, 0, 1]])
                 transformation[:3, :3] = rotation
                 obj_to_obbox[obj] = obj_to_obbox[obj].apply_transformation(transformation)
-            # else:
-            #     iou = IoU(obj_to_old_obbox[obj], obj_to_obbox[obj]).iou()
-            # iou_clean.append(iou)
-        # if np.sum(iou_clean) < np.sum(iou_corrupt):
-        #     print(iou_clean, iou_corrupt)
-        #     t=y
 
         # rotate all the perturbed and corrupted context objects by the rotation_angle
         transformation = np.eye(4, dtype=np.float)
@@ -355,30 +409,6 @@ class Scene(Dataset):
         transformation[:3, :3] = rotation
         for obj in query_and_context:
             obj_to_obbox[obj] = obj_to_obbox[obj].apply_transformation(transformation)
-
-        # beofre rotation
-        # import trimesh
-        # q = trimesh.creation.box(obj_to_obbox[query_node].scale, transform=obj_to_obbox[query_node].transformation)
-        # q.visual.vertex_colors = trimesh.visual.color.hex_to_rgba("#0000ff")
-        # boxes = [q]
-        # for obj in context_objects:
-        #     c = trimesh.creation.box(obj_to_obbox[obj].scale, transform=obj_to_obbox[obj].transformation)
-        #     if obj in corrputed_objects:
-        #         c.visual.vertex_colors = trimesh.visual.color.hex_to_rgba("#FF0000")
-        #     boxes.append(c)
-        # trimesh.Scene(boxes).show()
-
-        # after rotation
-        # q = trimesh.creation.box(obj_to_obbox[query_node].scale, transform=obj_to_obbox[query_node].transformation)
-        # q.visual.vertex_colors = trimesh.visual.color.hex_to_rgba("#0000ff")
-        # boxes = [q]
-        # for obj in context_objects:
-        #     c = trimesh.creation.box(obj_to_obbox[obj].scale, transform=obj_to_obbox[obj].transformation)
-        #     if obj in corrputed_objects:
-        #         c.visual.vertex_colors = trimesh.visual.color.hex_to_rgba("#FF0000")
-        #     boxes.append(c)
-        # trimesh.Scene(boxes).show()
-        # t=y
 
         # update the obboxes in the query graph
         for node, node_info in query_graph.items():
@@ -401,45 +431,67 @@ class Scene(Dataset):
             # choose a random set of context objects for the query.
             num_neighbours = np.random.randint(self.min_num_nbs, self.max_num_nbs+1)
             num_neighbours = np.minimum(len(objects) - 1, num_neighbours)
-            q_cotnext_objects = self.sample_context_objects(target_graph, query_node, num_neighbours)
+            q_context_objects = self.sample_context_objects(target_graph, query_node, num_neighbours)
 
-            # find the categories of the context objects in the query subring.
-            query_cats = [target_graph[c]['category'][0] for c in q_cotnext_objects]
-
-            # map the categories found to the nodes in the entire scene
-            cat_to_objects = self.map_cat_to_objects(query_cats, target_graph, query_node)
+            cat_to_objects, cluster_to_objects = None, None
+            # TODO: allowing for clustering methods
+            if self.with_clustering:
+                # find the cluster id for each context object
+                query_clusters = [target_graph[c]['cluster_id'] for c in q_context_objects]
+                # map the cluster ids to all objects with such cluster ids.
+                cluster_to_objects = self.map_cluster_to_objects(query_clusters, target_graph, query_node)
+            else:
+                # find the categories of the context objects in the query subring.
+                query_cats = [target_graph[c]['category'][0] for c in q_context_objects]
+                # map the categories found to the nodes in the entire scene
+                cat_to_objects = self.map_cat_to_objects(query_cats, target_graph, query_node)
 
             # perturb the context objects in the query and rotate them by a random angle.
             data['theta'] = np.random.uniform(0, 2*np.pi)
-            query_graph, clean_objects = self.build_query(target_graph, query_node, q_cotnext_objects, data['theta'])
+            query_graph, clean_objects = self.build_query(target_graph, query_node, q_context_objects, data['theta'])
 
             # build a bipartite graph connecting each context object in the query to a candidate in the target
             # graph.
-            bp_graph = self.build_bipartite_graph(query_graph, target_graph, q_cotnext_objects, query_node,
-                                                  query_node, cat_to_objects, clean_objects)
+            bp_graph = self.build_bipartite_graph(query_graph, target_graph, q_context_objects, query_node,
+                                                  query_node, cat_to_objects, cluster_to_objects, clean_objects)
             # combine the features recorded in the bp_graph into a tensor
             features = self.combine_features(bp_graph, self.feature_names)
             features.unsqueeze_(dim=0)
         else:
             # determine the potential target nodes; i.e nodes with the same category as query node
             query_cat = self.query_graph[self.query_node]['category'][0]
-            target_nodes = [node for node in target_graph.keys() if target_graph[node]['category'][0] == query_cat]
+            query_cluster_id = self.query_graph[self.query_node]['cluster_id']
+            # TODO: allow for predicted cats and clustering
+            if self.with_cat_predictions:
+                target_nodes = [n for n in target_graph.keys() if target_graph[n]['category_predicted'][0] == query_cat]
+            elif self.with_clustering:
+                target_nodes = [n for n in target_graph.keys() if query_cluster_id == target_graph[n]['cluster_id']]
+            else:
+                target_nodes = [n for n in target_graph.keys() if target_graph[n]['category'][0] == query_cat]
             data['target_nodes'] = target_nodes
+
+            # find the categories of the context objects in the query subring.
+            query_cats = [self.query_graph[c]['category'][0] for c in self.q_context_objects]
+            # find the cluster id for each context object
+            query_clusters = [self.query_graph[c]['cluster_id'] for c in self.q_context_objects]
 
             # build the features for each target node
             features = []
             data['bp_graphs'] = {}
             for target_node in target_nodes:
-                # find the categories of the context objects in the query subring.
-                query_cats = [self.query_graph[c]['category'][0] for c in self.q_context_objects]
-
-                # map the categories found to the nodes in the entire scene
-                cat_to_objects = self.map_cat_to_objects(query_cats, target_graph, target_node)
+                cat_to_objects, cluster_to_objects = None, None
+                # TODO: allowing for clustering methods
+                if self.with_clustering:
+                    # map the cluster ids to all objects with such cluster ids.
+                    cluster_to_objects = self.map_cluster_to_objects(query_clusters, target_graph, target_node)
+                else:
+                    # map the categories found to the nodes in the entire scene
+                    cat_to_objects = self.map_cat_to_objects(query_cats, target_graph, target_node)
 
                 # build a bipartite graph connecting each context object in the query to a candidate in the target
                 # graph.
                 bp_graph = self.build_bipartite_graph(self.query_graph, target_graph, self.q_context_objects,
-                                                      self.query_node, target_node, cat_to_objects)
+                                                      self.query_node, target_node, cat_to_objects, cluster_to_objects)
 
                 # record the context candidates for each target node
                 data['bp_graphs'][target_node] = {}
@@ -448,11 +500,8 @@ class Scene(Dataset):
 
                 # combine the features recorded in the bp_graph into a tensor
                 target_features = self.combine_features(bp_graph, self.feature_names)
-                target_features.unsqueeze_(dim=0)
                 features.append(target_features)
 
-            # concat the features for each target candidate
-            features = torch.cat(features, dim=0)
         data['features'] = features
 
         return data

@@ -29,10 +29,15 @@ def apply_gk(query_dict, queries, voxel_dir, scene_graph_dir, nth_closest_dict, 
 
         # add the ranked results as target subscenes
         query_results[query] = query_dict[query]
-        query_results[query]['target_subscenes'] = []
-        for kernel, scene_name, target_node, context_objects in ranked_results:
-            target_subscene = {'scene_name': scene_name, 'target': target_node, 'context_objects': context_objects}
-            query_results[query]['target_subscenes'].append(target_subscene)
+        target_subscenes = []
+        for kernel, scene_name, target_node, correspondence in ranked_results:
+            target_subscene = {'scene_name': scene_name, 'target': target_node, 'correspondence': correspondence,
+                               'context_match': len(correspondence), 'kernel': kernel}
+            target_subscenes.append(target_subscene)
+
+        # sort the results using the number of correspondences and then the avg kernel
+        target_subscenes = sorted(target_subscenes, reverse=True, key=lambda x: (x['context_match'], x['kernel']))
+        query_results[query]['target_subscenes'] = target_subscenes
 
     return query_results
 
@@ -40,7 +45,7 @@ def apply_gk(query_dict, queries, voxel_dir, scene_graph_dir, nth_closest_dict, 
 def main(num_chunks, chunk_idx):
     extract_target_subscenes = False
     combine_query_results = True
-    mode = 'val'
+    mode = 'test'
     experiment_name = 'base'
 
     if extract_target_subscenes:
@@ -71,7 +76,7 @@ def main(num_chunks, chunk_idx):
         file_names = os.listdir(gk_dir)
         for file_name in file_names:
             # make sure the file name is a chunk of the original query dict
-            if 'query_dict' in file_name and len(file_name.split('_')) == 4:
+            if ('query_dict' in file_name) and (mode in file_name) and len(file_name.split('_')) == 4:
                 curr_query_results = load_from_json(os.path.join(gk_dir, file_name))
                 for q, q_info in curr_query_results.items():
                     query_results[q] = q_info

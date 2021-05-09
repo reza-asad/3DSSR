@@ -63,7 +63,7 @@ def evaluate_net(model_dic, valid_loader, loss_criterion, lambda_reg, device):
 
 
 def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_folder='scene_alignment_lstm', input_dim=5,
-              eval_itr=1000, patience=5, lambda_reg=1):
+              with_clustering=False, eval_itr=1000, patience=5, lambda_reg=1):
     # create a directory for checkpoints
     check_point_dir = '/'.join(data_dir.split('/')[:-1])
     model_dir = os.path.join(check_point_dir, cp_folder)
@@ -72,8 +72,8 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_fol
 
     # create the training dataset
     # TODO: turn this back to train
-    train_dataset = Scene(data_dir, mode='train')
-    valid_dataset = Scene(data_dir, mode='val')
+    train_dataset = Scene(data_dir, mode='train', with_clustering=with_clustering)
+    valid_dataset = Scene(data_dir, mode='val', with_clustering=with_clustering)
 
     # create the dataloaders
     train_loader = DataLoader(train_dataset, batch_size=1, num_workers=0, shuffle=True)
@@ -207,13 +207,15 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_fol
 def get_args():
     parser = OptionParser()
     parser.add_option('--epochs', dest='epochs', default=200, type='int', help='number of epochs')
-    parser.add_option('--data-dir', dest='data_dir', default='../../results/matterport3d/LearningBased/scene_graphs_cl',
+    parser.add_option('--data-dir', dest='data_dir',
+                      default='../../results/matterport3d/LearningBased/scene_graphs_cl_with_predictions_kmeans',
                       help='data directory')
     parser.add_option('--hidden_dim', dest='hidden_dim', default=512, type='int')
     parser.add_option('--patience', dest='patience', default=20, type='int')
     parser.add_option('--eval_iter', dest='eval_iter', default=1000, type='int')
-    parser.add_option('--cp_folder', dest='cp_folder', default='lstm_alignment_with_cats')
+    parser.add_option('--cp_folder', dest='cp_folder', default='lstm_alignment_no_cats_kmeans')
     parser.add_option('--input_dim', dest='input_dim', default=5)
+    parser.add_option('--with_clustering', dest='with_clustering', default=True)
     parser.add_option('--gpu', action='store_true', dest='gpu', default=True, help='use cuda')
 
     (options, args) = parser.parse_args()
@@ -232,7 +234,8 @@ def main():
     # time the training
     t = time()
     train_net(data_dir=args.data_dir, num_epochs=args.epochs, lr=1e-3, device=device, hidden_dim=args.hidden_dim,
-              patience=args.patience, eval_itr=args.eval_iter, cp_folder=args.cp_folder, input_dim=args.input_dim)
+              patience=args.patience, eval_itr=args.eval_iter, cp_folder=args.cp_folder, input_dim=args.input_dim,
+              with_clustering=args.with_clustering)
     t2 = time()
     print("Training took %.3f minutes" % ((t2 - t) / 60))
 

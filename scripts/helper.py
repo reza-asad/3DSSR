@@ -7,9 +7,15 @@ import trimesh
 from PIL import Image
 import networkx as nx
 from graphviz import Source
+import cv2
 
 from .renderer import Render
 from .mesh import Mesh
+
+query_scene = 'YFuZgdQ5vWj_room13.json'
+top1 = '.json'
+top2 = '.json'
+top3 = '.json'
 
 
 def load_from_json(path, mode='r'):
@@ -22,29 +28,116 @@ def write_to_json(dictionary, path, mode='w', indent=4):
         json.dump(dictionary, f, indent=indent)
 
 
+def draw_bbox_img(img, bbox_info, resolution, fov, camera_pose, theta, expansion_factor=1.0, arrow_pixel=30,
+                  scene_name=None):
+    # unload the bbox dimensions and the vector connecting the centroid of the scene to the centroid of the box.
+    bbox_dims, vec = bbox_info
+
+    # convert distances to pixels
+    room_size = np.tan(fov/2) * camera_pose[2, 3] * 2
+    vec_pixel = vec * resolution[0] / room_size #* np.sqrt(2)
+    vec_pixel = np.round(vec_pixel).astype(int)
+
+    # find the pixel for the center of the subscene
+    subscene_center_pixel = [resolution[0] // 2 + vec_pixel[0], resolution[1] // 2 - vec_pixel[1]]
+
+    # convert bbox dims to pixels
+    bbox_x_pixel = bbox_dims[0] / room_size * resolution[0] * expansion_factor * np.sqrt(2)
+    bbox_y_pixel = bbox_dims[1] / room_size * resolution[1] * expansion_factor * np.sqrt(2)
+
+    # find all the corners of the bbox in pixel values
+    pts = np.zeros((4, 3), dtype=np.float)
+    # top left
+    pts[0, :] = [-bbox_x_pixel, -bbox_y_pixel, 1]
+    # top right
+    pts[1, :] = [bbox_x_pixel, -bbox_y_pixel, 1]
+    # bottom right
+    pts[2, :] = [bbox_x_pixel, bbox_y_pixel, 1]
+    # bottom left
+    pts[3, :] = [-bbox_x_pixel, bbox_y_pixel, 1]
+
+    # rotate the box around the origin
+    # angles = np.asarray([0, np.pi/2, np.pi, np.pi*1.5, 2*np.pi])
+    # min_idx = np.argmin(abs(angles - theta))
+    # delta_angle = angles[min_idx] - theta
+    rotation = np.asarray([[np.cos(-theta), -np.sin(-theta), 0],
+                           [np.sin(-theta), np.cos(-theta), 0],
+                           [0, 0, 1]])
+    rot_pts = np.dot(pts, rotation)
+
+    # translate the box to where it should be
+    rot_trans_pts = np.zeros((4, 2), dtype=np.int)
+    for i in range(4):
+        rot_trans_pts[i, :] = rot_pts[i, :2] + np.asarray(subscene_center_pixel)
+
+    # draw the bbox
+    img = cv2.polylines(img, [rot_trans_pts], True, (0, 255, 0), 2)
+
+    # find the x-axis of the local frame and add it
+    x_axis = [int(np.round(arrow_pixel * np.cos(theta))), int(np.round(arrow_pixel * np.sin(theta)))]
+    end_point = (subscene_center_pixel[0] + x_axis[0], subscene_center_pixel[1] + x_axis[1])
+    img = cv2.arrowedLine(img, (subscene_center_pixel[0], subscene_center_pixel[1]), end_point, color=(0, 0, 255),
+                          thickness=3)
+
+    # find the y-axis of the local frame and add it
+    y_axis = [int(np.round(arrow_pixel * np.cos(theta - np.pi/2))), int(np.round(arrow_pixel * np.sin(theta - np.pi/2)))]
+    end_point = (subscene_center_pixel[0] + y_axis[0], subscene_center_pixel[1] + y_axis[1])
+    img = cv2.arrowedLine(img, (subscene_center_pixel[0], subscene_center_pixel[1]), end_point, color=(205, 0, 0),
+                          thickness=3)
+
+    return img
+
+
 def render_single_scene(graph, objects, highlighted_object, path, model_dir, colormap, resolution=(512, 512),
-                        faded_nodes=[], rendering_kwargs=None):
+                        faded_nodes=[], rendering_kwargs=None, crop=False, with_bounding_box=False, theta=0,
+                        scene_name=None):
     # setup default rendering conditions such as lighting
     if rendering_kwargs is None:
         rendering_kwargs = {'fov': np.pi/6, 'light_directional_intensity': 0.01, 'light_point_intensity_center': 0.0,
                             'wall_thickness': 5}
 
     # prepare scene, camera pose and the room dimensions
+    expansion_factor = 1.0
+    scene_name_to_expansion = {query_scene: 1.0,
+                               top1: 1.0,
+                               top2: 1.0,
+                               top3: 1.0}
+    if scene_name in scene_name_to_expansion:
+        expansion_factor = scene_name_to_expansion[scene_name]
+
     r = Render(rendering_kwargs)
-    scene, camera_pose, room_dimension = prepare_scene_for_rendering(graph, objects, models_dir=model_dir,
-                                                                     query_objects=highlighted_object,
-                                                                     faded_nodes=faded_nodes, colormap=colormap)
-    # render the image
-    img = r.pyrender_render(scene, resolution=resolution, camera_pose=camera_pose, room_dimension=room_dimension)
-    # save the image
-    img = Image.fromarray(img)
-    img.save(path)
+    scene, camera_pose, room_dimension, bbox_info = prepare_scene_for_rendering(graph, objects,
+                                                                                models_dir=model_dir,
+                                                                                query_objects=highlighted_object,
+                                                                                faded_nodes=faded_nodes,
+                                                                                colormap=colormap,
+                                                                                crop=crop,
+                                                                                with_bounding_box=with_bounding_box,
+                                                                                rotation=theta,
+                                                                                scene_name=scene_name,
+                                                                                expansion_factor=expansion_factor)
+    if scene is not None:
+        # render the image
+        img = r.pyrender_render(scene, resolution=resolution, camera_pose=camera_pose, room_dimension=room_dimension)
+
+        # rotate the image, if required
+        if with_bounding_box:
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            img = draw_bbox_img(img, bbox_info, resolution, rendering_kwargs['fov'], r.camera_pose, theta,
+                                scene_name=scene_name, expansion_factor=expansion_factor)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        # save the image
+        img = Image.fromarray(img)
+        img.save(path)
 
 
 def prepare_scene_for_rendering(graph, objects, models_dir, query_objects=[], faded_nodes=[], colormap={},
-                                ceiling_cats=['ceiling', 'void']):
+                                ceiling_cats=['ceiling', 'void'], with_bounding_box=False, crop=False, rotation=None,
+                                scene_name=None, expansion_factor=1.0):
     default_color = '#aec7e8'
     scene = []
+    cropped_scene = []
     for obj in objects:
         cat = graph[obj]['category'][0]
 
@@ -70,16 +163,50 @@ def prepare_scene_for_rendering(graph, objects, models_dir, query_objects=[], fa
         if obj in faded_nodes:
             mesh.visual.vertex_colors = trimesh.visual.color.hex_to_rgba(default_color)
 
+        # add elements to the scene and cropped scene (if necessary)
         scene.append(mesh)
+        if (crop or with_bounding_box) and obj not in faded_nodes:
+            cropped_scene.append(mesh)
 
-    del mesh
-    gc.collect()
+        del mesh
+        gc.collect()
 
-    # extract the room dimention and the camera pose
+    # extract the room dimension and the camera pose
+    if len(scene) == 0:
+        return None, None, None
     scene = trimesh.Scene(scene)
     room_dimension = scene.extents
     camera_pose, _ = scene.graph[scene.camera.name]
-    return scene, camera_pose, room_dimension
+
+    # if true the half length and the centr
+    bbox_info = None
+    vec_translation = {query_scene: [0.2, 0.0],
+                       top1: [0.0, 0.0],
+                       top2: [0.0, -0.0],
+                       top3: [0.0, 0.0]}
+    if with_bounding_box or crop:
+        cropped_scene = trimesh.Scene(cropped_scene)
+        bbox_dims = cropped_scene.extents[:2] / 2.0
+        vec = cropped_scene.bounding_box.centroid - scene.bounding_box.centroid
+        vec = vec[:2]
+        if scene_name in vec_translation:
+            vec += vec_translation[scene_name]
+        bbox_info = (bbox_dims, vec)
+        # if scene_name == 'TbHJrupSAjP_room19.json':
+        #     print([e*2 for e in bbox_dims])
+        #     print(scene.extents[:2])
+            # cropped_scene.show()
+    else:
+        cropped_scene = None
+    # if the scene is cropped, camera pose is rotated by theta and room dimension is extracted from the subscene.
+    if crop:
+        room_dimension = cropped_scene.extents * expansion_factor
+        camera_pose, _ = cropped_scene.graph[cropped_scene.camera.name]
+        rotation = trimesh.transformations.rotation_matrix(angle=-rotation, direction=[0, 0, 1],
+                                                           point=cropped_scene.centroid)
+        camera_pose = np.dot(rotation, camera_pose)
+
+    return scene, camera_pose, room_dimension, bbox_info
 
 
 def create_img_table(img_dir, img_folder, imgs, html_file_name, topk=25, ncols=5, captions=[],
@@ -184,7 +311,7 @@ def visualize_scene(scene_graph_dir, models_dir, scene_name, accepted_cats=set()
     # if no objects specified the entire scene is visualized
     if len(objects) == 0:
         for obj in graph.keys():
-            if graph[obj]['category'][0] in accepted_cats and obj not in visited:
+            if obj not in visited:
                 objects.append(obj)
 
     # include the requested objects in the visualization

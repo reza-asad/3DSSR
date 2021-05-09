@@ -128,12 +128,13 @@ def CategoryRandom(query_info, query_mode, scene_graph_dir, mode, cat_to_scene_o
 
     # sort the target subscenes based on the number of matching context objects
     target_subscenes = sorted(target_subscenes, reverse=True, key=lambda x: x['context_match'])[:topk]
+
     return target_subscenes
 
 
 def main():
     # define initial parameters
-    mode = 'val'
+    mode = 'test'
     model_name = 'Random'
     experiment_name = 'base'
     query_dict_input_path = '../../queries/matterport3d/query_dict_{}.json'.format(mode)

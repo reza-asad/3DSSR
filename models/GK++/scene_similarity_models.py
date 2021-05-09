@@ -296,47 +296,19 @@ class GraphKernel:
                                            results)
         return results
 
-    # @staticmethod
-    # def find_best_matching_subgraph(context_nodes_to_kernels_candidates, target_node, target_kernel):
-    #     # for each context node pick the best candidate if it improves the average kernel
-    #     subgraph_kernels = [target_kernel]
-    #     best_kernel_avg = target_kernel
-    #     best_other_nodes = []
-    #     visited = {target_node}
-    #     for context_node, kernels_candidates in context_nodes_to_kernels_candidates.items():
-    #         # examine each candidate for the context object
-    #         best_candidate = None
-    #         best_kernel = None
-    #         for kernel, candidate in kernels_candidates:
-    #             if candidate not in visited:
-    #                 temp_subgraph_kernels = subgraph_kernels.copy()
-    #                 temp_subgraph_kernels.append(kernel)
-    #                 new_kernel_avg = np.mean(temp_subgraph_kernels)
-    #                 if new_kernel_avg > best_kernel_avg:
-    #                     best_kernel_avg = new_kernel_avg
-    #                     best_candidate = candidate
-    #                     best_kernel = kernel
-    #
-    #         # pick the best candidate for the context object and update information
-    #         if best_candidate is not None:
-    #             subgraph_kernels.append(best_kernel)
-    #             best_other_nodes.append(best_candidate)
-    #             visited.add(best_candidate)
-    #
-    #     return best_kernel_avg, best_other_nodes
     @staticmethod
     def find_best_matching_subgraph(context_nodes_to_kernels_candidates, target_node, target_kernel):
         # for each context node pick the best candidate
         subgraph_kernels = [target_kernel]
-        best_candidates = []
         visited = {target_node}
+        correspondence = {}
         for context_node, kernels_candidates in context_nodes_to_kernels_candidates.items():
             # sort the candidates by highest kernel
             sorted_kernels_candidates = sorted(kernels_candidates, reverse=True, key=lambda x: x[0])
             for kernel, candidate in sorted_kernels_candidates:
                 # choose the candidate with highest kernel that is not visited.
                 if candidate not in visited:
-                    best_candidates.append(candidate)
+                    correspondence[candidate] = context_node
                     subgraph_kernels.append(kernel)
                     visited.add(candidate)
                     break
@@ -344,14 +316,14 @@ class GraphKernel:
         # compute the average kernel.
         avg_kernel = np.mean(subgraph_kernels)
 
-        return avg_kernel, best_candidates
+        return avg_kernel, correspondence
 
     def context_based_subgraph_matching(self, query_node, context_nodes, target_graphs):
         # concat context nodes and the query node
         query_and_context_nodes = context_nodes + [query_node]
 
         # find the best matching subgraph by computing the graph kernel
-        top_results = []
+        results = []
         for graph_name in target_graphs:
             node_kernel_seen = {}
             graph_kernel_seen = {}
@@ -375,9 +347,9 @@ class GraphKernel:
                     if node_cat == node_to_candidates[n]['cat']:
                         node_to_candidates[n]['candidates'].append(node)
 
-            # only proceed with subgraph matching if the query nodes matched
-            if len(node_to_candidates[query_node]['candidates']) == 0:
-                continue
+            # # only proceed with subgraph matching if the query nodes matched
+            # if len(node_to_candidates[query_node]['candidates']) == 0:
+            #     continue
 
             # for each candidate of a context node compute the graph kernel starting from the candidate versus the
             # context node.
@@ -401,11 +373,9 @@ class GraphKernel:
             context_nodes_to_kernels_candidates = {node: node_to_kernels_candidates[node] for node in
                                                    node_to_kernels_candidates.keys() if node != query_node}
             for target_kernel, target_node in kernels_target_nodes:
-                kernel, other_nodes = self.find_best_matching_subgraph(context_nodes_to_kernels_candidates,
-                                                                       target_node, target_kernel)
-                element = (kernel, graph_name, target_node, other_nodes)
-                top_results.append(element)
+                kernel, correspondence = self.find_best_matching_subgraph(context_nodes_to_kernels_candidates,
+                                                                          target_node, target_kernel)
+                element = (kernel, graph_name, target_node, correspondence)
+                results.append(element)
 
-        # sort the retrieved list by the computed kernels
-        top_results = sorted(top_results, reverse=True, key=lambda x: x[0])
-        return top_results
+        return results
