@@ -6,7 +6,7 @@ import trimesh
 import open3d as o3d
 import pandas as pd
 
-from helper import load_from_json, write_to_json
+from scripts.helper import load_from_json, write_to_json
 
 
 def compute_transformation(translation):
@@ -138,24 +138,18 @@ def read_houses(path):
     return houses
 
 
-def main(num_chunks, chunk_idx):
-    extract_mesh = False
-    save_metadata = False
-    decimate = False
-    visualzie_mesh = False
-
+def main(num_chunks, chunk_idx, action='extract_mesh'):
     # define paths and set up folders for the extracted object meshes
     root_dir = '../data/matterport3d'
-    models_dir = os.path.join(root_dir, 'models')
+    models_dir = os.path.join(root_dir, 'models_test')
     models_dir_decimated = os.path.join(root_dir, 'models_decimated')
     for path in [models_dir, models_dir_decimated]:
         if not os.path.exists(path):
             os.mkdir(path)
 
-    if extract_mesh:
+    if action == 'extract_mesh':
         rooms_dir = os.path.join(root_dir, 'rooms')
         room_names = os.listdir(rooms_dir)
-        # room_names = ['1LXtFkjw3qL_room0', '1LXtFkjw3qL_room1']
         chunk_size = int(np.ceil(len(room_names) / num_chunks))
         room_names = room_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size]
         obj_properties_dict = {'room_name': [], 'objectId': [], 'categoryId': [], 'NYU40': [], 'mpr40': [],
@@ -176,7 +170,7 @@ def main(num_chunks, chunk_idx):
         write_to_json(obj_properties_dict, '../data/matterport3d/mesh_properties{}.json'.format(chunk_idx))
 
     # save the extracted properties
-    if save_metadata:
+    if action == 'save_metadata':
         file_names = os.listdir(root_dir)
         property_dicts = []
         for file_name in file_names:
@@ -212,17 +206,17 @@ def main(num_chunks, chunk_idx):
         # save the metadata
         df_metadata.to_csv(csv_path, index=False)
 
-    if visualzie_mesh:
+    if action == 'visualzie_mesh':
         visualize_meshes(models_dir, num_samples=20)
 
-    if decimate:
+    if action == 'decimate':
         decimate_meshes(models_dir, models_dir_decimated, num_chunks, chunk_idx, visited, num_faces=4000)
 
 
 if __name__ == '__main__':
     visited = set()
     if len(sys.argv) == 1:
-        main(1, 0)
+        main(1, 0, 'extract_mesh')
     else:
-        # parallel -j5 "python3 -u matterport_preprocessing.py {1} {2}" > logs.txt ::: 5 ::: 0 1 2 3 4
-        main(int(sys.argv[1]), int(sys.argv[2]))
+        # parallel -j5 "python3 -u matterport_preprocessing.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: extract_mesh
+        main(int(sys.argv[1]), int(sys.argv[2]), sys.argv[3])
