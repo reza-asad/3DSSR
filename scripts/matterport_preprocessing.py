@@ -206,7 +206,7 @@ def main(num_chunks, chunk_idx, action='extract_mesh'):
         # save the metadata
         df_metadata.to_csv(csv_path, index=False)
 
-    if action == 'visualzie_mesh':
+    if action == 'visualize_mesh':
         visualize_meshes(models_dir, num_samples=20)
 
     if action == 'decimate':
@@ -217,6 +217,8 @@ if __name__ == '__main__':
     visited = set()
     if len(sys.argv) == 1:
         main(1, 0, 'extract_mesh')
+    elif len(sys.argv) == 2:
+        main(1, 0, sys.argv[1])
     else:
         # parallel -j5 "python3 -u matterport_preprocessing.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: extract_mesh
         main(int(sys.argv[1]), int(sys.argv[2]), sys.argv[3])
