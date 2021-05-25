@@ -337,7 +337,7 @@ def main():
     mode = 'test'
     evaluation_mode = 'test'
     model_name = 'SVDRank'
-    experiment_name = 'with_cat_predictions'
+    experiment_name = 'with_cat_predictions_1d'
     q_theta = 0*np.pi/4
     query_results_input_path = '../results/matterport3d/{}/query_dict_{}_{}.json'.format(model_name, mode,
                                                                                          experiment_name)

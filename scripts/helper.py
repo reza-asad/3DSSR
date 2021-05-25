@@ -12,7 +12,7 @@ import cv2
 from .renderer import Render
 from .mesh import Mesh
 
-query_scene = 'YFuZgdQ5vWj_room13.json'
+query_scene = '.json'
 top1 = '.json'
 top2 = '.json'
 top3 = '.json'
@@ -89,11 +89,11 @@ def draw_bbox_img(img, bbox_info, resolution, fov, camera_pose, theta, expansion
 
 
 def render_single_scene(graph, objects, highlighted_object, path, model_dir, colormap, resolution=(512, 512),
-                        faded_nodes=[], rendering_kwargs=None, crop=False, with_bounding_box=False, theta=0,
-                        scene_name=None):
+                        faded_nodes=[], rendering_kwargs=None, crop=False, with_bounding_box=False, alpha=0, beta=0,
+                        gamma=0, scene_name=None):
     # setup default rendering conditions such as lighting
     if rendering_kwargs is None:
-        rendering_kwargs = {'fov': np.pi/6, 'light_directional_intensity': 0.01, 'light_point_intensity_center': 0.0,
+        rendering_kwargs = {'fov': np.pi/4, 'light_directional_intensity': 0.01, 'light_point_intensity_center': 0.0,
                             'wall_thickness': 5}
 
     # prepare scene, camera pose and the room dimensions
@@ -113,7 +113,9 @@ def render_single_scene(graph, objects, highlighted_object, path, model_dir, col
                                                                                 colormap=colormap,
                                                                                 crop=crop,
                                                                                 with_bounding_box=with_bounding_box,
-                                                                                rotation=theta,
+                                                                                alpha=alpha,
+                                                                                beta=beta,
+                                                                                gamma=gamma,
                                                                                 scene_name=scene_name,
                                                                                 expansion_factor=expansion_factor)
     if scene is not None:
@@ -121,11 +123,11 @@ def render_single_scene(graph, objects, highlighted_object, path, model_dir, col
         img = r.pyrender_render(scene, resolution=resolution, camera_pose=camera_pose, room_dimension=room_dimension)
 
         # rotate the image, if required
-        if with_bounding_box:
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            img = draw_bbox_img(img, bbox_info, resolution, rendering_kwargs['fov'], r.camera_pose, theta,
-                                scene_name=scene_name, expansion_factor=expansion_factor)
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # if with_bounding_box:
+        #     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        #     img = draw_bbox_img(img, bbox_info, resolution, rendering_kwargs['fov'], r.camera_pose, theta,
+        #                         scene_name=scene_name, expansion_factor=expansion_factor)
+        #     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         # save the image
         img = Image.fromarray(img)
@@ -133,8 +135,8 @@ def render_single_scene(graph, objects, highlighted_object, path, model_dir, col
 
 
 def prepare_scene_for_rendering(graph, objects, models_dir, query_objects=[], faded_nodes=[], colormap={},
-                                ceiling_cats=['ceiling', 'void'], with_bounding_box=False, crop=False, rotation=None,
-                                scene_name=None, expansion_factor=1.0):
+                                ceiling_cats=['ceiling', 'void'], with_bounding_box=False, crop=False, alpha=0, beta=0,
+                                gamma=0, scene_name=None, expansion_factor=1.0):
     default_color = '#aec7e8'
     scene = []
     cropped_scene = []
@@ -202,9 +204,21 @@ def prepare_scene_for_rendering(graph, objects, models_dir, query_objects=[], fa
     if crop:
         room_dimension = cropped_scene.extents * expansion_factor
         camera_pose, _ = cropped_scene.graph[cropped_scene.camera.name]
-        rotation = trimesh.transformations.rotation_matrix(angle=-rotation, direction=[0, 0, 1],
-                                                           point=cropped_scene.centroid)
-        camera_pose = np.dot(rotation, camera_pose)
+        transformation_z = trimesh.transformations.rotation_matrix(angle=alpha, direction=[0, 0, 1],
+                                                                   point=cropped_scene.centroid)
+        transformation_y = trimesh.transformations.rotation_matrix(angle=beta, direction=[0, 1, 0],
+                                                                   point=cropped_scene.centroid)
+        transformation_x = trimesh.transformations.rotation_matrix(angle=gamma, direction=[1, 0, 0],
+                                                                   point=cropped_scene.centroid)
+
+        transformation = np.matmul(np.matmul(transformation_z, transformation_y), transformation_x)
+        scene.apply_transform(transformation)
+        # scene.show()
+        # camera_pose = np.dot(transformation, camera_pose)
+        # print(camera_pose.shape)
+        # print(camera_pose)
+        # print(transformation)
+        # print('*'*50)
 
     return scene, camera_pose, room_dimension, bbox_info
 

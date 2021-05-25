@@ -57,7 +57,8 @@ def main():
     model_name_exp_map = {('LearningBased', 'lstm_top1_predictions'): 'AlignRank',
                           ('LearningBased', 'lstm_top1_predictions_linear_classifier'): 'AlignRank[-GNN]',
                           ('LearningBased', 'no_alignment'): 'AlignRank[-Align]',
-                          ('SVDRank', 'with_cat_predictions'): 'SVDRank'}
+                          ('SVDRank', 'with_cat_predictions_3d'): 'SVDRank3D',
+                          ('SVDRank', 'with_cat_predictions_1d'): 'SVDRank1D'}
 
     plot_name = 'alignment_ablation_global.png'.format(mode)
 

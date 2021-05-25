@@ -35,7 +35,7 @@ def render_model_results(query_results, scene_graph_dir, models_dir, rendering_p
                 path = os.path.join(rendering_path, query, img_folder, 'query_{}_{}.png'.format(scene_name.split('.')[0], q))
                 render_single_scene(graph=query_graph, objects=query_graph.keys(), highlighted_object=[q],
                                     faded_nodes=faded_nodes, path=path, model_dir=models_dir, colormap=colormap,
-                                    crop=crop, with_bounding_box=with_bounding_box, theta=0, scene_name=scene_name)
+                                    crop=crop, with_bounding_box=with_bounding_box, scene_name=scene_name)
 
             # render the topk results from the model
             top_results_chunk = results['target_subscenes'][: topk][chunk_idx * chunk_size:
@@ -45,11 +45,17 @@ def render_model_results(query_results, scene_graph_dir, models_dir, rendering_p
                 target_graph_path = os.path.join(scene_graph_dir, 'all', target_scene_name)
                 target_graph = load_from_json(target_graph_path)
                 t = target_subscene['target']
-                # display the rotated coordinate frame if necessary.
+                # rotate the target scene if the model outputs a rotation angle or matrix
+                alpha, beta, gamma = 0, 0, 0
                 if 'theta' in target_subscene:
-                    theta = target_subscene['theta']
-                else:
-                    theta = 0
+                    alpha = target_subscene['theta']
+                if 'alpha' in target_subscene:
+                    alpha = target_subscene['alpha']
+                if 'beta' in target_subscene:
+                    beta = target_subscene['beta']
+                if 'gamma' in target_subscene:
+                    gamma = target_subscene['gamma']
+
                 highlighted_object = [t]
                 t_context = set(list(target_subscene['correspondence'].keys()) + [t])
 
@@ -59,8 +65,8 @@ def render_model_results(query_results, scene_graph_dir, models_dir, rendering_p
                                     .format(chunk_idx * chunk_size + j + 1, target_scene_name.split('.')[0], t))
                 render_single_scene(graph=target_graph, objects=target_graph.keys(),
                                     highlighted_object=highlighted_object, faded_nodes=faded_nodes, path=path,
-                                    model_dir=models_dir, colormap=colormap, crop=crop, theta=theta,
-                                    with_bounding_box=with_bounding_box, scene_name=target_scene_name)
+                                    model_dir=models_dir, colormap=colormap, crop=crop, alpha=alpha, beta=beta,
+                                    gamma=gamma, with_bounding_box=with_bounding_box, scene_name=target_scene_name)
 
             visited.add(query)
 
@@ -75,16 +81,16 @@ def plot_evaluations(x, y, fig, ax, label, output_path):
 
 def main(num_chunks, chunk_idx):
     # define initial parameters
-    img_folder = 'imgs'
-    with_bounding_box = True
+    img_folder = 'imgs_cropped'
+    with_bounding_box = False
     make_folders = False
-    render = True
+    render = False
     with_img_table = False
-    filter_queries = ['sofa-28']#['sink-34', 'chair-26', 'chest_of_drawers-25', 'table-17', 'sofa-39']
+    filter_queries = ['all']
     mode = 'test'
-    model_name = 'LearningBased'
-    experiment_name = 'lstm_top1_predictions'
-    topk = 3
+    model_name = 'SVDRank'
+    experiment_name = 'with_cat_predictions_3d'
+    topk = 20
     query_results_path = '../results/matterport3d/{}/query_dict_{}_{}_evaluated.json'.format(model_name, mode,
                                                                                              experiment_name)
     scene_graph_dir = '../data/matterport3d/scene_graphs'

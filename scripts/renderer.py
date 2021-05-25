@@ -76,8 +76,10 @@ class Render:
         #     camera_pose[2, 3] = np.max([(length / 2) / (np.tan(self.kwargs['fov'] / 2)),
         #                                 (width / 2) / np.tan(self.kwargs['fov'] / 2)]) + height
         # else:
-        x = np.sqrt(length**2 + width**2)
-        camera_pose[2, 3] = (x/2) / np.tan(self.kwargs['fov'] / 2) + height
+        max_dim = np.maximum(length, width)
+        x = np.sqrt(max_dim**2 + max_dim**2)
+        camera_pose[2, 3] = np.maximum(x / (2 * np.tan(self.kwargs['fov'] / 2)) + height,
+                                       camera_pose[2, 3] + height)
 
         # ensure the near plane of camera passes the ceiling
         # z_near = camera_pose[2, 3] - height - self.kwargs['wall_thickness']
