@@ -141,7 +141,7 @@ def read_houses(path):
 def main(num_chunks, chunk_idx, action='extract_mesh'):
     # define paths and set up folders for the extracted object meshes
     root_dir = '../data/matterport3d'
-    models_dir = os.path.join(root_dir, 'models_test')
+    models_dir = os.path.join(root_dir, 'models')
     models_dir_decimated = os.path.join(root_dir, 'models_decimated')
     for path in [models_dir, models_dir_decimated]:
         if not os.path.exists(path):
