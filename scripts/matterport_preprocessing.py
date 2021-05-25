@@ -140,7 +140,7 @@ def read_houses(path):
 
 def main(num_chunks, chunk_idx):
     extract_mesh = False
-    save_metadata = True
+    save_metadata = False
     decimate = False
     visualzie_mesh = False
 
