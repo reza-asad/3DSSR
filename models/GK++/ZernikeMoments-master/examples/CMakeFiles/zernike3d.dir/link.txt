@@ -1,1 +1,0 @@
-/usr/bin/c++    -rdynamic CMakeFiles/zernike3d.dir/main.cpp.o  -o zernike3d 

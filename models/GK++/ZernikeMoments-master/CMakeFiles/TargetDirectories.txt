@@ -1,7 +1,0 @@
-/home/reza/Documents/research/3D-Scene-Similarity/ZernikeMoments-master/CMakeFiles/rebuild_cache.dir
-/home/reza/Documents/research/3D-Scene-Similarity/ZernikeMoments-master/CMakeFiles/edit_cache.dir
-/home/reza/Documents/research/3D-Scene-Similarity/ZernikeMoments-master/lib/CMakeFiles/rebuild_cache.dir
-/home/reza/Documents/research/3D-Scene-Similarity/ZernikeMoments-master/lib/CMakeFiles/edit_cache.dir
-/home/reza/Documents/research/3D-Scene-Similarity/ZernikeMoments-master/examples/CMakeFiles/rebuild_cache.dir
-/home/reza/Documents/research/3D-Scene-Similarity/ZernikeMoments-master/examples/CMakeFiles/zernike3d.dir
-/home/reza/Documents/research/3D-Scene-Similarity/ZernikeMoments-master/examples/CMakeFiles/edit_cache.dir
