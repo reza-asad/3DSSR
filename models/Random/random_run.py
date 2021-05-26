@@ -2,9 +2,9 @@ import os
 from time import time
 import numpy as np
 import pandas as pd
-from collections import Counter
+from optparse import OptionParser
 
-from helper import load_from_json, write_to_json
+from scripts.helper import load_from_json, write_to_json
 
 
 def map_cats_to_scene_objects(df):
@@ -32,7 +32,7 @@ def map_cat_to_objects(scene, source_node):
     return cat_to_objects
 
 
-def Random(query_info, model_names, scene_graph_dir, mode, topk):
+def RandomRank(query_info, model_names, scene_graph_dir, mode, topk):
     # shuffle the objects in all scenes
     np.random.shuffle(model_names)
 
@@ -75,7 +75,7 @@ def Random(query_info, model_names, scene_graph_dir, mode, topk):
     return target_subscenes
 
 
-def CategoryRandom(query_info, query_mode, scene_graph_dir, mode, cat_to_scene_objects, topk):
+def CatRank(query_info, query_mode, scene_graph_dir, mode, cat_to_scene_objects, topk):
     # load the query scene and extract the category of the objects
     query_scene_name = query_info['example']['scene_name']
     query = query_info['example']['query']
@@ -132,15 +132,24 @@ def CategoryRandom(query_info, query_mode, scene_graph_dir, mode, cat_to_scene_o
     return target_subscenes
 
 
+def get_args():
+    parser = OptionParser()
+    parser.add_option('--mode', dest='mode', default='test', help='val or test')
+    parser.add_option('--model_name', dest='model_name', default='RandomRank', help='RandomRank or CatRank')
+    parser.add_option('--experiment_name', dest='experiment_name', default='base')
+    (options, args) = parser.parse_args()
+    return options
+
+
 def main():
+    # get the arguments
+    args = get_args()
+
     # define initial parameters
-    mode = 'test'
-    model_name = 'Random'
-    experiment_name = 'base'
-    query_dict_input_path = '../../queries/matterport3d/query_dict_{}.json'.format(mode)
-    query_dict_output_path = '../../results/matterport3d/{}/query_dict_{}_{}.json'.format(model_name,
-                                                                                          mode,
-                                                                                          experiment_name)
+    query_dict_input_path = '../../queries/matterport3d/query_dict_{}.json'.format(args.mode)
+    query_dict_output_path = '../../results/matterport3d/{}/query_dict_{}_{}.json'.format(args.model_name,
+                                                                                          args.mode,
+                                                                                          args.experiment_name)
     scene_graph_dir = '../../data/matterport3d/scene_graphs'
     accepted_cats = set(load_from_json('../../data/matterport3d/accepted_cats.json'))
     topk = 200
@@ -148,25 +157,25 @@ def main():
     # read the query dict and the metadata
     query_dict = load_from_json(query_dict_input_path)
     df_metadata = pd.read_csv('../../data/matterport3d/metadata.csv')
-    df_metadata = df_metadata[df_metadata['split'] == mode]
+    df_metadata = df_metadata[df_metadata['split'] == args.mode]
 
     # filter the metadata to only include objects with accepted category
     cat_is_accepted = df_metadata['mpcat40'].apply(lambda x: x in accepted_cats)
     df_metadata = df_metadata.loc[cat_is_accepted]
 
     # map the categories to scene objects if necessary
-    if model_name == 'Random':
+    if args.model_name == 'RandomRank':
         model_names = df_metadata[['room_name', 'objectId']].apply(lambda x: '-'.join([x['room_name'],
                                                                                        str(x['objectId'])]), axis=1)
         model_names = model_names.values
         for query, query_info in query_dict.items():
-            target_subscenes = Random(query_info, model_names, scene_graph_dir, mode, topk)
+            target_subscenes = RandomRank(query_info, model_names, scene_graph_dir, args.mode, topk)
             query_info['target_subscenes'] = target_subscenes
 
-    elif model_name == 'CategoryRandom':
+    elif args.model_name == 'CatRank':
         cat_to_scene_objects = map_cats_to_scene_objects(df_metadata)
         for query, query_info in query_dict.items():
-            target_subscenes = CategoryRandom(query_info, mode, scene_graph_dir, mode, cat_to_scene_objects, topk)
+            target_subscenes = CatRank(query_info, args.mode, scene_graph_dir, args.mode, cat_to_scene_objects, topk)
             query_info['target_subscenes'] = target_subscenes
 
     else:
