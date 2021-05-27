@@ -102,60 +102,6 @@ def svd_rotation(query_obboxes, target_obboxes):
 
     return best_R, best_err
 
-# def compute_ious(all_t_vertices, all_q_vertices):
-#     overall_iou = 0
-#     for i in range(0, len(all_t_vertices), 9):
-#         # build the obbox for the object in the query subscene
-#         q_vertices = all_q_vertices[i: i+9]
-#         q_obbox = Box(q_vertices)
-#
-#         # build the obbox for the object in the target scene
-#         t_vertices = all_t_vertices[i: i+9]
-#         t_obbox = Box(t_vertices)
-#
-#         # compute the iou
-#         try:
-#             overall_iou += IoU(q_obbox, t_obbox).iou()
-#         except Exception:
-#             print('bad IoU')
-#             overall_iou += 0
-#
-#     return overall_iou
-#
-#
-# def svd_rotation(query_obboxes, target_obboxes):
-#     # combine the vertices in the query subscene
-#     q_vertices = [query_obbox.vertices for query_obbox in query_obboxes]
-#     q_vertices = np.concatenate(q_vertices, axis=0)
-#
-#     # combine the vertices in the target scene
-#     t_vertices = [target_obbox.vertices for target_obbox in target_obboxes]
-#     t_vertices = np.concatenate(t_vertices, axis=0)
-#
-#     # use svd to find the rotation that best aligns the target scene with the query subscene
-#     COR = np.dot(t_vertices.transpose(), q_vertices)
-#     U, S, Vt = np.linalg.svd(COR)
-#     R = np.dot(Vt.transpose(), U.transpose())
-#     best_R = R.copy()
-#     best_err = np.float('inf')
-#
-#     # If R is a reflection matrix look for best rotation.
-#     if np.linalg.det(R) < 0:
-#         for i in range(3):
-#             U, S, Vt = np.linalg.svd(R)
-#             U[i, :] *= -1
-#             new_R = np.dot(Vt.transpose(), U.transpose())
-#             rot_t_vertices = np.dot(new_R, t_vertices.transpose()).transpose()
-#             curr_err = compute_alignment_error(rot_t_vertices, q_vertices)
-#             if curr_err < best_err:
-#                 best_err = curr_err
-#                 best_R = new_R.copy()
-#
-#     rot_t_vertices = np.dot(best_R, t_vertices.transpose()).transpose()
-#     iou = compute_ious(rot_t_vertices, q_vertices)
-#
-#     return best_R, iou
-
 
 def find_best_rotation_svd(query_graph, target_graph, query_node, target_node, bp_graph, with_projection):
     # build obbox for the query object and translate it to the origin
@@ -353,8 +299,6 @@ def find_best_target_subscenes(query_info, data_dir, mode, with_cat_predictions=
     target_subscenes = []
     target_scene_names = os.listdir(os.path.join(data_dir, mode))
     for i, target_scene_name in enumerate(target_scene_names):
-        # if i not in [0]:
-        #     continue
         # if target scene is the same as query, skip.
         if target_scene_name == query_scene_name:
             continue
@@ -398,7 +342,6 @@ def rotate_scene(graph, source_node, alpha, beta, gamma):
     source_translation = -source_obbox.translation
     source_obbox = translate_obbox(source_obbox, source_translation)
     source_obbox = rotate_obbox(source_obbox, alpha, beta, gamma)
-    # source_obbox = translate_obbox(source_obbox, -source_translation)
     graph[source_node]['obbox'] = source_obbox.vertices.tolist()
 
     for node, node_info in graph.items():
@@ -407,64 +350,19 @@ def rotate_scene(graph, source_node, alpha, beta, gamma):
             nb_obbox = Box(nb_obbox_vertices)
             nb_obbox = translate_obbox(nb_obbox, source_translation)
             nb_obbox = rotate_obbox(nb_obbox, alpha, beta, gamma)
-            # nb_obbox = translate_obbox(nb_obbox, -source_translation)
             graph[node]['obbox'] = nb_obbox.vertices.tolist()
 
     return graph
-
-
-def test_rotated_query_prediction(query_info, data_dir, mode, with_projection=False):
-    # partition the unit circle equally into 7 sectors.
-    alphas = [(n * np.pi)/4.0 for n in range(8)]
-
-    # load the query info
-    query_scene_name = query_info['example']['scene_name']
-    query_node = query_info['example']['query']
-    context_objects = query_info['example']['context_objects']
-
-    # take the target graph to be the original query graph
-    target_graph = load_from_json(os.path.join(data_dir, mode, query_scene_name))
-    target_node = query_node
-    query_cats = [target_graph[c]['category'][0] for c in context_objects]
-
-    errors = []
-    # rotate the query by alphas
-    for alpha in alphas:
-        # load the query graph and rotate it according to alpha
-        query_graph = load_from_json(os.path.join(data_dir, mode, query_scene_name))
-        query_graph = rotate_scene(query_graph, query_node, alpha=alpha, beta=0, gamma=0)
-
-        # map the category of each context object to the object ids in the target graph.
-        cat_to_objects = map_cat_to_objects(query_cats, query_graph, query_node, with_cat_predictions=False)
-        bp_graph = build_bipartite_graph(query_graph, context_objects, cat_to_objects)
-
-        # find the rotation that best aligns the target scene and with the query subscene using SVD.
-        rotation_hat = find_best_rotation_svd(query_graph, target_graph, query_node, target_node, bp_graph,
-                                              with_projection)
-        alpha_hat = np.arctan2(rotation_hat[1, 0], rotation_hat[0, 0])
-
-        # compute the error for each alpah
-        alpha_hat = np.mod(alpha_hat + 2 * np.pi, 2 * np.pi)
-        error = np.minimum(np.abs(alpha - alpha_hat), np.abs(alpha + 2 * np.pi - alpha_hat))
-        errors.append(error)
-
-    # record the mean error
-    query_info['mean_error'] = float(np.mean(errors))
-    for e in errors:
-        if e > 0.01:
-            print(errors)
-            raise Exception('Recovering a rotated query resulted error')
 
 
 def get_args():
     parser = OptionParser()
     parser.add_option('--mode', dest='mode', default='test', help='val or test')
     parser.add_option('--data-dir', dest='data_dir',
-                      default='../../results/matterport3d/LearningBased/scene_graphs_cl_with_predictions_gnn')
-    parser.add_option('--experiment_name', dest='experiment_name', default='alignment_error_1d')
-    parser.add_option('--test_rotated_queries', dest='test_rotated_queries', default=True)
+                      default='../../results/matterport3d/LearningBased/scene_graphs_with_predictions_gnn')
+    parser.add_option('--experiment_name', dest='experiment_name', default='SVDRank1D')
     parser.add_option('--with_projection', dest='with_projection', default=True)
-    parser.add_option('--with_cat_predictions', dest='with_cat_predictions', default=False)
+    parser.add_option('--with_cat_predictions', dest='with_cat_predictions', default=True)
 
     (options, args) = parser.parse_args()
     return options
@@ -488,12 +386,9 @@ def main():
         t = time()
         print('Iteration {}/{}'.format(i+1, len(query_dict)))
         print('Processing query: {}'.format(query))
-        if args.test_rotated_queries:
-            test_rotated_query_prediction(query_info, args.data_dir, args.mode, args.with_projection)
-        else:
-            target_subscenes = find_best_target_subscenes(query_info, args.data_dir, args.mode,
-                                                          args.with_cat_predictions, args.with_projection)
-            query_info['target_subscenes'] = target_subscenes
+        target_subscenes = find_best_target_subscenes(query_info, args.data_dir, args.mode,
+                                                      args.with_cat_predictions, args.with_projection)
+        query_info['target_subscenes'] = target_subscenes
         duration = (time() - t) / 60
         print('Processing the query took {} minutes'.format(round(duration, 2)))
     duration_all = (time() - t0) / 60
