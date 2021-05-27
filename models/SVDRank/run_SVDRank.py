@@ -360,8 +360,9 @@ def get_args():
     parser.add_option('--mode', dest='mode', default='test', help='val or test')
     parser.add_option('--data-dir', dest='data_dir',
                       default='../../results/matterport3d/LearningBased/scene_graphs_with_predictions_gnn')
-    parser.add_option('--experiment_name', dest='experiment_name', default='SVDRank1D')
-    parser.add_option('--with_projection', dest='with_projection', default=True)
+    parser.add_option('--experiment_name', dest='experiment_name', default='SVDRank1D', help='SVDRank1D|SVDRank3D')
+    parser.add_option('--with_projection', dest='with_projection', default=True, help='If False set experiment_name'
+                                                                                      'to SVDRank3D.')
     parser.add_option('--with_cat_predictions', dest='with_cat_predictions', default=True)
 
     (options, args) = parser.parse_args()
