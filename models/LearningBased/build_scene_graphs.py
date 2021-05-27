@@ -21,6 +21,13 @@ class SceneGraph:
         self.obbox_expansion = obbox_expansion
         self.context_window = context_window
 
+    def filter_by_accepted_cats(self):
+        filtered_graph = {}
+        for node, node_info in self.graph.items():
+            if node_info['category'][0] in self.accepted_cats:
+                filtered_graph[node] = node_info
+        self.graph = filtered_graph
+
     def initialize_nbs(self):
         for obj, obj_info in self.graph.items():
             obj_info['neighbours'] = {}
@@ -191,75 +198,6 @@ class SceneGraph:
                     # if suport was not detected record a contact relationship
                     if np.sum([obj1_encloses, obj2_encloses, obj1_supports, obj2_supports]) == 0:
                         self.add_edge(obj1, obj2, True, True, 'contact', 'contact')
-
-    def prepare_obj_centered_scene(self, center_obj, ceiling_cats=['ceiling', 'void']):
-        scene = []
-        for obj in self.graph.keys():
-            cat = self.graph[obj]['category'][0]
-
-            # if the mesh is a ceiling mesh skip
-            if cat in ceiling_cats:
-                continue
-
-            # load the mesh and save it to the scene.
-            mesh = prepare_mesh_for_scene(self.models_dir, self.graph, obj)
-            scene.append(mesh)
-
-        del mesh
-        gc.collect()
-
-        # extract the room dimention and the camera pose
-        scene = trimesh.Scene(scene)
-        room_dimension = scene.extents
-        camera_pose, _ = scene.graph[scene.camera.name]
-
-        # translate the camera pose to be above the
-        obj_centroid = np.asarray(self.graph[center_obj]['obbox'][0])
-        camera_pose[:2, 3] = obj_centroid[:2]
-
-        # find the axis along which the rotation of the camera happens.
-        obj_to_scene = scene.centroid - obj_centroid
-        obj_to_scene_xy = obj_to_scene[:2]
-        obj_to_scene_xy = obj_to_scene_xy / np.linalg.norm(obj_to_scene_xy)
-        direction = [-obj_to_scene_xy[1], obj_to_scene_xy[0], 0]
-
-        # the sign of the angle is positive if the room's centroid is on the right of the direction otherwise negative.
-        mid_to_scene_centroid = scene.centroid - (obj_centroid + obj_to_scene / 2.0)
-        mid_to_scene_centroid_xy = mid_to_scene_centroid[:2]
-        mid_to_scene_centroid_xy = mid_to_scene_centroid_xy / np.linalg.norm(mid_to_scene_centroid_xy)
-
-        perpendicular_direction = [mid_to_scene_centroid_xy[0], mid_to_scene_centroid_xy[1], 0]
-        z_axis = np.cross(direction, perpendicular_direction)
-        angle = np.radians(0)
-        if z_axis[2] > 0:
-            angle = -angle
-
-        # rotate the camera pose to point at the object of interest
-        rotation = trimesh.transformations.rotation_matrix(angle=angle, direction=direction, point=obj_centroid)
-        camera_pose = np.dot(rotation, camera_pose)
-
-        return scene, camera_pose, room_dimension
-
-    def find_context_relations(self, objects):
-        from scripts.renderer import Render
-        from PIL import Image
-
-        # prepare the object centered scene.
-        center_obj = objects[9]
-        scene, camera_pose, room_dimension = self.prepare_obj_centered_scene(center_obj)
-
-        print(self.graph[center_obj]['category'][0])
-        resolution = (512, 512)
-        rendering_kwargs = {'fov': np.pi / 6, 'light_directional_intensity': 0.01, 'light_point_intensity_center': 0.0,
-                            'wall_thickness': 5}
-        r = Render(rendering_kwargs)
-        img_context = r.center_view_render(scene, resolution, camera_pose, room_dimension)
-        Image.fromarray(img_context).show()
-
-        # compute the context window in 3D space
-        context_window = np.tan(rendering_kwargs['fov']/2.0) * camera_pose[2, 3] * 2
-        mesh = prepare_mesh_for_scene(self.models_dir, self.graph, center_obj)
-        print(context_window, mesh.extents)
 
     def add_fc_edges(self, objects):
         for obj in objects:

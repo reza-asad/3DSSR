@@ -10,24 +10,21 @@ from scripts.iou import IoU
 
 class Scene(Dataset):
     def __init__(self, data_dir, mode, query_scene_name=None, q_context_objects=None, query_node=None,
-                 with_cat_predictions=False, with_clustering=False, min_num_nbs=5, max_num_nbs=10, q_theta=0):
+                 with_cat_predictions=False, min_num_nbs=5, max_num_nbs=10, q_theta=0):
         self.data_dir = data_dir
         self.mode = mode
         self.query_scene_name = query_scene_name
-        self.with_clustering = with_clustering
+        self.with_cat_predictions = with_cat_predictions
 
         if self.query_scene_name is not None:
             self.query_graph = load_from_json(os.path.join(self.data_dir, self.mode, query_scene_name))
             self.q_context_objects = q_context_objects
             self.query_node = query_node
             self.with_cat_predictions = with_cat_predictions
-            if self.with_clustering:
-                self.file_names = self.filter_by_query_node(os.listdir(os.path.join(self.data_dir, self.mode)),
-                                                            cluster_id=self.query_graph[query_node]['cluster_id'])
-            else:
-                self.file_names = self.filter_by_query_node(os.listdir(os.path.join(self.data_dir, self.mode)),
-                                                            query_cat=self.query_graph[query_node]['category'][0])
-            # if q_theta is greater than 0 roate it
+            self.file_names = self.filter_by_query_node(os.listdir(os.path.join(self.data_dir, self.mode)),
+                                                        query_cat=self.query_graph[query_node]['category'][0])
+
+            # if q_theta is greater than 0 rotate it
             if q_theta > 0:
                 self.rotate_query(q_theta)
         else:
@@ -40,18 +37,14 @@ class Scene(Dataset):
     def __len__(self):
         return len(self.file_names)
 
-    def filter_by_query_node(self, file_names, query_cat=None, cluster_id=None):
-        # TODO: allowing for predicted cats and clustering methods
+    def filter_by_query_node(self, file_names, query_cat=None):
+        # allowing methods relying on oracle or predicted categories.
         filtered_file_names = []
         for file_name in file_names:
             graph = load_from_json(os.path.join(self.data_dir, self.mode, file_name))
             for _, node_info in graph.items():
                 if self.with_cat_predictions:
                     if query_cat == node_info['category_predicted'][0]:
-                        filtered_file_names.append(file_name)
-                        break
-                elif self.with_clustering:
-                    if node_info['cluster_id'] == cluster_id:
                         filtered_file_names.append(file_name)
                         break
                 else:
@@ -99,14 +92,9 @@ class Scene(Dataset):
         rand_idx = np.random.choice(len(ring), num_neighbours, replace=False)
         query_subring = np.asarray(ring)[rand_idx]
 
-        # print('Ring size: ', len(ring))
-        # print('Subring size: ', len(query_subring))
-        # print('*' * 50)
-
         return query_subring.tolist()
 
     def map_cat_to_objects(self, query_cats, graph, source_node):
-        # TODO: allow for predicted cats
         cat_to_objects = {cat: [] for cat in query_cats}
         for node, node_info in graph.items():
             if node != source_node:
@@ -118,18 +106,6 @@ class Scene(Dataset):
                     cat_to_objects[target_cat].append(node)
 
         return cat_to_objects
-
-    @staticmethod
-    def map_cluster_to_objects(query_clusters, graph, source_node):
-        # TODO: allow for clustering methods
-        cluster_to_objects = {cluster_id: [] for cluster_id in query_clusters}
-        for node, node_info in graph.items():
-            if node != source_node:
-                cluster_id = node_info['cluster_id']
-                if cluster_id in cluster_to_objects:
-                    cluster_to_objects[cluster_id].append(node)
-
-        return cluster_to_objects
 
     @staticmethod
     def compute_angle(source_obbox, nb_obbox, source_nb_vec=None):
@@ -158,7 +134,7 @@ class Scene(Dataset):
         return obbox
 
     def build_bipartite_graph(self, query_graph, target_graph, context_objects, query_node, target_node,
-                              cat_to_objects=None, cluster_to_objects=None, clean_objects=[]):
+                              cat_to_objects, clean_objects=[]):
         bp_graph = {}
         # build obbox for the query object and translate it to the origin
         query_obbox_vertices = np.asarray(query_graph[query_node]['obbox'])
@@ -175,12 +151,8 @@ class Scene(Dataset):
         # for each context object populate features for its neighbours of the same category
         for context_obj in context_objects:
             # add the neighbours
-            if cat_to_objects is not None:
-                context_obj_cat = query_graph[context_obj]['category'][0]
-                bp_graph[context_obj] = {'candidates': cat_to_objects[context_obj_cat]}
-            else:
-                context_obj_cluster_id = query_graph[context_obj]['cluster_id']
-                bp_graph[context_obj] = {'candidates': cluster_to_objects[context_obj_cluster_id]}
+            context_obj_cat = query_graph[context_obj]['category'][0]
+            bp_graph[context_obj] = {'candidates': cat_to_objects[context_obj_cat]}
 
             # translate the obbox of the context object using the vector that translates the query object to the origin.
             q_context_obbox_vertices = np.asarray(query_graph[context_obj]['obbox'])
@@ -261,23 +233,6 @@ class Scene(Dataset):
 
         return features
 
-    @staticmethod
-    def perturb_volume(obbox, lower_bound=0.67, upper_bound=1.33):
-        # for each dimension randomly shrink or expand it
-        old_scale = obbox.scale
-        x_factor = np.random.uniform(lower_bound, upper_bound)
-        y_factor = np.random.uniform(lower_bound, upper_bound)
-        z_factor = np.random.uniform(lower_bound, upper_bound)
-        new_scale = old_scale * np.asarray([x_factor, y_factor, z_factor])
-        # make sure the scale is not zero
-        for i in range(len(old_scale)):
-            if new_scale[i] < 0.00001:
-                new_scale[i] = old_scale[i]
-                print(old_scale, new_scale)
-            # new_scale = np.maximum(new_scale, 0.0001)
-        obbox = obbox.from_transformation(obbox.rotation, obbox.translation, new_scale)
-        return obbox
-
     def perturb_centroid(self, obbox, direction, direction_fraction=0.2, angle_epsilon=5):
         # find the min and max scale of the obbox
         scale = obbox.scale
@@ -293,7 +248,6 @@ class Scene(Dataset):
         new_centroid = obbox.translation + perturbation * direction
 
         # perturb the angle of the centroid by a small amount
-        centroid_angle = self.compute_angle(obbox, obbox, new_centroid)
         angle_epsilon = np.random.uniform(0, angle_epsilon)
         if np.random.uniform(0, 1) > 0.5:
             angle_epsilon = -angle_epsilon
@@ -433,18 +387,10 @@ class Scene(Dataset):
             num_neighbours = np.minimum(len(objects) - 1, num_neighbours)
             q_context_objects = self.sample_context_objects(target_graph, query_node, num_neighbours)
 
-            cat_to_objects, cluster_to_objects = None, None
-            # TODO: allowing for clustering methods
-            if self.with_clustering:
-                # find the cluster id for each context object
-                query_clusters = [target_graph[c]['cluster_id'] for c in q_context_objects]
-                # map the cluster ids to all objects with such cluster ids.
-                cluster_to_objects = self.map_cluster_to_objects(query_clusters, target_graph, query_node)
-            else:
-                # find the categories of the context objects in the query subring.
-                query_cats = [target_graph[c]['category'][0] for c in q_context_objects]
-                # map the categories found to the nodes in the entire scene
-                cat_to_objects = self.map_cat_to_objects(query_cats, target_graph, query_node)
+            # find the categories of the context objects in the query subring.
+            query_cats = [target_graph[c]['category'][0] for c in q_context_objects]
+            # map the categories found to the nodes in the entire scene
+            cat_to_objects = self.map_cat_to_objects(query_cats, target_graph, query_node)
 
             # perturb the context objects in the query and rotate them by a random angle.
             data['theta'] = np.random.uniform(0, 2*np.pi)
@@ -453,21 +399,17 @@ class Scene(Dataset):
             # build a bipartite graph connecting each context object in the query to a candidate in the target
             # graph.
             bp_graph = self.build_bipartite_graph(query_graph, target_graph, q_context_objects, query_node,
-                                                  query_node, cat_to_objects, cluster_to_objects, clean_objects)
+                                                  query_node, cat_to_objects, clean_objects)
             # combine the features recorded in the bp_graph into a tensor
             features = self.combine_features(bp_graph, self.feature_names)
             features.unsqueeze_(dim=0)
         else:
             # determine the potential target nodes; i.e nodes with the same category as query node
             query_cat = self.query_graph[self.query_node]['category'][0]
-            if self.with_clustering:
-                query_cluster_id = self.query_graph[self.query_node]['cluster_id']
 
-            # TODO: allow for predicted cats and clustering
+            # find all target nodes with the same category as the query object.
             if self.with_cat_predictions:
                 target_nodes = [n for n in target_graph.keys() if target_graph[n]['category_predicted'][0] == query_cat]
-            elif self.with_clustering:
-                target_nodes = [n for n in target_graph.keys() if query_cluster_id == target_graph[n]['cluster_id']]
             else:
                 target_nodes = [n for n in target_graph.keys() if target_graph[n]['category'][0] == query_cat]
             data['target_nodes'] = target_nodes
@@ -475,27 +417,17 @@ class Scene(Dataset):
             # find the categories of the context objects in the query subring.
             query_cats = [self.query_graph[c]['category'][0] for c in self.q_context_objects]
 
-            if self.with_clustering:
-                # find the cluster id for each context object
-                query_clusters = [self.query_graph[c]['cluster_id'] for c in self.q_context_objects]
-
             # build the features for each target node
             features = []
             data['bp_graphs'] = {}
             for target_node in target_nodes:
-                cat_to_objects, cluster_to_objects = None, None
-                # TODO: allowing for clustering methods
-                if self.with_clustering:
-                    # map the cluster ids to all objects with such cluster ids.
-                    cluster_to_objects = self.map_cluster_to_objects(query_clusters, target_graph, target_node)
-                else:
-                    # map the categories found to the nodes in the entire scene
-                    cat_to_objects = self.map_cat_to_objects(query_cats, target_graph, target_node)
+                # map each category to the objects in the scene with that category.
+                cat_to_objects = self.map_cat_to_objects(query_cats, target_graph, target_node)
 
                 # build a bipartite graph connecting each context object in the query to a candidate in the target
                 # graph.
                 bp_graph = self.build_bipartite_graph(self.query_graph, target_graph, self.q_context_objects,
-                                                      self.query_node, target_node, cat_to_objects, cluster_to_objects)
+                                                      self.query_node, target_node, cat_to_objects)
 
                 # record the context candidates for each target node
                 data['bp_graphs'][target_node] = {}

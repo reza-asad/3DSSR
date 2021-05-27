@@ -1,7 +1,6 @@
 import os
 import torch
 from torch.utils.data import DataLoader
-import numpy as np
 from time import time
 from optparse import OptionParser
 
@@ -84,7 +83,7 @@ def run_gnn(scene_graph_dir, latent_caps_dir, output_dir, cat_to_idx, hidden_dim
                 graph[obj]['category_predicted'] = [idx_to_cats[idx.item()] for idx in topk_predictions[j, :]]
 
             # save the graph with predicted categories.
-            write_to_json(graph, os.path.join(scene_graph_dir_out, file_name))
+            # write_to_json(graph, os.path.join(scene_graph_dir_out, file_name))
 
     # display per class accuracy
     per_class_accuracy_final = {}
@@ -95,7 +94,7 @@ def run_gnn(scene_graph_dir, latent_caps_dir, output_dir, cat_to_idx, hidden_dim
             per_class_accuracy_final[c] = accuracy
 
     # save the per class accuracies.
-    write_to_json(per_class_accuracy_final, os.path.join(cp_dir, 'per_class_accuracy.json'))
+    # write_to_json(per_class_accuracy_final, os.path.join(cp_dir, 'per_class_accuracy.json'))
 
 
 def get_args():
@@ -104,11 +103,11 @@ def get_args():
     parser.add_option('--accepted_cats_path', dest='accepted_cats_path',
                       default='../../data/matterport3d/accepted_cats.json')
     parser.add_option('--scene_graph_dir', dest='scene_graph_dir',
-                      default='../../results/matterport3d/LearningBased/scene_graphs_cl')
+                      default='../../results/matterport3d/LearningBased/scene_graphs')
     parser.add_option('--latent_caps_dir', dest='latent_caps_dir',
                       default='../../../3D-point-capsule-networks/dataset/matterport3d/latent_caps')
     parser.add_option('--output_dir', dest='output_dir',
-                      default='../../results/matterport3d/LearningBased/scene_graphs_cl_with_predictions')
+                      default='../../results/matterport3d/LearningBased/scene_graphs_with_predictions_gnn')
     parser.add_option('--hidden_dim', dest='hidden_dim', default=1024, type='int')
     parser.add_option('--num_layers', dest='num_layers', default=1, type='int')
     parser.add_option('--cp_dir', dest='cp_dir',

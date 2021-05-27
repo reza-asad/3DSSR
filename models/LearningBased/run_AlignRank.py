@@ -35,7 +35,6 @@ def translate_obbox(obbox, translation):
 def examine_target_query_overlap(data_dir, mode, query_graph, query_node, target_scene_name, target_node,
                                  context_candidates, cos_sin_hat):
     # load the query and target graphs
-    # query_graph = load_from_json(os.path.join(data_dir, mode, query_scene_name))
     target_graph = load_from_json(os.path.join(data_dir, mode, target_scene_name))
 
     # build obbox for the query object and translate it to the origin
@@ -93,6 +92,7 @@ def examine_target_query_overlap(data_dir, mode, query_graph, query_node, target
             try:
                 iou = IoU(candidate_to_obbox[candidate], q_c_obbox).iou()
             except Exception:
+                # this could happen if the obbox is too thin.
                 iou = 0
             bp_graph['context_candidates'][context_obj]['IoUs'] += [iou]
 
@@ -127,7 +127,7 @@ def find_correspondence(target_scene_name, target_node, bp_graph):
 
 
 def find_best_target_subscenes(query_info, data_dir, mode, model_dic, device, with_cat_predictions=False,
-                               with_clustering=False, with_alignment=True, q_theta=0):
+                               with_alignment=True, q_theta=0):
     # load the query info
     query_scene_name = query_info['example']['scene_name']
     query_node = query_info['example']['query']
@@ -135,16 +135,13 @@ def find_best_target_subscenes(query_info, data_dir, mode, model_dic, device, wi
 
     # create data data loader
     dataset = Scene(data_dir, mode=mode, query_scene_name=query_scene_name, q_context_objects=context_objects,
-                    query_node=query_node, with_cat_predictions=with_cat_predictions, with_clustering=with_clustering,
-                    q_theta=q_theta)
+                    query_node=query_node, with_cat_predictions=with_cat_predictions, q_theta=q_theta)
     loader = DataLoader(dataset, batch_size=1, num_workers=0, shuffle=False)
 
     # apply the models to valid/test data
     target_subscenes = []
     with torch.no_grad():
         for i, data in enumerate(loader):
-            # if i not in [0]:
-            #     continue
             # load data
             all_features = data['features']
             target_scene_name = data['file_name'][0]
@@ -165,10 +162,8 @@ def find_best_target_subscenes(query_info, data_dir, mode, model_dic, device, wi
                     bp_graphs[target_node][context_object] = clean_candidates
 
             # sort the features by their IoU
-            # for e in all_features:
-            #     print(e.shape)
             for j in range(len(target_nodes)):
-                # TODO: remove this after you remove the match column
+                # remove the match column
                 features = all_features[j][:, :, :-1]
                 features = features.to(device=device, dtype=torch.float32)
 
@@ -207,97 +202,19 @@ def find_best_target_subscenes(query_info, data_dir, mode, model_dic, device, wi
     return target_subscenes
 
 
-def test_rotated_query_prediction(query_info, data_dir, mode, model_dic, device):
-    # load the query info
-    query_scene_name = query_info['example']['scene_name']
-    query_node = query_info['example']['query']
-    context_objects = query_info['example']['context_objects']
-
-    # partition the unit circle equally into 7 sectors.
-    alphas = [(n * np.pi)/4.0 for n in range(8)]
-
-    # rotate the query by alpha and predict the rotation using the alignment module
-    errors = []
-    for alpha in alphas:
-        # create data data loader
-        dataset = Scene(data_dir, mode=mode, query_scene_name=query_scene_name, q_context_objects=context_objects,
-                        query_node=query_node, with_cat_predictions=False, with_clustering=False, q_theta=alpha)
-        loader = DataLoader(dataset, batch_size=1, num_workers=0, shuffle=False)
-
-        # apply the models to valid/test data
-        with torch.no_grad():
-            for i, data in enumerate(loader):
-                # load data
-                all_features = data['features']
-                target_scene_name = data['file_name'][0]
-                target_nodes = [e[0] for e in data['target_nodes']]
-
-                # only take the original query scene
-                if target_scene_name != query_scene_name:
-                    continue
-
-                # read the context candidates and clean them
-                raw_bp_graphs = data['bp_graphs']
-                bp_graphs = {target_node: {} for target_node in raw_bp_graphs.keys()}
-                for target_node, context_to_candidates in raw_bp_graphs.items():
-                    for context_object, candidates in context_to_candidates.items():
-                        clean_candidates = []
-                        for e in candidates:
-                            clean_candidates.append(e[0])
-                        bp_graphs[target_node][context_object] = clean_candidates
-
-                for j in range(len(target_nodes)):
-                    # only take the query node
-                    if target_nodes[j] != query_node:
-                        continue
-
-                    # TODO: remove this after you remove the match column
-                    features = all_features[j][:, :, :-1]
-                    features = features.to(device=device, dtype=torch.float32)
-
-                    # sort the features by their IoU
-                    indices = torch.sort(features[:, :, -1], descending=False)[1]
-                    sorted_features = features[:, indices[0], :]
-
-                    # apply the lstm model if there were at least one pair
-                    h = model_dic['lstm'].init_hidden(batch_size=1)
-                    output, h = model_dic['lstm'](sorted_features, h)
-
-                    # apply a fc layer to regress the output of the lstm
-                    mean_output = torch.mean(output, dim=1).unsqueeze_(dim=1)
-                    cos_sin_hat = model_dic['lin_layer'](mean_output)
-
-                    # bring the cos and sin back to cpu and covert to numpy array
-                    cos_sin_hat = cos_sin_hat.cpu().detach().numpy()[0, 0, :]
-
-                    # compute the predicted angle
-                    alpha_hat = np.arccos(cos_sin_hat[0])
-                    if cos_sin_hat[1] < 0:
-                        alpha_hat = 2 * np.pi - alpha_hat
-
-                    # compute the errro between the predicted and original angle
-                    error = np.minimum(np.abs(alpha - alpha_hat), np.abs(alpha + 2 * np.pi - alpha_hat))
-                    errors.append(error)
-
-    # record the mean error
-    query_info['mean_error'] = float(np.mean(errors))
-
-
 def get_args():
     parser = OptionParser()
     parser.add_option('--mode', dest='mode', default='test', help='val or test')
     parser.add_option('--data-dir', dest='data_dir',
-                      default='../../results/matterport3d/LearningBased/scene_graphs_cl_with_predictions_gnn')
+                      default='../../results/matterport3d/LearningBased/scene_graphs_with_predictions_gnn')
     parser.add_option('--cp_dir', dest='cp_dir',
                       default='../../results/matterport3d/LearningBased/lstm_alignment')
-    parser.add_option('--experiment_name', dest='experiment_name', default='alignment_error_1d')
+    parser.add_option('--experiment_name', dest='experiment_name', default='AlignRank')
     parser.add_option('--hidden_dim', dest='hidden_dim', default=512, type='int')
     parser.add_option('--input_dim', dest='input_dim', default=5)
-    parser.add_option('--with_cat_predictions', dest='with_cat_predictions', default=False)
-    parser.add_option('--with_clustering', dest='with_clustering', default=False)
+    parser.add_option('--with_cat_predictions', dest='with_cat_predictions', default=True)
     parser.add_option('--with_alignment', dest='with_alignment', default=True)
     parser.add_option('--q_theta', dest='q_theta', default=0*np.pi/4)
-    parser.add_option('--test_rotated_queries', dest='test_rotated_queries', default=True)
     parser.add_option('--gpu', action='store_true', dest='gpu', default=True, help='use cuda')
 
     (options, args) = parser.parse_args()
@@ -339,13 +256,9 @@ def main():
         t = time()
         print('Iteration {}/{}'.format(i+1, len(query_dict)))
         print('Processing query: {}'.format(query))
-        if args.test_rotated_queries:
-            test_rotated_query_prediction(query_info, args.data_dir, args.mode, model_dic, device)
-        else:
-            target_subscenes = find_best_target_subscenes(query_info, args.data_dir, args.mode, model_dic, device,
-                                                          args.with_cat_predictions, args.with_clustering,
-                                                          args.with_alignment, args.q_theta)
-            query_info['target_subscenes'] = target_subscenes
+        target_subscenes = find_best_target_subscenes(query_info, args.data_dir, args.mode, model_dic, device,
+                                                      args.with_cat_predictions, args.with_alignment, args.q_theta)
+        query_info['target_subscenes'] = target_subscenes
         duration = (time() - t) / 60
         print('Processing the query took {} minutes'.format(round(duration, 2)))
     duration_all = (time() - t0) / 60

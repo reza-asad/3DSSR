@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 from graph_dataset import Scene
 from models import MLP
 from scripts.helper import load_from_json, write_to_json
-from train_classifier import evaluate_net
+from train_linear_classifier import evaluate_net
 
 alpha = 1
 gamma = 2.
@@ -53,7 +53,7 @@ def get_args():
     parser.add_option('--accepted_cats_path', dest='accepted_cats_path',
                       default='../../data/matterport3d/accepted_cats.json')
     parser.add_option('--scene_graph_dir', dest='scene_graph_dir',
-                      default='../../results/matterport3d/LearningBased/scene_graphs_cl')
+                      default='../../results/matterport3d/LearningBased/scene_graphs')
     parser.add_option('--latent_caps_dir', dest='latent_caps_dir',
                       default='../../../3D-point-capsule-networks/dataset/matterport3d/latent_caps')
     parser.add_option('--hidden_dim', dest='hidden_dim', default=1024, type='int')

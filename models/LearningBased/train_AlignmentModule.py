@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 
 from scene_dataset import Scene
-from models import DeepSetAlign, Lstm, CosSinRegressor
+from models import Lstm, CosSinRegressor
 
 
 def evaluate_net(model_dic, valid_loader, loss_criterion, lambda_reg, device):
@@ -28,15 +28,12 @@ def evaluate_net(model_dic, valid_loader, loss_criterion, lambda_reg, device):
             cos_sin[0, 1] = torch.sin(theta)
             cos_sin_sum_squared = torch.ones(1)
 
-            # TODO: remove this after you remove the match column
+            # remove the match column
             features = features[:, :, :-1]
 
             features = features.to(device=device, dtype=torch.float32)
             cos_sin = cos_sin.to(device=device, dtype=torch.float32)
             cos_sin_sum_squared = cos_sin_sum_squared.to(device=device, dtype=torch.float32)
-
-            # # apply the model and predict the best alignment
-            # cos_sin_hat = model(features)
 
             # sort the features by their IoU
             indices = torch.sort(features[:, :, -1], descending=False)[1]
@@ -62,8 +59,8 @@ def evaluate_net(model_dic, valid_loader, loss_criterion, lambda_reg, device):
     return total_validation_loss/num_samples
 
 
-def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_folder='scene_alignment_lstm', input_dim=5,
-              with_clustering=False, eval_itr=1000, patience=5, lambda_reg=1):
+def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_folder='lstm_alignment', input_dim=5,
+              eval_itr=1000, patience=5, lambda_reg=1):
     # create a directory for checkpoints
     check_point_dir = '/'.join(data_dir.split('/')[:-1])
     model_dir = os.path.join(check_point_dir, cp_folder)
@@ -71,16 +68,14 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_fol
         os.makedirs(model_dir)
 
     # create the training dataset
-    # TODO: turn this back to train
-    train_dataset = Scene(data_dir, mode='train', with_clustering=with_clustering)
-    valid_dataset = Scene(data_dir, mode='val', with_clustering=with_clustering)
+    train_dataset = Scene(data_dir, mode='train')
+    valid_dataset = Scene(data_dir, mode='val')
 
     # create the dataloaders
     train_loader = DataLoader(train_dataset, batch_size=1, num_workers=0, shuffle=True)
     valid_loader = DataLoader(valid_dataset, batch_size=1, num_workers=0, shuffle=True)
 
     # load the model
-    # model = DeepSetAlign(input_dim, hidden_dim)
     lstm = Lstm(input_dim, hidden_dim, device)
     lin_layer = CosSinRegressor(hidden_dim)
     lstm = lstm.to(device=device)
@@ -124,10 +119,7 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_fol
             cos_sin[0, 1] = torch.sin(theta)
             cos_sin_sum_squared = torch.ones(1)
 
-            # np.save(os.path.join(model_dir, data['file_name'][0]), np.asarray(data['features']))
-            # if i == 49:
-            #     return
-            # TODO: remove this after you remove the match column
+            # remove the match column
             features = features[:, :, :-1]
 
             features = features.to(device=device, dtype=torch.float32)
@@ -138,16 +130,9 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_fol
             indices = torch.sort(features[:, :, -1], descending=False)[1]
             sorted_features = features[:, indices[0], :]
 
-            # apply the model and predict the best alignment
-            # cos_sin_hat = model(features)
-
             # apply the lstm model
             h = lstm.init_hidden(batch_size=1)
             output, h = lstm(sorted_features, h)
-
-            # num_candidates = sorted_features.shape[1]
-            # for j in range(num_candidates):
-            #     output, h = lstm(sorted_features[:, j:j+1, :], h)
 
             # apply a fc layer to regress the output of the lstm
             mean_output = torch.mean(output, dim=1).unsqueeze_(dim=1)
@@ -184,8 +169,6 @@ def train_net(data_dir, num_epochs, lr, device, hidden_dim, save_cp=True, cp_fol
 
         # save model from every nth epoch
         print('Epoch %d finished! - Loss: %.6f' % (epoch + 1, epoch_loss / (i + 1)))
-        print(cos_sin_hat[0, 0, 0].item(), cos_sin[0, 0].item(), cos_sin_hat[0, 0, 1].item(), cos_sin[0, 1].item())
-        print('-' * 50)
         if save_cp and ((epoch + 1) % 20 == 0):
             for model_name, model in model_dic.items():
                 torch.save(model.state_dict(), os.path.join(model_dir, 'CP_{}_{}.pth'.format(model_name, epoch + 1)))
@@ -208,14 +191,13 @@ def get_args():
     parser = OptionParser()
     parser.add_option('--epochs', dest='epochs', default=200, type='int', help='number of epochs')
     parser.add_option('--data-dir', dest='data_dir',
-                      default='../../results/matterport3d/LearningBased/scene_graphs_cl_with_predictions_kmeans',
+                      default='../../results/matterport3d/LearningBased/scene_graphs',
                       help='data directory')
     parser.add_option('--hidden_dim', dest='hidden_dim', default=512, type='int')
     parser.add_option('--patience', dest='patience', default=20, type='int')
     parser.add_option('--eval_iter', dest='eval_iter', default=1000, type='int')
-    parser.add_option('--cp_folder', dest='cp_folder', default='lstm_alignment_no_cats_kmeans')
+    parser.add_option('--cp_folder', dest='cp_folder', default='lstm_alignment_test')
     parser.add_option('--input_dim', dest='input_dim', default=5)
-    parser.add_option('--with_clustering', dest='with_clustering', default=True)
     parser.add_option('--gpu', action='store_true', dest='gpu', default=True, help='use cuda')
 
     (options, args) = parser.parse_args()
@@ -234,15 +216,10 @@ def main():
     # time the training
     t = time()
     train_net(data_dir=args.data_dir, num_epochs=args.epochs, lr=1e-3, device=device, hidden_dim=args.hidden_dim,
-              patience=args.patience, eval_itr=args.eval_iter, cp_folder=args.cp_folder, input_dim=args.input_dim,
-              with_clustering=args.with_clustering)
+              patience=args.patience, eval_itr=args.eval_iter, cp_folder=args.cp_folder, input_dim=args.input_dim)
     t2 = time()
     print("Training took %.3f minutes" % ((t2 - t) / 60))
 
 
 if __name__ == '__main__':
     main()
-
-
-
-

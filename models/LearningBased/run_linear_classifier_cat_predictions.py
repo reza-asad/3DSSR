@@ -1,14 +1,13 @@
 import os
 import torch
 from torch.utils.data import DataLoader
-import numpy as np
 from time import time
 from optparse import OptionParser
 
 from scripts.helper import load_from_json, write_to_json
 from graph_dataset import Scene
 from models import MLP
-from train_classifier import compute_accuracy
+from train_linear_classifier import compute_accuracy
 
 alpha = 1
 gamma = 2.
@@ -95,11 +94,11 @@ def get_args():
     parser.add_option('--accepted_cats_path', dest='accepted_cats_path',
                       default='../../data/matterport3d/accepted_cats.json')
     parser.add_option('--scene_graph_dir', dest='scene_graph_dir',
-                      default='../../results/matterport3d/LearningBased/scene_graphs_cl')
+                      default='../../results/matterport3d/LearningBased/scene_graphs')
     parser.add_option('--latent_caps_dir', dest='latent_caps_dir',
                       default='../../../3D-point-capsule-networks/dataset/matterport3d/latent_caps')
     parser.add_option('--output_dir', dest='output_dir',
-                      default='../../results/matterport3d/LearningBased/scene_graphs_cl_with_predictions_linear')
+                      default='../../results/matterport3d/LearningBased/scene_graphs_with_predictions_linear')
     parser.add_option('--hidden_dim', dest='hidden_dim', default=1024, type='int')
     parser.add_option('--cp_dir', dest='cp_dir',
                       default='../../results/matterport3d/LearningBased/linear_cat_prediction')

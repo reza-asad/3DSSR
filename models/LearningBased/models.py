@@ -2,35 +2,6 @@ import torch
 import torch.nn as nn
 
 
-class DeepSetAlign(nn.Module):
-    def __init__(self, input_dim, hidden_dim):
-        super(DeepSetAlign, self).__init__()
-        self.lin_layer1 = nn.Linear(input_dim, hidden_dim, bias=False)
-        self.lin_layer2 = nn.Linear(hidden_dim, hidden_dim, bias=False)
-        self.lin_layer3 = nn.Linear(hidden_dim, 2, bias=False)
-
-        for m in self.modules():
-            self.weights_init(m)
-
-    def weights_init(self, m):
-        if isinstance(m, nn.Linear):
-            torch.nn.init.xavier_uniform_(m.weight.data)
-            if m.bias is not None:
-                m.bias.data.fill_(0.0)
-
-    def forward(self, features):
-        hidden = torch.relu(self.lin_layer1(features))
-        # hidden = hidden + torch.sin(hidden)**2
-        hidden = torch.relu(self.lin_layer2(hidden))
-        # hidden = hidden + torch.sin(hidden)**2
-        summary = torch.mean(hidden, dim=1)
-
-        # use the summary to predict cosine and sine of the best alignment angle
-        cos_sin = torch.tanh(self.lin_layer3(summary))
-
-        return cos_sin
-
-
 class Lstm(nn.Module):
     def __init__(self, input_dim, hidden_dim, device, num_layers=2, num_direction=2):
         super(Lstm, self).__init__()
@@ -73,30 +44,6 @@ class CosSinRegressor(nn.Module):
         cos_sin = torch.tanh(self.lin_layer(x))
 
         return cos_sin
-
-
-class CorrClassifier(nn.Module):
-    def __init__(self, hidden_dim):
-        super(CorrClassifier, self).__init__()
-        self.lin_layer1 = nn.Linear(hidden_dim * 2, 1, bias=False)
-        # self.normalization = nn.BatchNorm1d(256)
-        # self.lin_layer2 = nn.Linear(256, 256, bias=False)
-        for m in self.modules():
-            self.weights_init(m)
-
-    def weights_init(self, m):
-        if isinstance(m, nn.Linear):
-            torch.nn.init.xavier_uniform_(m.weight.data)
-            if m.bias is not None:
-                m.bias.data.fill_(0.0)
-
-    def forward(self, x):
-        x = self.lin_layer1(x)
-        # x = self.normalization(x)
-        # x = torch.relu(x)
-        # x = self.lin_layer2(x)
-
-        return x
 
 
 class GCN(nn.Module):
