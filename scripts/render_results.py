@@ -1,9 +1,7 @@
 import os
 import sys
 import numpy as np
-from time import time
 from matplotlib import pyplot as plt
-from PIL import Image
 
 from scripts.helper import load_from_json, render_single_scene, create_img_table
 
@@ -18,60 +16,57 @@ def make_rendering_folders(query_results, rendering_path, img_folder='imgs'):
 
 
 def render_model_results(query_results, scene_graph_dir, models_dir, rendering_path, colormap, num_chunks, chunk_size,
-                         chunk_idx, mode, topk=50, img_folder='imgs', with_bounding_box=False):
+                         chunk_idx, mode, topk=50, img_folder='imgs'):
     # visualize the result of each query
-    crop = 'crop' in img_folder
     for i, (query, results) in enumerate(query_results.items()):
-        if query not in visited:
-            # render the query scene once only
-            if chunk_idx == i % num_chunks:
-                scene_name = results['example']['scene_name']
-                query_graph = load_from_json(os.path.join(scene_graph_dir, mode, scene_name))
-                q = results['example']['query']
-                q_context = set(results['example']['context_objects'] + [q])
+        seen = os.listdir(os.path.join(rendering_path, query, img_folder))
+        if len(seen) == (topk + 1):
+            continue
+        # render the query scene once only
+        if chunk_idx == i % num_chunks:
+            scene_name = results['example']['scene_name']
+            query_graph = load_from_json(os.path.join(scene_graph_dir, mode, scene_name))
+            q = results['example']['query']
+            q_context = set(results['example']['context_objects'] + [q])
 
-                # render the image
-                faded_nodes = [obj for obj in query_graph.keys() if obj not in q_context]
-                path = os.path.join(rendering_path, query, img_folder, 'query_{}_{}.png'.format(scene_name.split('.')[0], q))
-                render_single_scene(graph=query_graph, objects=query_graph.keys(), highlighted_object=[q],
-                                    faded_nodes=faded_nodes, path=path, model_dir=models_dir, colormap=colormap,
-                                    crop=crop, with_bounding_box=with_bounding_box, scene_name=scene_name)
+            # render the image
+            faded_nodes = [obj for obj in query_graph.keys() if obj not in q_context]
+            path = os.path.join(rendering_path, query, img_folder, 'query_{}_{}.png'.format(scene_name.split('.')[0], q))
+            render_single_scene(graph=query_graph, objects=query_graph.keys(), highlighted_object=[q],
+                                faded_nodes=faded_nodes, path=path, model_dir=models_dir, colormap=colormap)
 
-            # render the topk results from the model
-            top_results_chunk = results['target_subscenes'][: topk][chunk_idx * chunk_size:
-                                                                    (chunk_idx + 1) * chunk_size]
-            for j, target_subscene in enumerate(top_results_chunk):
-                target_scene_name = target_subscene['scene_name']
-                target_graph_path = os.path.join(scene_graph_dir, 'all', target_scene_name)
-                target_graph = load_from_json(target_graph_path)
-                t = target_subscene['target']
-                # rotate the target scene if the model outputs a rotation angle or matrix
-                alpha, beta, gamma = 0, 0, 0
-                if 'theta' in target_subscene:
-                    alpha = target_subscene['theta']
-                if 'alpha' in target_subscene:
-                    alpha = target_subscene['alpha']
-                if 'beta' in target_subscene:
-                    beta = target_subscene['beta']
-                if 'gamma' in target_subscene:
-                    gamma = target_subscene['gamma']
+        # render the topk results from the model
+        top_results_chunk = results['target_subscenes'][: topk][chunk_idx * chunk_size:
+                                                                (chunk_idx + 1) * chunk_size]
+        for j, target_subscene in enumerate(top_results_chunk):
+            target_scene_name = target_subscene['scene_name']
+            target_graph_path = os.path.join(scene_graph_dir, 'all', target_scene_name)
+            target_graph = load_from_json(target_graph_path)
+            t = target_subscene['target']
+            # rotate the target scene if the model outputs a rotation angle or matrix
+            alpha, beta, gamma = 0, 0, 0
+            if 'theta' in target_subscene:
+                alpha = target_subscene['theta']
+            if 'alpha' in target_subscene:
+                alpha = target_subscene['alpha']
+            if 'beta' in target_subscene:
+                beta = target_subscene['beta']
+            if 'gamma' in target_subscene:
+                gamma = target_subscene['gamma']
 
-                highlighted_object = [t]
-                t_context = set(list(target_subscene['correspondence'].keys()) + [t])
+            highlighted_object = [t]
+            t_context = set(list(target_subscene['correspondence'].keys()) + [t])
 
-                # render the image
-                faded_nodes = [obj for obj in target_graph.keys() if obj not in t_context]
-                path = os.path.join(rendering_path, query, img_folder, 'top_{}_{}_{}.png'
-                                    .format(chunk_idx * chunk_size + j + 1, target_scene_name.split('.')[0], t))
-                render_single_scene(graph=target_graph, objects=target_graph.keys(),
-                                    highlighted_object=highlighted_object, faded_nodes=faded_nodes, path=path,
-                                    model_dir=models_dir, colormap=colormap, crop=crop, alpha=alpha, beta=beta,
-                                    gamma=gamma, with_bounding_box=with_bounding_box, scene_name=target_scene_name)
-
-            visited.add(query)
+            # render the image
+            faded_nodes = [obj for obj in target_graph.keys() if obj not in t_context]
+            path = os.path.join(rendering_path, query, img_folder, 'top_{}_{}_{}.png'
+                                .format(chunk_idx * chunk_size + j + 1, target_scene_name.split('.')[0], t))
+            render_single_scene(graph=target_graph, objects=target_graph.keys(),
+                                highlighted_object=highlighted_object, faded_nodes=faded_nodes, path=path,
+                                model_dir=models_dir, colormap=colormap, alpha=alpha, beta=beta, gamma=gamma)
 
 
-def plot_evaluations(x, y, fig, ax, label, output_path):
+def plot_evaluations(x, y, fig, ax, label,):
     ax.plot(x, y, label=label)
     plt.title("Distance and Overlap mAPs")
     plt.xlabel("Thresholds")
@@ -79,28 +74,19 @@ def plot_evaluations(x, y, fig, ax, label, output_path):
     leg = ax.legend()
 
 
-def main(num_chunks, chunk_idx):
-    # define initial parameters
-    img_folder = 'imgs_cropped'
-    with_bounding_box = False
-    make_folders = False
-    render = False
-    with_img_table = False
-    filter_queries = ['all']
-    mode = 'test'
-    model_name = 'SVDRank'
-    experiment_name = 'with_cat_predictions_3d'
-    topk = 20
+def main(num_chunks, chunk_idx, mode, model_name='LearningBased', experiment_name='AlignRank', render=False, topk=5,
+         make_folders=False, with_img_table=False, filter_queries=['all']):
+    # define paths
     query_results_path = '../results/matterport3d/{}/query_dict_{}_{}_evaluated.json'.format(model_name, mode,
                                                                                              experiment_name)
     scene_graph_dir = '../data/matterport3d/scene_graphs'
-    rendering_path = '../results/matterport3d/{}/rendered_results/{}/{}'.format(model_name, mode, experiment_name)
+    rendering_path = '../results/matterport3d/rendered_results_subset/{}/{}'.format(mode, experiment_name)
     models_dir = '../data/matterport3d/models'
     colormap = load_from_json('../data/matterport3d/color_map.json')
-    caption_keys = {'distance_mAP', 'distance_precision', 'overlap_mAP', 'overlap_precision', 'overlap_rotation',
-                    'theta', 'min_distance', 'max_distance', 'min_overlap', 'max_overlap'}
+    img_folder = 'imgs'
+    caption_keys = {'overlap_mAP', 'theta'}
 
-    # load the query results and filter it if necessary
+    # load the query results and filter them if necessary.
     query_results = load_from_json(query_results_path)
     filtered_query_results = {}
     if filter_queries[0] != 'all':
@@ -118,7 +104,7 @@ def main(num_chunks, chunk_idx):
         # render results from the model
         chunk_size = int(np.ceil(topk / num_chunks))
         render_model_results(filtered_query_results, scene_graph_dir, models_dir, rendering_path, colormap, num_chunks,
-                             chunk_size, chunk_idx, mode, topk, img_folder, with_bounding_box)
+                             chunk_size, chunk_idx, mode, topk, img_folder)
 
     if with_img_table:
         for query, results in filtered_query_results.items():
@@ -126,10 +112,11 @@ def main(num_chunks, chunk_idx):
             evaluation_plot_name = 'evaluation.png'
             evaluation_plot_path = os.path.join(rendering_path, query, img_folder, evaluation_plot_name)
             fig, ax = plt.subplots()
-            for metric in ['distance_mAP', 'overlap_mAP']:
+            for metric in ['overlap_mAP']:
                 x, y = list(zip(*results[metric]['mAP']))
-                plot_evaluations(x, y, fig, ax, metric, evaluation_plot_path)
+                plot_evaluations(x, y, fig, ax, metric)
             plt.savefig(evaluation_plot_path)
+            plt.close()
 
             # read images in the img directory and find the query img
             imgs_path = os.path.join(rendering_path, query, img_folder)
@@ -150,7 +137,6 @@ def main(num_chunks, chunk_idx):
             captions = []
             target_subscenes = results['target_subscenes']
             topk = 10
-            num_objects = len(results['example']['context_objects']) + 1
             for i in range(len(sorted_imgs)):
                 caption = '<br />\n'
                 # add number of context matches
@@ -158,12 +144,7 @@ def main(num_chunks, chunk_idx):
                     caption += 'num_objects: {} <br />\n'.format(target_subscenes[i]['context_match'] + 1)
                 for key, value in target_subscenes[i].items():
                     if key in caption_keys:
-                        if 'precision' in key:
-                            caption_value = '{}/{}'.format(int(value * num_objects),
-                                                           num_objects)
-                        elif 'theta' in key:
-                            caption_value = np.round(value * 180 / np.pi, 0)
-                        elif 'overlap_rotation' in key:
+                        if 'theta' in key:
                             caption_value = np.round(value * 180 / np.pi, 0)
                         else:
                             caption_value = value
@@ -176,14 +157,21 @@ def main(num_chunks, chunk_idx):
 
 
 if __name__ == '__main__':
-    visited = set()
-    t = time()
-    if len(sys.argv) == 1:
-        main(1, 0)
-    else:
-        # To run in parallel you can use the command:
-        # export PYTHONPATH="${PYTHONPATH}:/home/reza/Documents/research/3DSSR"
-        # parallel -j5 "python3 -u render_results.py main {1} {2}" ::: 5 ::: 0 1 2 3 4
-        main(int(sys.argv[2]), int(sys.argv[3]))
-    duration = (time() - t)/60
-    print('Rendering took {} minutes'.format(np.round(duration, 2)))
+    filter_queries = sys.argv[10]
+    qs = filter_queries.split(',')
+    new_qs = []
+    for i, e in enumerate(qs):
+        if i == 0:
+            new_qs.append(e[1:])
+        elif i == (len(qs) - 1):
+            new_qs.append(e[:-1])
+        else:
+            new_qs.append(e)
+
+    bool_args = [sys.argv[6], sys.argv[8], sys.argv[9]]
+    for i in range(len(bool_args)):
+        bool_args[i] = bool_args[i].lower() == 'true'
+
+    main(int(sys.argv[1]), int(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5], bool_args[0],
+         int(sys.argv[7]), bool_args[1], bool_args[2], new_qs)
+
