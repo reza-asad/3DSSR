@@ -134,9 +134,8 @@ def CatRank(query_info, query_mode, scene_graph_dir, mode, cat_to_scene_objects,
 
 def get_args():
     parser = OptionParser()
-    parser.add_option('--mode', dest='mode', default='test', help='val or test')
-    parser.add_option('--model_name', dest='model_name', default='RandomRank', help='RandomRank or CatRank')
-    parser.add_option('--experiment_name', dest='experiment_name', default='base')
+    parser.add_option('--mode', dest='mode', default='test', help='val|test')
+    parser.add_option('--model_name', dest='model_name', default='RandomRank', help='RandomRank|CatRank')
     (options, args) = parser.parse_args()
     return options
 
@@ -149,7 +148,7 @@ def main():
     query_dict_input_path = '../../queries/matterport3d/query_dict_{}.json'.format(args.mode)
     query_dict_output_path = '../../results/matterport3d/{}/query_dict_{}_{}.json'.format(args.model_name,
                                                                                           args.mode,
-                                                                                          args.experiment_name)
+                                                                                          args.model_name)
     scene_graph_dir = '../../data/matterport3d/scene_graphs'
     accepted_cats = set(load_from_json('../../data/matterport3d/accepted_cats.json'))
     topk = 200
