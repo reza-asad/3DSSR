@@ -94,7 +94,7 @@ def run_gnn(scene_graph_dir, latent_caps_dir, output_dir, cat_to_idx, hidden_dim
             per_class_accuracy_final[c] = accuracy
 
     # save the per class accuracies.
-    # write_to_json(per_class_accuracy_final, os.path.join(cp_dir, 'per_class_accuracy.json'))
+    write_to_json(per_class_accuracy_final, os.path.join(cp_dir, 'per_class_accuracy.json'))
 
 
 def get_args():
