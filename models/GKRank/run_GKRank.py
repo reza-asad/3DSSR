@@ -83,7 +83,7 @@ def main(num_chunks, chunk_idx, action='extract_target_subscenes'):
 if __name__ == '__main__':
     # set mode to test or val
     mode = 'test'
-    experiment_name = 'base'
+    experiment_name = 'GKRank'
 
     visited = set()
     if len(sys.argv) == 1:
