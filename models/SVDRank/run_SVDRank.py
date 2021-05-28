@@ -357,7 +357,7 @@ def rotate_scene(graph, source_node, alpha, beta, gamma):
 
 def get_args():
     parser = OptionParser()
-    parser.add_option('--mode', dest='mode', default='test', help='val or test')
+    parser.add_option('--mode', dest='mode', default='test', help='val|test')
     parser.add_option('--data-dir', dest='data_dir',
                       default='../../results/matterport3d/LearningBased/scene_graphs_with_predictions_gnn')
     parser.add_option('--experiment_name', dest='experiment_name', default='SVDRank1D', help='SVDRank1D|SVDRank3D')
