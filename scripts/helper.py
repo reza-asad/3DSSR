@@ -5,17 +5,10 @@ import json
 import numpy as np
 import trimesh
 from PIL import Image
-import networkx as nx
-from graphviz import Source
 import cv2
 
 from .renderer import Render
 from .mesh import Mesh
-
-query_scene = '.json'
-top1 = '.json'
-top2 = '.json'
-top3 = '.json'
 
 
 def load_from_json(path, mode='r'):
@@ -28,8 +21,7 @@ def write_to_json(dictionary, path, mode='w', indent=4):
         json.dump(dictionary, f, indent=indent)
 
 
-def draw_bbox_img(img, bbox_info, resolution, fov, camera_pose, theta, expansion_factor=1.0, arrow_pixel=30,
-                  scene_name=None):
+def draw_bbox_img(img, bbox_info, resolution, fov, camera_pose, theta, expansion_factor=1.0, arrow_pixel=30):
     # unload the bbox dimensions and the vector connecting the centroid of the scene to the centroid of the box.
     bbox_dims, vec = bbox_info
 
@@ -57,9 +49,6 @@ def draw_bbox_img(img, bbox_info, resolution, fov, camera_pose, theta, expansion
     pts[3, :] = [-bbox_x_pixel, bbox_y_pixel, 1]
 
     # rotate the box around the origin
-    # angles = np.asarray([0, np.pi/2, np.pi, np.pi*1.5, 2*np.pi])
-    # min_idx = np.argmin(abs(angles - theta))
-    # delta_angle = angles[min_idx] - theta
     rotation = np.asarray([[np.cos(-theta), -np.sin(-theta), 0],
                            [np.sin(-theta), np.cos(-theta), 0],
                            [0, 0, 1]])
@@ -89,54 +78,41 @@ def draw_bbox_img(img, bbox_info, resolution, fov, camera_pose, theta, expansion
 
 
 def render_single_scene(graph, objects, highlighted_object, path, model_dir, colormap, resolution=(512, 512),
-                        faded_nodes=[], rendering_kwargs=None, crop=False, with_bounding_box=False, alpha=0, beta=0,
-                        gamma=0, scene_name=None):
+                        faded_nodes=[], rendering_kwargs=None, alpha=0, beta=0, gamma=0):
     # setup default rendering conditions such as lighting
     if rendering_kwargs is None:
         rendering_kwargs = {'fov': np.pi/4, 'light_directional_intensity': 0.01, 'light_point_intensity_center': 0.0,
                             'wall_thickness': 5}
 
-    # prepare scene, camera pose and the room dimensions
-    expansion_factor = 1.0
-    scene_name_to_expansion = {query_scene: 1.0,
-                               top1: 1.0,
-                               top2: 1.0,
-                               top3: 1.0}
-    if scene_name in scene_name_to_expansion:
-        expansion_factor = scene_name_to_expansion[scene_name]
-
-    r = Render(rendering_kwargs)
-    scene, camera_pose, room_dimension, bbox_info = prepare_scene_for_rendering(graph, objects,
-                                                                                models_dir=model_dir,
-                                                                                query_objects=highlighted_object,
-                                                                                faded_nodes=faded_nodes,
-                                                                                colormap=colormap,
-                                                                                crop=crop,
-                                                                                with_bounding_box=with_bounding_box,
-                                                                                alpha=alpha,
-                                                                                beta=beta,
-                                                                                gamma=gamma,
-                                                                                scene_name=scene_name,
-                                                                                expansion_factor=expansion_factor)
-    if scene is not None:
-        # render the image
+    # prepare scene, camera pose and the room dimensions and render the entire scene as well as the cropped and aligned
+    # subscene
+    imgs = []
+    for crop in [False, True]:
+        r = Render(rendering_kwargs)
+        scene, camera_pose, room_dimension = prepare_scene_for_rendering(graph, objects, models_dir=model_dir,
+                                                                         query_objects=highlighted_object,
+                                                                         faded_nodes=faded_nodes, colormap=colormap,
+                                                                         crop=crop, alpha=alpha, beta=beta, gamma=gamma)
         img = r.pyrender_render(scene, resolution=resolution, camera_pose=camera_pose, room_dimension=room_dimension)
+        imgs.append(img)
 
-        # rotate the image, if required
-        # if with_bounding_box:
-        #     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        #     img = draw_bbox_img(img, bbox_info, resolution, rendering_kwargs['fov'], r.camera_pose, theta,
-        #                         scene_name=scene_name, expansion_factor=expansion_factor)
-        #     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-        # save the image
+    # put images of the full and subscene side-by-side
+    width, height = img.shape[:-1]
+    new_img = Image.new('RGB', (2*width, height))
+    x_offset = 0
+    for img in imgs:
         img = Image.fromarray(img)
-        img.save(path)
+        new_img.paste(img, (x_offset, 0))
+        x_offset += img.size[0]
+    new_width, new_height = new_img.size
+    new_img = new_img.resize((new_width//2, new_height//2))
+
+    # save the side-by-side image
+    new_img.save(path)
 
 
 def prepare_scene_for_rendering(graph, objects, models_dir, query_objects=[], faded_nodes=[], colormap={},
-                                ceiling_cats=['ceiling', 'void'], with_bounding_box=False, crop=False, alpha=0, beta=0,
-                                gamma=0, scene_name=None, expansion_factor=1.0):
+                                ceiling_cats=['ceiling', 'void'], crop=False, alpha=0, beta=0, gamma=0):
     default_color = '#aec7e8'
     scene = []
     cropped_scene = []
@@ -167,42 +143,24 @@ def prepare_scene_for_rendering(graph, objects, models_dir, query_objects=[], fa
 
         # add elements to the scene and cropped scene (if necessary)
         scene.append(mesh)
-        if (crop or with_bounding_box) and obj not in faded_nodes:
+        if crop and (obj not in faded_nodes):
             cropped_scene.append(mesh)
 
         del mesh
         gc.collect()
 
     # extract the room dimension and the camera pose
-    if len(scene) == 0:
-        return None, None, None
     scene = trimesh.Scene(scene)
     room_dimension = scene.extents
     camera_pose, _ = scene.graph[scene.camera.name]
 
-    # if true the half length and the centr
-    bbox_info = None
-    vec_translation = {query_scene: [0.2, 0.0],
-                       top1: [0.0, 0.0],
-                       top2: [0.0, -0.0],
-                       top3: [0.0, 0.0]}
-    if with_bounding_box or crop:
+    # if the scene is cropped, camera pose is rotated by theta and room dimension is extracted from the subscene.
+    if crop:
         cropped_scene = trimesh.Scene(cropped_scene)
         bbox_dims = cropped_scene.extents[:2] / 2.0
         vec = cropped_scene.bounding_box.centroid - scene.bounding_box.centroid
         vec = vec[:2]
-        if scene_name in vec_translation:
-            vec += vec_translation[scene_name]
-        bbox_info = (bbox_dims, vec)
-        # if scene_name == 'TbHJrupSAjP_room19.json':
-        #     print([e*2 for e in bbox_dims])
-        #     print(scene.extents[:2])
-            # cropped_scene.show()
-    else:
-        cropped_scene = None
-    # if the scene is cropped, camera pose is rotated by theta and room dimension is extracted from the subscene.
-    if crop:
-        room_dimension = cropped_scene.extents * expansion_factor
+        room_dimension = cropped_scene.extents
         camera_pose, _ = cropped_scene.graph[cropped_scene.camera.name]
         transformation_z = trimesh.transformations.rotation_matrix(angle=alpha, direction=[0, 0, 1],
                                                                    point=cropped_scene.centroid)
@@ -213,14 +171,8 @@ def prepare_scene_for_rendering(graph, objects, models_dir, query_objects=[], fa
 
         transformation = np.matmul(np.matmul(transformation_z, transformation_y), transformation_x)
         scene.apply_transform(transformation)
-        # scene.show()
-        # camera_pose = np.dot(transformation, camera_pose)
-        # print(camera_pose.shape)
-        # print(camera_pose)
-        # print(transformation)
-        # print('*'*50)
 
-    return scene, camera_pose, room_dimension, bbox_info
+    return scene, camera_pose, room_dimension
 
 
 def create_img_table(img_dir, img_folder, imgs, html_file_name, topk=25, ncols=5, captions=[],
@@ -339,37 +291,6 @@ def visualize_scene(scene_graph_dir, models_dir, scene_name, accepted_cats=set()
             scene.append(mesh)
     scene = trimesh.Trimesh.scene(scene)
     scene.show()
-
-
-def add_nodes_and_edges_colormap(G, nx_graph, colormap, accepted_cats, add_label_id=False, with_fc=False):
-    # nx_graph.add_nodes_from(G.keys())
-    for n1, node_info in G.items():
-        color = "#aec7e8"
-        label = node_info['category'][0]
-        if label in colormap and label in accepted_cats:
-            color = colormap[label]
-            if add_label_id:
-                label = '-'.join([label, n1])
-            nx_graph.add_node(n1, label=label, color=color)
-            if 'neighbours' in node_info:
-                for n2, relations in node_info['neighbours'].items():
-                    if (not with_fc) and ('fc' in relations):
-                        continue
-                    nx_graph.add_edge(n1, n2, label='-'.join(relations), color=color)
-    return nx_graph
-
-
-def visualize_graph(G, path, accepted_cats=set(), colormap=None, add_label_id=False, with_fc=False):
-    if len(accepted_cats) == 0:
-        accepted_cats = None
-    nx_graph = nx.MultiDiGraph()
-    if colormap is not None:
-        nx_graph = add_nodes_and_edges_colormap(G, nx_graph, colormap, accepted_cats, add_label_id, with_fc=with_fc)
-    # else:
-    #     nx_graph = add_nodes_and_edges(G, nx_graph, n, add_label_id, accepted_cats, with_fc=with_fc)
-    nx.drawing.nx_pydot.write_dot(nx_graph, path)
-    s = Source.from_file(path, format='png')
-    s.render(path)
 
 
 def sample_mesh(mesh, count=1000):
