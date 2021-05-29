@@ -41,7 +41,7 @@ def plot_results(metrics, model_name_exp_map, summary_results, plot_name, with_a
 def get_args():
     parser = OptionParser()
     parser.add_option('--mode', dest='mode', default='test', help='val|test')
-    parser.add_option('--ablations', action='store_true', dest='ablations', default=True,
+    parser.add_option('--ablations', action='store_true', dest='ablations', default=False,
                       help='If True the ablation results are plotted.')
 
     (options, args) = parser.parse_args()
