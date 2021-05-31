@@ -9,10 +9,10 @@ from scripts.iou import IoU
 
 
 class SceneGraph:
-    def __init__(self, scene_graph_dir, scene_name, models_dir, accepted_cats, enclosure_threshold=0.05,
+    def __init__(self, scene_dir, scene_name, models_dir, accepted_cats, enclosure_threshold=0.05,
                  obbox_expansion=1.0, context_window=512):
         # load graph and initialize neighbours
-        self.graph = load_from_json(os.path.join(scene_graph_dir, scene_name))
+        self.graph = load_from_json(os.path.join(scene_dir, scene_name))
         self.initialize_nbs()
         self.models_dir = models_dir
         self.accepted_cats = accepted_cats
