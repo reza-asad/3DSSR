@@ -5,6 +5,11 @@
 
 
 ## Installing Dependencies
+Virtual Enviroment
+```
+pip install venv
+source activate venv/bin/activate
+```
 
 
 [1]: https://sgp2021.github.io/
