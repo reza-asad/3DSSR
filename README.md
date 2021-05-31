@@ -33,10 +33,12 @@ python3 extract_point_clouds.py split_train_test_val
 
 ## AlignRank and ALignRankORacle
 To train AlignRank and AlignRankOracle from scratch:
-1. 
+
+1. Train the AlignmentModule
 ```
 python3 train_AlignmentModule.py 
 ```
+
 To run the pretrained model:
 ```
 ```
