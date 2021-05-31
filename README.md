@@ -4,7 +4,7 @@
 [Reza Asad][RA], [Manolis Savva][MS], SGP 2021
 
 
-## Installing Dependencies and Setting the Enviroment
+## Dependencies and Python Enviroment
 ```
 python3 -m venv env
 source env/bin/activate
