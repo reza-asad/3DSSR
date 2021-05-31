@@ -3,7 +3,6 @@ import sys
 import numpy as np
 from plyfile import PlyData, PlyElement
 import trimesh
-import open3d as o3d
 import pandas as pd
 
 from scripts.helper import load_from_json, write_to_json
@@ -102,35 +101,6 @@ def extract_meshes(room_name, ply_path, models_dir, obj_properties_dict):
     return obj_properties_dict
 
 
-def decimate_meshes(models_dir, model_dir_decimated, num_chunks, chunk_idx, visited, num_faces):
-    file_names = os.listdir(models_dir)
-    chunk_size = int(np.ceil(len(file_names) / num_chunks))
-    file_names = file_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size]
-    for file_name in file_names:
-        if file_name in visited:
-            continue
-        visited.add(file_name)
-        # read decimate and write back
-        mesh = o3d.io.read_triangle_mesh(os.path.join(models_dir, file_name))
-        if np.asarray(mesh.triangles).shape[0] > num_faces:
-            mesh = mesh.simplify_quadric_decimation(target_number_of_triangles=num_faces)
-        o3d.io.write_triangle_mesh(os.path.join(model_dir_decimated, file_name), mesh)
-
-
-def visualize_meshes(models_dir, num_samples=None):
-    model_names = os.listdir(models_dir)
-    if num_samples is not None:
-        sample_model_names = np.random.choice(model_names, num_samples)
-    else:
-        sample_model_names = model_names
-    # load the metadata df and print the categories
-    for model_name in sample_model_names:
-        model_name = model_name.split('.')[0]
-        model_path = os.path.join(models_dir, model_name+'.ply')
-        mesh = trimesh.load(model_path)
-        mesh.show()
-
-
 def read_houses(path):
     with open(path, 'r') as f:
         houses = f.readlines()
@@ -142,10 +112,8 @@ def main(num_chunks, chunk_idx, action='extract_mesh'):
     # define paths and set up folders for the extracted object meshes
     root_dir = '../data/matterport3d'
     models_dir = os.path.join(root_dir, 'models')
-    models_dir_decimated = os.path.join(root_dir, 'models_decimated')
-    for path in [models_dir, models_dir_decimated]:
-        if not os.path.exists(path):
-            os.mkdir(path)
+    if not os.path.exists(models_dir):
+        os.mkdir(models_dir)
 
     if action == 'extract_mesh':
         rooms_dir = os.path.join(root_dir, 'rooms')
@@ -205,12 +173,6 @@ def main(num_chunks, chunk_idx, action='extract_mesh'):
 
         # save the metadata
         df_metadata.to_csv(csv_path, index=False)
-
-    if action == 'visualize_mesh':
-        visualize_meshes(models_dir, num_samples=20)
-
-    if action == 'decimate':
-        decimate_meshes(models_dir, models_dir_decimated, num_chunks, chunk_idx, visited, num_faces=4000)
 
 
 if __name__ == '__main__':
