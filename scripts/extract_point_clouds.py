@@ -58,7 +58,7 @@ def main(num_chunks, chunk_idx, action='extract_pc'):
         derive_pc(models_dir=models_dir, file_names=model_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size],
                   results_dir=results_dir, num_points=2048)
 
-    if action == 'split_train_val_test':
+    if action == 'split_train_test_val':
         data_dir = '../data/matterport3d'
         results_dir = '../data/matterport3d/point_clouds'
         train_path = os.path.join(data_dir, 'scenes_train.txt')
