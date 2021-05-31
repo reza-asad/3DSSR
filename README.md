@@ -33,7 +33,7 @@ python3 extract_point_clouds.py split_train_test_val
 
 # 
 
-## AlignRank and ALignRankORacle
+## AlignRank and ALignRankOracle
 To build the scene graphs:
 ```
 parallel -j5 "python3 -u build_scene_graphs_matterport.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: build_scenes
