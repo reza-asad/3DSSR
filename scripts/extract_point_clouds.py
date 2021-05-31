@@ -42,7 +42,7 @@ def main(num_chunks, chunk_idx, action='extract_pc'):
     models_dir = '../data/matterport3d/models'
     accepted_cats = load_from_json('../data/matterport3d/accepted_cats.json')
     metadata_path = '../data/matterport3d/metadata.csv'
-    results_dir = '../data/matterport3d/point_clouds_test/all'
+    results_dir = '../data/matterport3d/point_clouds/all'
     if not os.path.exists(results_dir):
         os.makedirs(results_dir)
 
