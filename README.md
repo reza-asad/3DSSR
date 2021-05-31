@@ -5,10 +5,20 @@
 
 
 ## Installing Dependencies
-Virtual Enviroment
 ```
 pip install venv
 source activate venv/bin/activate
+pip install -r requirements.txt
+```
+
+## Preparing Matterport3D
+1. Extracting 3D object instances
+```
+parallel -j5 "python3 -u matterport_preprocessing.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: extract_mesh
+```
+2. Extracting scene metadata from Matterport3D
+```
+
 ```
 
 
