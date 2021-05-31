@@ -5,7 +5,6 @@ import json
 import numpy as np
 import trimesh
 from PIL import Image
-import cv2
 
 from .renderer import Render
 from .mesh import Mesh
@@ -19,62 +18,6 @@ def load_from_json(path, mode='r'):
 def write_to_json(dictionary, path, mode='w', indent=4):
     with open(path, mode) as f:
         json.dump(dictionary, f, indent=indent)
-
-
-def draw_bbox_img(img, bbox_info, resolution, fov, camera_pose, theta, expansion_factor=1.0, arrow_pixel=30):
-    # unload the bbox dimensions and the vector connecting the centroid of the scene to the centroid of the box.
-    bbox_dims, vec = bbox_info
-
-    # convert distances to pixels
-    room_size = np.tan(fov/2) * camera_pose[2, 3] * 2
-    vec_pixel = vec * resolution[0] / room_size #* np.sqrt(2)
-    vec_pixel = np.round(vec_pixel).astype(int)
-
-    # find the pixel for the center of the subscene
-    subscene_center_pixel = [resolution[0] // 2 + vec_pixel[0], resolution[1] // 2 - vec_pixel[1]]
-
-    # convert bbox dims to pixels
-    bbox_x_pixel = bbox_dims[0] / room_size * resolution[0] * expansion_factor * np.sqrt(2)
-    bbox_y_pixel = bbox_dims[1] / room_size * resolution[1] * expansion_factor * np.sqrt(2)
-
-    # find all the corners of the bbox in pixel values
-    pts = np.zeros((4, 3), dtype=np.float)
-    # top left
-    pts[0, :] = [-bbox_x_pixel, -bbox_y_pixel, 1]
-    # top right
-    pts[1, :] = [bbox_x_pixel, -bbox_y_pixel, 1]
-    # bottom right
-    pts[2, :] = [bbox_x_pixel, bbox_y_pixel, 1]
-    # bottom left
-    pts[3, :] = [-bbox_x_pixel, bbox_y_pixel, 1]
-
-    # rotate the box around the origin
-    rotation = np.asarray([[np.cos(-theta), -np.sin(-theta), 0],
-                           [np.sin(-theta), np.cos(-theta), 0],
-                           [0, 0, 1]])
-    rot_pts = np.dot(pts, rotation)
-
-    # translate the box to where it should be
-    rot_trans_pts = np.zeros((4, 2), dtype=np.int)
-    for i in range(4):
-        rot_trans_pts[i, :] = rot_pts[i, :2] + np.asarray(subscene_center_pixel)
-
-    # draw the bbox
-    img = cv2.polylines(img, [rot_trans_pts], True, (0, 255, 0), 2)
-
-    # find the x-axis of the local frame and add it
-    x_axis = [int(np.round(arrow_pixel * np.cos(theta))), int(np.round(arrow_pixel * np.sin(theta)))]
-    end_point = (subscene_center_pixel[0] + x_axis[0], subscene_center_pixel[1] + x_axis[1])
-    img = cv2.arrowedLine(img, (subscene_center_pixel[0], subscene_center_pixel[1]), end_point, color=(0, 0, 255),
-                          thickness=3)
-
-    # find the y-axis of the local frame and add it
-    y_axis = [int(np.round(arrow_pixel * np.cos(theta - np.pi/2))), int(np.round(arrow_pixel * np.sin(theta - np.pi/2)))]
-    end_point = (subscene_center_pixel[0] + y_axis[0], subscene_center_pixel[1] + y_axis[1])
-    img = cv2.arrowedLine(img, (subscene_center_pixel[0], subscene_center_pixel[1]), end_point, color=(205, 0, 0),
-                          thickness=3)
-
-    return img
 
 
 def render_single_scene(graph, objects, highlighted_object, path, model_dir, colormap, resolution=(512, 512),
