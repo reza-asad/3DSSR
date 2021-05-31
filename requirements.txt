@@ -1,5 +1,5 @@
 torch==1.5.0
-torchvision=0.6.0
+torchvision==0.6.0
 trimesh==3.6.30
 pyrender==0.1.43
 numpy
