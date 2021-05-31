@@ -7,7 +7,7 @@ from build_scene_graphs import SceneGraph
 from scripts.helper import load_from_json, write_to_json, create_train_val_test
 
 
-def process_scenes(scene_names, models_dir, scene_graph_dir_input, accepted_cats):
+def process_scenes(scene_names, models_dir, scene_dir_input, accepted_cats):
     t = time()
     idx = 0
     for scene_name in scene_names:
@@ -20,7 +20,7 @@ def process_scenes(scene_names, models_dir, scene_graph_dir_input, accepted_cats
             continue
 
         # first initialize the graph
-        scene_graph = SceneGraph(scene_graph_dir_input, scene_name, models_dir, accepted_cats, obbox_expansion=1.0)
+        scene_graph = SceneGraph(scene_dir_input, scene_name, models_dir, accepted_cats, obbox_expansion=1.0)
         # filter the graph to only contain the objects with accepted category
         scene_graph.filter_by_accepted_cats()
         # only proceed with the graph if it has at least two elements (source and neighbour).
@@ -44,16 +44,16 @@ def process_scenes(scene_names, models_dir, scene_graph_dir_input, accepted_cats
 def main(num_chunks, chunk_idx, action='build_scenes'):
     # define the paths
     models_dir = '../../data/matterport3d/models'
-    scene_graph_dir_input = '../../data/matterport3d/scene_graphs/all'
+    scene_dir_input = '../../data/matterport3d/scenes/all'
 
     if action == 'build_scenes':
         # load accepted categories
         accepted_cats = set(load_from_json('../../data/matterport3d/accepted_cats.json'))
         # process the scenes in batches
-        scene_names = os.listdir(scene_graph_dir_input)
+        scene_names = os.listdir(scene_dir_input)
         chunk_size = int(np.ceil(len(scene_names) / num_chunks))
         process_scenes(scene_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size], models_dir,
-                       scene_graph_dir_input, accepted_cats)
+                       scene_dir_input, accepted_cats)
 
     if action == 'split_train_test_val':
         data_dir = '../../data/matterport3d'
