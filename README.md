@@ -31,6 +31,17 @@ parallel -j5 "python3 -u extract_point_clouds.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 
 python3 extract_point_clouds.py split_train_test_val
 ```
 
+## AlignRank and ALignRankORacle
+To train AlignRank and AlignRankOracle from scratch:
+1. 
+```
+python3 train_AlignmentModule.py 
+```
+To run the pretrained model:
+```
+```
+
+## Baselines
 
 [1]: https://sgp2021.github.io/
 [2]: https://github.com/yongheng1991/3D-point-capsule-networks
