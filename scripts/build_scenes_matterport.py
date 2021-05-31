@@ -7,7 +7,7 @@ from base_scene import BaseScene
 from scripts.helper import write_to_json, create_train_val_test
 
 
-def process_scenes(scene_files, metadata_path, models_dir, scene_graph_dir):
+def process_scenes(scene_files, metadata_path, models_dir, scene_dir):
     t = time()
     idx = 0
     for scene_name in scene_files:
@@ -16,7 +16,7 @@ def process_scenes(scene_files, metadata_path, models_dir, scene_graph_dir):
         print('Iteration {}/{}'.format(idx, len(scene_files)))
         t2 = time()
 
-        seen = os.listdir(scene_graph_dir)
+        seen = os.listdir(scene_dir)
         seen = [e.replace('.json', '') for e in seen]
         seen = set(seen)
         if scene_name in seen:
@@ -27,7 +27,7 @@ def process_scenes(scene_files, metadata_path, models_dir, scene_graph_dir):
         scene.build_from_matterport(scene_name, metadata_path)
 
         # save the scene recipe
-        scene_graph_path = os.path.join(scene_graph_dir, scene_name+'.json')
+        scene_graph_path = os.path.join(scene_dir, scene_name+'.json')
         if len(scene.graph) > 0:
             write_to_json(scene.graph, scene_graph_path)
 
@@ -45,9 +45,9 @@ def main(num_chunks, chunk_idx, action='build_scenes'):
     scene_files = os.listdir(room_dir)
     metadata_path = '../data/matterport3d/metadata.csv'
     models_dir = '../data/matterport3d/models'
-    scene_graph_dir = '../data/matterport3d/scene_graphs/all'
-    if not os.path.exists(scene_graph_dir):
-        os.makedirs(scene_graph_dir)
+    scene_dir = '../data/matterport3d/scenes/all'
+    if not os.path.exists(scene_dir):
+        os.makedirs(scene_dir)
 
     if action == 'build_scenes':
         # process the scenes in batches
@@ -55,10 +55,10 @@ def main(num_chunks, chunk_idx, action='build_scenes'):
         process_scenes(scene_files[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size],
                        metadata_path,
                        models_dir,
-                       scene_graph_dir)
+                       scene_dir)
     if action == 'split_train_test_val':
         data_dir = '../data/matterport3d'
-        scene_graph_dir = '../data/matterport3d/scene_graphs'
+        scene_graph_dir = '../data/matterport3d/scenes'
         train_path = os.path.join(data_dir, 'scenes_train.txt')
         val_path = os.path.join(data_dir, 'scenes_val.txt')
         test_path = os.path.join(data_dir, 'scenes_test.txt')
