@@ -31,15 +31,34 @@ parallel -j5 "python3 -u extract_point_clouds.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 
 python3 extract_point_clouds.py split_train_test_val
 ```
 
-## AlignRank and ALignRankORacle
+# 
+
+## AlignRank and ALignRankOracle
+To build the scene graphs:
+```
+parallel -j5 "python3 -u build_scene_graphs_matterport.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: build_scenes
+python3 build_scene_graphs_matterport.py split_train_test_val
+```
+
 To train AlignRank and AlignRankOracle from scratch:
 
 1. Train the AlignmentModule
 ```
 python3 train_AlignmentModule.py 
 ```
+2. Download the trained latent capsules from 
+ ```
+ ```
+ or 
+ 
+ Train a 3D Point Capsule Network[2] on the pointclouds extracted in step 3 of data prepration.
+ 
+4. Train GNN for object category prediction (can skip this step for AlignRankOracle)
+```
 
-To run the pretrained model:
+```
+
+To run the pretrained models:
 ```
 ```
 
