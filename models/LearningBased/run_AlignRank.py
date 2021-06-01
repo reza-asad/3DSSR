@@ -213,9 +213,9 @@ def get_args():
     parser.add_option('--experiment_name', dest='experiment_name', default='AlignRank')
     parser.add_option('--hidden_dim', dest='hidden_dim', default=512, type='int')
     parser.add_option('--input_dim', dest='input_dim', default=5)
-    parser.add_option('--with_cat_predictions', dest='with_cat_predictions', default=True,
+    parser.add_option('--with_cat_predictions', dest='with_cat_predictions', default='True',
                       help='If True the categories are predicted at test time')
-    parser.add_option('--with_alignment', dest='with_alignment', default=True,
+    parser.add_option('--with_alignment', dest='with_alignment', default='True',
                       help='To run AlignRank[-Align] set this to False')
     parser.add_option('--q_theta', dest='q_theta', default=0*np.pi/4)
     parser.add_option('--gpu', action='store_true', dest='gpu', default=True, help='use cuda')
@@ -229,7 +229,10 @@ def main():
     args = get_args()
     with_cat_predictions = args.with_cat_predictions == 'True'
     with_alignment = args.with_alignment == 'True'
-
+    print(with_alignment is True)
+    print(with_cat_predictions is True)
+    print(args.data_dir)
+    t=y
     # Set the right device for all the models
     device = torch.device('cpu')
     if args.gpu:
