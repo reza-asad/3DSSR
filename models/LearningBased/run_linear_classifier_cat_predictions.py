@@ -22,7 +22,7 @@ def run_lin_classifier(scene_graph_dir, latent_caps_dir, output_dir, cat_to_idx,
 
     # create dataset and loader
     dataset = Scene(scene_graph_dir, latent_caps_dir, cat_to_idx, mode=mode)
-    loader = DataLoader(dataset, batch_size=1, num_workers=4, shuffle=False)
+    loader = DataLoader(dataset, batch_size=1, num_workers=0, shuffle=False)
 
     # find the required dimensions for building the classifier.
     sample_data = list(enumerate(loader))[1][1]
