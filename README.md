@@ -75,7 +75,7 @@ python3 train_AlignmentModule.py
 cd models/LearningBased
 python3 train_gnn.py
 ```
-4. Run the commands that assume pretrained models (subsection Test).
+4. Run the commands that assume pretrained models (described in the *Test* subsection).
 
 
 ## Evaluations
