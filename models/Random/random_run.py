@@ -32,7 +32,7 @@ def map_cat_to_objects(scene, source_node):
     return cat_to_objects
 
 
-def RandomRank(query_info, model_names, scene_graph_dir, mode, topk):
+def RandomRank(query_info, model_names, scene_dir, mode, topk):
     # shuffle the objects in all scenes
     np.random.shuffle(model_names)
 
@@ -51,7 +51,7 @@ def RandomRank(query_info, model_names, scene_graph_dir, mode, topk):
         if query_scene_name == scene_name:
             continue
         num_subscenes += 1
-        scene = load_from_json(os.path.join(scene_graph_dir, mode, scene_name))
+        scene = load_from_json(os.path.join(scene_dir, mode, scene_name))
         all_except_target = [obj for obj in scene.keys() if obj != target]
         if num_context_objects <= len(all_except_target):
             sample_context = np.random.choice(all_except_target, num_context_objects, replace=False).tolist()
@@ -75,12 +75,12 @@ def RandomRank(query_info, model_names, scene_graph_dir, mode, topk):
     return target_subscenes
 
 
-def CatRank(query_info, query_mode, scene_graph_dir, mode, cat_to_scene_objects, topk):
+def CatRank(query_info, query_mode, scene_dir, mode, cat_to_scene_objects, topk):
     # load the query scene and extract the category of the objects
     query_scene_name = query_info['example']['scene_name']
     query = query_info['example']['query']
     context_objects = query_info['example']['context_objects']
-    query_scene = load_from_json(os.path.join(scene_graph_dir, query_mode, query_scene_name))
+    query_scene = load_from_json(os.path.join(scene_dir, query_mode, query_scene_name))
     query_cat = query_scene[query]['category'][0]
     context_obj_to_cat = {obj: query_scene[obj]['category'][0] for obj in context_objects}
 
@@ -103,7 +103,7 @@ def CatRank(query_info, query_mode, scene_graph_dir, mode, cat_to_scene_objects,
         target_object = target_object.split('-')[-1]
 
         # load the scene and map its cats to the objects
-        scene = load_from_json(os.path.join(scene_graph_dir, mode, scene_name))
+        scene = load_from_json(os.path.join(scene_dir, mode, scene_name))
         t_cat_to_objects = map_cat_to_objects(scene, target_object)
 
         # for each context object in the query scene sample an object with the same category from the current scene.
@@ -149,7 +149,7 @@ def main():
     query_dict_output_path = '../../results/matterport3d/{}/query_dict_{}_{}.json'.format(args.model_name,
                                                                                           args.mode,
                                                                                           args.model_name)
-    scene_graph_dir = '../../data/matterport3d/scene_graphs'
+    scene_dir = '../../data/matterport3d/scenes'
     accepted_cats = set(load_from_json('../../data/matterport3d/accepted_cats.json'))
     topk = 200
 
@@ -168,13 +168,13 @@ def main():
                                                                                        str(x['objectId'])]), axis=1)
         model_names = model_names.values
         for query, query_info in query_dict.items():
-            target_subscenes = RandomRank(query_info, model_names, scene_graph_dir, args.mode, topk)
+            target_subscenes = RandomRank(query_info, model_names, scene_dir, args.mode, topk)
             query_info['target_subscenes'] = target_subscenes
 
     elif args.model_name == 'CatRank':
         cat_to_scene_objects = map_cats_to_scene_objects(df_metadata)
         for query, query_info in query_dict.items():
-            target_subscenes = CatRank(query_info, args.mode, scene_graph_dir, args.mode, cat_to_scene_objects, topk)
+            target_subscenes = CatRank(query_info, args.mode, scene_dir, args.mode, cat_to_scene_objects, topk)
             query_info['target_subscenes'] = target_subscenes
 
     else:
