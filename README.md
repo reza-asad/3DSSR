@@ -38,7 +38,7 @@ First step is to construct the scene graphs:
 parallel -j5 "python3 -u build_scene_graphs_matterport.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: build_scenes
 python3 build_scene_graphs_matterport.py split_train_test_val
 ```
-
+### Test
 To run the pretrained models for AlignRankOracle:
 ```
 python3 run_AlignRank.py --experiment_name AlignRankOracle --with_cat_predictions False
@@ -48,8 +48,7 @@ To run the pretrained models for AlignRank:
 python3 run_gnn_cat_predictions.py
 python3 run_AlignRank.py --experiment_name AlignRank --with_cat_predictions True
 ```
-
-
+### Train
 To train AlignRank and AlignRankOracle from scratch follow the steps below:
 
 1. Train the AlignmentModule
