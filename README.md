@@ -49,7 +49,7 @@ python3 train_AlignmentModule.py
 2. Download the trained latent capsules from 
  ```
  ```
- and place then in this directory:
+   and place them in this directory:
  ```
  /3DSSR/data/matterport3d/latent_caps
  ```
