@@ -205,7 +205,7 @@ def find_best_target_subscenes(query_info, data_dir, mode, model_dic, device, wi
 def get_args():
     parser = OptionParser()
     parser.add_option('--mode', dest='mode', default='test', help='val or test')
-    parser.add_option('--data-dir', dest='data_dir',
+    parser.add_option('--data_dir', dest='data_dir',
                       default='../../results/matterport3d/LearningBased/scene_graphs_with_predictions_gnn',
                       help='For AlignRank[-GNN] use scene_graphs_with_predictions_linear')
     parser.add_option('--cp_dir', dest='cp_dir',
@@ -213,11 +213,10 @@ def get_args():
     parser.add_option('--experiment_name', dest='experiment_name', default='AlignRank')
     parser.add_option('--hidden_dim', dest='hidden_dim', default=512, type='int')
     parser.add_option('--input_dim', dest='input_dim', default=5)
-    parser.add_option('--with_cat_predictions', dest='with_cat_predictions', default=True, help='If True the categories'
-                                                                                                'are predicted at test'
-                                                                                                'time')
-    parser.add_option('--with_alignment', dest='with_alignment', default=True, help='To run AlignRank[-Align] set this'
-                                                                                    'to False')
+    parser.add_option('--with_cat_predictions', dest='with_cat_predictions', default=True,
+                      help='If True the categories are predicted at test time')
+    parser.add_option('--with_alignment', dest='with_alignment', default=True,
+                      help='To run AlignRank[-Align] set this to False')
     parser.add_option('--q_theta', dest='q_theta', default=0*np.pi/4)
     parser.add_option('--gpu', action='store_true', dest='gpu', default=True, help='use cuda')
 
