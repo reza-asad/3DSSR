@@ -195,7 +195,7 @@ def get_args():
     parser.add_option('--scene_graph_dir', dest='scene_graph_dir',
                       default='../../results/matterport3d/LearningBased/scene_graphs')
     parser.add_option('--latent_caps_dir', dest='latent_caps_dir',
-                      default='../../../3D-point-capsule-networks/dataset/matterport3d/latent_caps')
+                      default='../../data/matterport3d/latent_caps')
     parser.add_option('--hidden_dim', dest='hidden_dim', default=1024, type='int')
     parser.add_option('--num_layers', dest='num_layers', default=1, type='int')
     parser.add_option('--lr', dest='lr', default=1e-5, type='float')
