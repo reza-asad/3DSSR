@@ -22,7 +22,7 @@ def run_gnn(scene_graph_dir, latent_caps_dir, output_dir, cat_to_idx, hidden_dim
 
     # create dataset and loader
     dataset = Scene(scene_graph_dir, latent_caps_dir, cat_to_idx, mode=mode)
-    loader = DataLoader(dataset, batch_size=1, num_workers=4, shuffle=True)
+    loader = DataLoader(dataset, batch_size=1, num_workers=0, shuffle=True)
 
     # find the required dimensions for building the GNN.
     sample_data = list(enumerate(loader))[1][1]
