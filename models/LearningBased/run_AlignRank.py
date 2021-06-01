@@ -229,10 +229,7 @@ def main():
     args = get_args()
     with_cat_predictions = args.with_cat_predictions == 'True'
     with_alignment = args.with_alignment == 'True'
-    print(with_alignment is True)
-    print(with_cat_predictions is True)
-    print(args.data_dir)
-    t=y
+
     # Set the right device for all the models
     device = torch.device('cpu')
     if args.gpu:
