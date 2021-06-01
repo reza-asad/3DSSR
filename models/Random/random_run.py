@@ -196,4 +196,4 @@ if __name__ == '__main__':
     t = time()
     main()
     duration = time() - t
-    print('Evaluation took {} minutes'.format(round(duration / 60, 2)))
+    print('Running model took {} minutes'.format(round(duration / 60, 2)))
