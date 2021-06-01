@@ -46,7 +46,17 @@ To train AlignRank and AlignRankOracle from scratch:
 ```
 python3 train_AlignmentModule.py 
 ```
-2. 
+2. Download the trained latent capsules from 
+ ```
+ ```
+ or 
+ 
+ Train a 3D Point Capsule Network[2] on the pointclouds extracted in step 3 of data prepration.
+ 
+4. Train GNN for object category prediction (can skip this step for AlignRankOracle)
+```
+
+```
 
 To run the pretrained models:
 ```
