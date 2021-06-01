@@ -52,7 +52,7 @@ To run the pretrained models for AlignRank:
 ```
 cd models/LearningBased
 python3 run_gnn_cat_predictions.py
-python3 run_AlignRank.py --experiment_name AlignRank --with_cat_predictions True
+python3 run_AlignRank.py --experiment_name AlignRank
 ```
 ### Train
 To train AlignRank and AlignRankOracle from scratch follow the steps below:
