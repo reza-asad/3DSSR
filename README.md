@@ -14,18 +14,22 @@ export PYTHONPATH="${PYTHONPATH}:/path/to/the/repository"
 ```
 
 ## Preparing Matterport3D
-1. Extract 3D object instances and save the metadata for objects (e.g oriented bounding boxes, caegory, etc).
+1. Dowload the dataset from [here][1] and place it in this directory:
+```
+3DSSR/data/matterport3d/rooms
+```
+3. Extract 3D object instances and save the metadata for objects (e.g oriented bounding boxes, caegory, etc).
 ```
 cd scripts
 parallel -j5 "python3 -u matterport_preprocessing.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: extract_mesh
 python3 matterport_preprocessing.py save_metadata
 ```
-2. Save metadata for the 3D scenes (e.g link to object mesh files, transformation matrix that produces the scene, etc). Split the scenes into train/val/test based on Matterport3D's suggeted split.
+3. Save metadata for the 3D scenes (e.g link to object mesh files, transformation matrix that produces the scene, etc). Split the scenes into train/val/test based on Matterport3D's suggeted split.
 ```
 parallel -j5 "python3 -u build_scenes_matterport.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: build_scenes
 python3 -u build_scenes_matterport.py split_train_test_val
 ```
-3. Extract 3D pointclouds from the objects. The pointclouds are later fed into [3D Point Capsule Networks][2] and the latent capsules are used for category prediction.
+4. Extract 3D pointclouds from the objects. The pointclouds are later fed into [3D Point Capsule Networks][2] and the latent capsules are used for category prediction.
 ```
 parallel -j5 "python3 -u extract_point_clouds.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: extract_pc
 python3 extract_point_clouds.py split_train_test_val
