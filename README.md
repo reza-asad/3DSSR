@@ -57,7 +57,7 @@ python3 run_AlignRank.py --experiment_name AlignRank --with_cat_predictions True
 ### Train
 To train AlignRank and AlignRankOracle from scratch follow the steps below:
 
-1. Train the AlignmentModule
+1. Train the AlignmentModule:
 ```
 cd models/LearningBased
 python3 train_AlignmentModule.py 
