@@ -77,7 +77,16 @@ python3 train_gnn.py
 
 
 ## Evaluations
-1. Follow the instructions in [BASELINES.md](BASELINES.md) to run baselines and ablations.
+1. To run each baseline and ablation model from scratch follow the instructions in [BASELINES.md](BASELINES.md). Otherwise, this step can be skipped. 
+2. To evaluate AlignRank against baselines run:
+```
+```
+3. To evaluate AlignRank against ablations run:
+```
+```
+
+## Rendering Results
+
 
 [1]: https://sgp2021.github.io/
 [2]: https://github.com/yongheng1991/3D-point-capsule-networks
