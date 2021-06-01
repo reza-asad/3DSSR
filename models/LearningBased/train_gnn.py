@@ -74,8 +74,8 @@ def train_net(scene_graph_dir, latent_caps_dir, cat_to_idx, num_epochs, lr, devi
     val_dataset = Scene(scene_graph_dir, latent_caps_dir, cat_to_idx, mode='val')
 
     # create the dataloaders
-    train_loader = DataLoader(train_dataset, batch_size=1, num_workers=4, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=1, num_workers=4, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=1, num_workers=0, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=1, num_workers=0, shuffle=True)
 
     # find the required dimensions for building the GNN.
     sample_data = list(enumerate(train_loader))[1][1]
