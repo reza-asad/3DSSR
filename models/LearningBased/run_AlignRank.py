@@ -228,6 +228,8 @@ def get_args():
 def main():
     # get the arguments
     args = get_args()
+    with_cat_predictions = args.with_cat_predictions == 'True'
+    with_alignment = args.with_alignment == 'True'
 
     # Set the right device for all the models
     device = torch.device('cpu')
@@ -261,7 +263,7 @@ def main():
         print('Iteration {}/{}'.format(i+1, len(query_dict)))
         print('Processing query: {}'.format(query))
         target_subscenes = find_best_target_subscenes(query_info, args.data_dir, args.mode, model_dic, device,
-                                                      args.with_cat_predictions, args.with_alignment, args.q_theta)
+                                                      with_cat_predictions, with_alignment, args.q_theta)
         query_info['target_subscenes'] = target_subscenes
         duration = (time() - t) / 60
         print('Processing the query took {} minutes'.format(round(duration, 2)))
