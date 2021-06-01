@@ -45,10 +45,12 @@ python3 build_scene_graphs_matterport.py split_train_test_val
 ### Test
 To run the pretrained models for AlignRankOracle:
 ```
+cd models/LearningBased
 python3 run_AlignRank.py --experiment_name AlignRankOracle --with_cat_predictions False
 ```
 To run the pretrained models for AlignRank:
 ```
+cd models/LearningBased
 python3 run_gnn_cat_predictions.py
 python3 run_AlignRank.py --experiment_name AlignRank --with_cat_predictions True
 ```
@@ -70,6 +72,7 @@ python3 train_AlignmentModule.py
  
 3. Train GNN for object category prediction (this step can be skipped for AlignRankOracle)
 ```
+cd models/LearningBased
 python3 train_gnn.py
 ```
 4. Run the commands that assume pretrained models (described above).
