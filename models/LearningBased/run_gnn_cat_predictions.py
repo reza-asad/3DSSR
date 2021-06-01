@@ -83,7 +83,7 @@ def run_gnn(scene_graph_dir, latent_caps_dir, output_dir, cat_to_idx, hidden_dim
                 graph[obj]['category_predicted'] = [idx_to_cats[idx.item()] for idx in topk_predictions[j, :]]
 
             # save the graph with predicted categories.
-            # write_to_json(graph, os.path.join(scene_graph_dir_out, file_name))
+            write_to_json(graph, os.path.join(scene_graph_dir_out, file_name))
 
     # display per class accuracy
     per_class_accuracy_final = {}
@@ -94,7 +94,7 @@ def run_gnn(scene_graph_dir, latent_caps_dir, output_dir, cat_to_idx, hidden_dim
             per_class_accuracy_final[c] = accuracy
 
     # save the per class accuracies.
-    # write_to_json(per_class_accuracy_final, os.path.join(cp_dir, 'per_class_accuracy.json'))
+    write_to_json(per_class_accuracy_final, os.path.join(cp_dir, 'per_class_accuracy.json'))
 
 
 def get_args():
