@@ -31,9 +31,8 @@ parallel -j5 "python3 -u extract_point_clouds.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 
 python3 extract_point_clouds.py split_train_test_val
 ```
 
-# 
-
 ## AlignRank and ALignRankOracle
+### Scene Graph Construction
 First step is to construct the scene graphs:
 ```
 parallel -j5 "python3 -u build_scene_graphs_matterport.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: build_scenes
