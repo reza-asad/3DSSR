@@ -25,7 +25,7 @@ python3 matterport_preprocessing.py save_metadata
 parallel -j5 "python3 -u build_scenes_matterport.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: build_scenes
 python3 -u build_scenes_matterport.py split_train_test_val
 ```
-3. Extract 3D pointclouds from the objects. The pointclouds are later fed into 3D Point Capsule Networks[2] and the latent capsules are used for category prediction.
+3. Extract 3D pointclouds from the objects. The pointclouds are later fed into [3D Point Capsule Networks][2] and the latent capsules are used for category prediction.
 ```
 parallel -j5 "python3 -u extract_point_clouds.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: extract_pc
 python3 extract_point_clouds.py split_train_test_val
@@ -34,11 +34,16 @@ python3 extract_point_clouds.py split_train_test_val
 # 
 
 ## AlignRank and ALignRankOracle
-To build the scene graphs:
+First step is to construct the scene graphs:
 ```
 parallel -j5 "python3 -u build_scene_graphs_matterport.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: build_scenes
 python3 build_scene_graphs_matterport.py split_train_test_val
 ```
+
+To run the pretrained models for subscene retrieval simply run:
+```
+```
+
 
 To train AlignRank and AlignRankOracle from scratch:
 
@@ -46,21 +51,19 @@ To train AlignRank and AlignRankOracle from scratch:
 ```
 python3 train_AlignmentModule.py 
 ```
-2. Download the trained latent capsules from 
+2. Download the trained latent capsules from [here][1] and place them in this directory:
  ```
+ /3DSSR/data/matterport3d/latent_caps
  ```
  or 
  
- Train a 3D Point Capsule Network[2] on the pointclouds extracted in step 3 of data prepration.
+Train a [3D Point Capsule Network][2] on the pointclouds extracted in step 3 of data prepration.
  
-4. Train GNN for object category prediction (can skip this step for AlignRankOracle)
+4. Train GNN for object category prediction (this step can be skipped for AlignRankOracle)
+```
+python3 train_gnn.py
 ```
 
-```
-
-To run the pretrained models:
-```
-```
 
 ## Baselines
 
