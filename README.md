@@ -66,16 +66,14 @@ python3 train_AlignmentModule.py
  ```
  3DSSR/data/matterport3d/latent_caps
  ```
- &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;or
- 
- &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Train a [3D Point Capsule Network][2] on the pointclouds extracted in step 3 of data prepration.
+ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;or train a [3D Point Capsule Network][2] on the pointclouds extracted in step 3 of data prepration.
  
 3. Train GNN for object category prediction (this step can be skipped for AlignRankOracle)
 ```
 cd models/LearningBased
 python3 train_gnn.py
 ```
-4. Run the commands that assume pretrained models (described above).
+4. Run the commands that assume pretrained models (described in the **Test** subsection).
 
 
 ## Evaluations
