@@ -49,7 +49,7 @@ def main(num_chunks, chunk_idx, action='build_scene_graphs'):
     test_objects = []
     models_dir = '../../data/matterport3d/models'
     metadata_path = '../../data/matterport3d/metadata.csv'
-    scene_graph_dir = '../../results/matterport3d/GKRank/scene_graphs_test/all'
+    scene_graph_dir = '../../results/matterport3d/GKRank/scene_graphs/all'
     if not os.path.exists(scene_graph_dir):
         os.makedirs(scene_graph_dir)
 
