@@ -40,14 +40,18 @@ parallel -j5 "python3 -u build_scene_graphs_matterport.py {1} {2} {3}" ::: 5 :::
 python3 build_scene_graphs_matterport.py split_train_test_val
 ```
 
-To run the pretrained models simply run:
+To run the pretrained models for AlignRankOracle:
+```
+python3 run_AlignRank.py --experiment_name AlignRankOracle --with_cat_predictions False
+```
+To run the pretrained models for AlignRank:
 ```
 python3 run_gnn_cat_predictions.py
-
+python3 run_AlignRank.py --experiment_name AlignRank --with_cat_predictions True
 ```
 
 
-To train AlignRank and AlignRankOracle from scratch:
+To train AlignRank and AlignRankOracle from scratch follow the steps below:
 
 1. Train the AlignmentModule
 ```
@@ -58,15 +62,15 @@ python3 train_AlignmentModule.py
  ```
  /3DSSR/data/matterport3d/latent_caps
  ```
- &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;or
+ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;or
  
- &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Train a [3D Point Capsule Network][2] on the pointclouds extracted in step 3 of data prepration.
+ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Train a [3D Point Capsule Network][2] on the pointclouds extracted in step 3 of data prepration.
  
-4. Train GNN for object category prediction (this step can be skipped for AlignRankOracle)
+3. Train GNN for object category prediction (this step can be skipped for AlignRankOracle)
 ```
 python3 train_gnn.py
-python3 run_gnn_cat_predictions.py
 ```
+4. Run the commands that assume pretrained models (described above).
 
 
 ## Baselines
