@@ -20,14 +20,14 @@ python3 data_processing_voxel.py find_nth_closest_model
 parallel -j5 "python3 -u run_GKRank.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: extract_target_subscenes
 ```
 
-### CatRank
+#### CatRank
 Run CatRank on test queries:
 ```
 cd models/Random
 python3 random_run.py --model_name CatRank
 ```
 
-### RandomRank
+#### RandomRank
 Run RandomRank on test queries:
 ```
 cd models/Random
@@ -41,12 +41,12 @@ To run each ablation model from scratch follow the instructions bellow:
 cd models/LearningBased
 python3 train_gnn.py
 ```
-### AlignRank[-Align]
+#### AlignRank[-Align]
 ```
 cd models/LearningBased
 python3 run_AlignRank.py --experiment_name AlignRank[-Align] --with_alignment False
 ```
-### AlignRank[-GNN]
+#### AlignRank[-GNN]
 ```
 cd models/LearningBased
 python3 run_linear_classifier_cat_predictions.py
