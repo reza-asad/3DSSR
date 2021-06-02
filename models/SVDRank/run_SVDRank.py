@@ -89,7 +89,7 @@ def svd_rotation(query_obboxes, target_obboxes):
 
     # If R is a reflection matrix look for best rotation.
     if np.linalg.det(R) < 0:
-        best_err = np.float('inf')
+        best_err = np.float64('inf')
         for i in range(3):
             U, S, Vt = np.linalg.svd(R)
             U[i, :] *= -1
