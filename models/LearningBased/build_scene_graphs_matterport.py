@@ -67,7 +67,10 @@ def main(num_chunks, chunk_idx, action='build_scenes'):
 if __name__ == '__main__':
     scene_graph_dir_output = '../../results/matterport3d/LearningBased/scene_graphs/all'
     if not os.path.exists(scene_graph_dir_output):
-        os.makedirs(scene_graph_dir_output)
+        try:
+            os.makedirs(scene_graph_dir_output)
+        except FileExistsError:
+            pass
         visited = set()
     else:
         visited = set(os.listdir(scene_graph_dir_output))
