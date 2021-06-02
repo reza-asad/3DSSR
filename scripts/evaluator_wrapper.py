@@ -33,19 +33,19 @@ def main():
                                  ('CatRank', 'CatRank'),
                                  ('RandomRank', 'RandomRank')]
 
-        # delete previous evaluation results
-        evaluation_csv_path = os.path.join(evalaution_base_path, 'evaluation.csv')
-        evaluation_summary_path = os.path.join(evalaution_base_path, 'evaluation_aggregated.csv')
-        for path in [evaluation_csv_path, evaluation_summary_path]:
-            if os.path.exists(path):
-                os.remove(path)
+    # delete previous evaluation results
+    evaluation_csv_path = os.path.join(evalaution_base_path, 'evaluation.csv')
+    evaluation_summary_path = os.path.join(evalaution_base_path, 'evaluation_aggregated.csv')
+    for path in [evaluation_csv_path, evaluation_summary_path]:
+        if os.path.exists(path):
+            os.remove(path)
 
-        for model_name, experiment_name in model_name_experiment:
-            command = 'python3 evaluator.py --mode {} --ablations {} --model_name {} --experiment_name {}'\
-                .format(args.mode, args.ablations, model_name, experiment_name)
-            evaluation_process = Popen(command, shell=True)
-            while evaluation_process.poll() is None:
-                sleep(10)
+    for model_name, experiment_name in model_name_experiment:
+        command = 'python3 evaluator.py --mode {} --ablations {} --model_name {} --experiment_name {}'\
+            .format(args.mode, args.ablations, model_name, experiment_name)
+        evaluation_process = Popen(command, shell=True)
+        while evaluation_process.poll() is None:
+            sleep(10)
 
 
 if __name__ == '__main__':
