@@ -99,11 +99,13 @@ def main(num_chunks, chunk_idx, action='derive_zernike_features'):
     accepted_cats = load_from_json(os.path.join(data_dir, 'accepted_cats.json'))
     metadata_path = os.path.join(data_dir, 'metadata.csv')
 
+    # filter metadata to only include 3D objects with accepted cats.
+    df_metadata = pd.read_csv(metadata_path)
+    is_accepted = df_metadata['mpcat40'].apply(lambda x: x in accepted_cats)
+    df_metadata = df_metadata.loc[is_accepted]
+
     if action == 'derive_zernike_features':
         # filter models to only include accepted cats.
-        df_metadata = pd.read_csv(metadata_path)
-        is_accepted = df_metadata['mpcat40'].apply(lambda x: x in accepted_cats)
-        df_metadata = df_metadata.loc[is_accepted]
         model_names = df_metadata[['room_name', 'objectId']].apply(lambda x: '-'.join([x['room_name'],
                                                                                        str(x['objectId'])]) + '.ply', axis=1)
         model_names = model_names.tolist()
@@ -111,7 +113,7 @@ def main(num_chunks, chunk_idx, action='derive_zernike_features'):
         process_meshes(models_dir, voxel_dir, model_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size])
 
     if action == 'find_nth_closest_model':
-        nth_closest_dict = nth_closest_descriptor(voxel_dir, subset_size=1000, metadata_path=metadata_path, n=100)
+        nth_closest_dict = nth_closest_descriptor(voxel_dir, subset_size=1000, df_metadata=df_metadata, n=100)
         # save the nth_closest dict
         write_to_json(nth_closest_dict, os.path.join(data_dir, 'nth_closest_obj.json'))
 
