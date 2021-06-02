@@ -19,7 +19,7 @@ def main():
     ablations = args.ablations == 'True'
     # run evaluations to compare AlignRank against baselines.
     if ablations:
-        evalaution_base_path = '../results/matterport3d/evaluations/ablation'
+        evalaution_base_path = '../results/matterport3d/evaluations/ablations'
         model_name_experiment = [('LearningBased', 'AlignRank'),
                                  ('LearningBased', 'AlignRank[-GNN]'),
                                  ('LearningBased', 'AlignRank[-Align]'),
