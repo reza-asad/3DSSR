@@ -56,7 +56,10 @@ def main(num_chunks, chunk_idx, action='build_scene_graphs'):
     accepted_cats = set(load_from_json('../../data/matterport3d/accepted_cats.json'))
     scene_graph_dir = '../../results/matterport3d/GKRank/scene_graphs/all'
     if not os.path.exists(scene_graph_dir):
-        os.makedirs(scene_graph_dir)
+        try:
+            os.makedirs(scene_graph_dir)
+        except FileExistsError:
+            pass
 
     if action == 'build_scene_graphs':
         # process the houses in batches
