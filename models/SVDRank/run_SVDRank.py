@@ -361,9 +361,9 @@ def get_args():
     parser.add_option('--data-dir', dest='data_dir',
                       default='../../results/matterport3d/LearningBased/scene_graphs_with_predictions_gnn')
     parser.add_option('--experiment_name', dest='experiment_name', default='SVDRank1D', help='SVDRank1D|SVDRank3D')
-    parser.add_option('--with_projection', dest='with_projection', default=True, help='If False set experiment_name'
-                                                                                      'to SVDRank3D.')
-    parser.add_option('--with_cat_predictions', dest='with_cat_predictions', default=True)
+    parser.add_option('--with_projection', dest='with_projection', default='True', help='If False set experiment_name'
+                                                                                        'to SVDRank3D.')
+    parser.add_option('--with_cat_predictions', dest='with_cat_predictions', default='True')
 
     (options, args) = parser.parse_args()
     return options
@@ -372,6 +372,8 @@ def get_args():
 def main():
     # get the arguments
     args = get_args()
+    with_projection = args.with_projection == 'True'
+    with_cat_predictions = args.with_cat_predictions == 'True'
 
     # set the input and output paths for the query dict.
     query_dict_input_path = '../../queries/matterport3d/query_dict_{}.json'.format(args.mode)
@@ -388,7 +390,7 @@ def main():
         print('Iteration {}/{}'.format(i+1, len(query_dict)))
         print('Processing query: {}'.format(query))
         target_subscenes = find_best_target_subscenes(query_info, args.data_dir, args.mode,
-                                                      args.with_cat_predictions, args.with_projection)
+                                                      with_cat_predictions, with_projection)
         query_info['target_subscenes'] = target_subscenes
         duration = (time() - t) / 60
         print('Processing the query took {} minutes'.format(round(duration, 2)))
