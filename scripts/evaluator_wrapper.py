@@ -46,7 +46,6 @@ def main():
             evaluation_process = Popen(command, shell=True)
             while evaluation_process.poll() is None:
                 sleep(10)
-            break
 
 
 if __name__ == '__main__':
