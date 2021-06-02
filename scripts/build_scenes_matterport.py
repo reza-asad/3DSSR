@@ -47,7 +47,10 @@ def main(num_chunks, chunk_idx, action='build_scenes'):
     models_dir = '../data/matterport3d/models'
     scene_dir = '../data/matterport3d/scenes/all'
     if not os.path.exists(scene_dir):
-        os.makedirs(scene_dir)
+        try:
+            os.makedirs(scene_dir)
+        except FileExistsError:
+            pass
 
     if action == 'build_scenes':
         # process the scenes in batches
