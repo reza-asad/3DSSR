@@ -113,7 +113,10 @@ def main(num_chunks, chunk_idx, action='extract_mesh'):
     root_dir = '../data/matterport3d'
     models_dir = os.path.join(root_dir, 'models')
     if not os.path.exists(models_dir):
-        os.mkdir(models_dir)
+        try:
+            os.mkdir(models_dir)
+        except FileExistsError:
+            pass
 
     if action == 'extract_mesh':
         rooms_dir = os.path.join(root_dir, 'rooms')
