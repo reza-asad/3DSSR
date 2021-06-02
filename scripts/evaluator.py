@@ -230,7 +230,7 @@ def get_args():
     parser.add_option('--mode', dest='mode', default='test', help='val|test')
     parser.add_option('--remove_model', action='store_true', dest='remove_model', default=False,
                       help='If True the model and its corresponding experiment are removed from the evaluation table.')
-    parser.add_option('--ablations', action='store_true', dest='ablations', default=True,
+    parser.add_option('--ablations', dest='ablations', default='False',
                       help='If True the evaluation results are stored in the ablation folder.')
     parser.add_option('--model_name', dest='model_name', default='LearningBased', help='LearningBased|GKRank|CatRank|'
                                                                                     'SVDRank|RandomRank')
@@ -247,6 +247,7 @@ def get_args():
 def main():
     # load arguments
     args = get_args()
+    ablations = args.ablations == 'True'
 
     # define paths and parameters
     q_theta = 0*np.pi/4
