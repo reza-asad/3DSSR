@@ -123,9 +123,12 @@ def main(num_chunks, chunk_idx, action='derive_zernike_features'):
 
 if __name__ == '__main__':
     data_dir = '../../data/matterport3d'
-    voxel_dir = os.path.join(data_dir, 'voxels')
+    voxel_dir = os.path.join(data_dir, 'voxels_test')
     if not os.path.exists(voxel_dir):
-        os.mkdir(voxel_dir)
+        try:
+            os.mkdir(voxel_dir)
+        except FileExistsError:
+            pass
     processed_files = [e.split('.')[0] for e in os.listdir(voxel_dir) if e.split('.')[1] != 'txt']
     visited = set(processed_files)
     if len(sys.argv) == 1:
