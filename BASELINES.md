@@ -52,5 +52,14 @@ cd models/LearningBased
 python3 run_linear_classifier_cat_predictions.py
 python3 run_AlignRank.py --experiment_name AlignRank[-GNN] --data_dir ../../results/matterport3d/LearningBased/scene_graphs_with_predictions_linear
 ```
+#### SVDRank1D
+```
+cd models/SVDRank
+python3 run_SVDRank.py --experiment_name SVDRank1D
+```
+#### SVDRank3D
+```
+python3 run_SVDRank.py --experiment_name SVDRank3D --with_projection False
+```
 
 [1]: https://techmatt.github.io/pdfs/graphKernel.pdf
