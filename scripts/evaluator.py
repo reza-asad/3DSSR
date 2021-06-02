@@ -259,8 +259,8 @@ def main():
                                                                                                     args.mode,
                                                                                                     args.experiment_name)
     # check if this is evaluating an ablation model or baseline
-    if args.ablations:
-        evalaution_base_path = '../results/matterport3d/evaluations/ablation'
+    if ablations:
+        evalaution_base_path = '../results/matterport3d/evaluations/ablations'
         if not os.path.exists(evalaution_base_path):
             os.makedirs(evalaution_base_path)
     else:
