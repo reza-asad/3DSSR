@@ -4,5 +4,7 @@ trimesh==3.6.30
 pyrender==0.1.43
 plyfile==0.7.2
 Rtree==0.9.4
+scikit-learn==0.23.2
+matplotlib==3.3.2
 numpy
 pandas
