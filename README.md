@@ -78,18 +78,15 @@ python3 train_gnn.py
 
 ## Evaluations
 1. To run each baseline and ablation model from scratch follow the instructions in [BASELINES.md](BASELINES.md). Otherwise, this step can be skipped. 
-2. To evaluate AlignRank against baselines run:
+2. To evaluate AlignRank against baselines and ablations run:
 ```
 cd scripts
-python3 evaluator_wrapper.py --mode test --ablations False
-python3 prepare_quantitative_results.py --ablations False
+python3 evaluator_wrapper.py --mode test --ablations < True, False >
 ```
-3. To evaluate AlignRank against ablations run:
+3. To plot the evaluated results and compute the Area Under the Curve (AUC) run:
 ```
-python3 evaluator_wrapper.py --mode test --ablations True
-python3 prepare_quantitative_results.py --ablations True
+python3 prepare_quantitative_results.py --ablations < True, False >
 ```
-
 ## Rendering Results
 
 
