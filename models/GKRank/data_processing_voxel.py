@@ -96,13 +96,20 @@ def process_meshes(models_dir, voxel_dir, model_names):
 def main(num_chunks, chunk_idx, action='derive_zernike_features'):
     data_dir = '../../data/matterport3d'
     models_dir = os.path.join(data_dir, 'models')
+    accepted_cats = load_from_json('../data/matterport3d/accepted_cats.json')
     metadata_path = os.path.join(data_dir, 'metadata.csv')
     voxel_dir = os.path.join(data_dir, 'voxels')
     if not os.path.exists(voxel_dir):
         os.mkdir(voxel_dir)
 
     if action == 'derive_zernike_features':
-        model_names = os.listdir(models_dir)
+        # filter models to only include accepted cats.
+        df_metadata = pd.read_csv(metadata_path)
+        is_accepted = df_metadata['mpcat40'].apply(lambda x: x in accepted_cats)
+        df_metadata = df_metadata.loc[is_accepted]
+        model_names = df_metadata[['room_name', 'objectId']].apply(lambda x: '-'.join([x['room_name'],
+                                                                                       str(x['objectId'])]) + '.ply', axis=1)
+        model_names = model_names.tolist()
         chunk_size = int(np.ceil(len(model_names) / num_chunks))
         process_meshes(models_dir, voxel_dir, model_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size])
 
