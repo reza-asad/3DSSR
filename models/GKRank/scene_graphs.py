@@ -16,12 +16,12 @@ class RelationError(Exception):
 
 
 class SceneGraph(BaseScene):
-    def __init__(self, models_dir, scene_graph_dir, scene_name, model_dir_with_texture=None):
+    def __init__(self, models_dir, scene_graph_dir, scene_name, accepted_cats, model_dir_with_texture=None):
         """
         Initialize an instance of a scene
         :param models_dir: The path to the models directory
         """
-        super().__init__(models_dir, scene_graph_dir, scene_name)
+        super().__init__(models_dir, scene_graph_dir, scene_name, accepted_cats)
         self.models_dir_with_texture = model_dir_with_texture
 
         self.has_fake_vertical_contact = False
