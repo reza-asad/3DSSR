@@ -8,7 +8,7 @@ from obj_3d import Mesh
 
 
 class BaseScene (object):
-    def __init__(self, models_dir, scene_graph_dir, scene_name):
+    def __init__(self, models_dir, scene_graph_dir, scene_name, accepted_cats):
         """
         Initialize an instance of a scene
         :param models_dir: The path to the models directory
@@ -18,7 +18,15 @@ class BaseScene (object):
 
         self.scene_graph_dir = scene_graph_dir
         self.scene_name = scene_name
+        self.accepted_cats = accepted_cats
         self.graph = {}
+
+    def filter_by_accepted_cats(self):
+        filtered_graph = {}
+        for node, node_info in self.graph.items():
+            if node_info['category'][0] in self.accepted_cats:
+                filtered_graph[node] = node_info
+        self.graph = filtered_graph
 
     def prepare_mesh_for_scene(self, obj, graph):
         """
