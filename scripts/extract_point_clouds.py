@@ -44,7 +44,10 @@ def main(num_chunks, chunk_idx, action='extract_pc'):
     metadata_path = '../data/matterport3d/metadata.csv'
     results_dir = '../data/matterport3d/point_clouds/all'
     if not os.path.exists(results_dir):
-        os.makedirs(results_dir)
+        try:
+            os.makedirs(results_dir)
+        except FileExistsError:
+            pass
 
     if action == 'extract_pc':
         # filter models to only include accepted cats.
