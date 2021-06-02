@@ -81,7 +81,7 @@ python3 train_gnn.py
 2. To evaluate AlignRank against baselines and ablations run:
 ```
 cd scripts
-python3 evaluator_wrapper.py --mode test --ablations <True, False>
+python3 evaluator_wrapper.py --mode test --ablations < True, False >
 ```
 
 ## Rendering Results
