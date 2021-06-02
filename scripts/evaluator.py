@@ -11,10 +11,10 @@ from scripts.iou import IoU
 
 
 class Evaluate:
-    def __init__(self, query_results, evaluation_path, scene_graph_dir, curr_df, mode, overlap_threshold, q_theta=0):
+    def __init__(self, query_results, evaluation_path, scene_dir, curr_df, mode, overlap_threshold, q_theta=0):
         self.query_results = query_results
         self.evaluation_path = evaluation_path
-        self.scene_graph_dir = scene_graph_dir
+        self.scene_dir = scene_dir
         self.curr_df = curr_df
         self.mode = mode
         self.metrics = {'overlap_mAP': [self.compute_overlap_match, overlap_threshold]}
@@ -61,7 +61,7 @@ class Evaluate:
 
     def compute_overlap_match(self, query_scene, query_object, context_objects, target_subscene):
         # load the target scene
-        target_scene = load_from_json(os.path.join(self.scene_graph_dir, self.mode, target_subscene['scene_name']))
+        target_scene = load_from_json(os.path.join(self.scene_dir, self.mode, target_subscene['scene_name']))
         target_object = target_subscene['target']
 
         # map each object in the query and target scenes to their cat
@@ -179,7 +179,7 @@ class Evaluate:
     def compute_mAP(self, metric, query_name, model_name, experiment_id, topk=10):
         # load the query subscene and find the query and context objects
         query_scene_name = self.query_results[query_name]['example']['scene_name']
-        query_scene = load_from_json(os.path.join(self.scene_graph_dir, self.mode, query_scene_name))
+        query_scene = load_from_json(os.path.join(self.scene_dir, self.mode, query_scene_name))
         query_object = self.query_results[query_name]['example']['query']
         context_objects = self.query_results[query_name]['example']['context_objects']
 
@@ -276,7 +276,7 @@ def main():
         shutil.copy('../results/matterport3d/evaluations/evaluation_template.csv', evaluation_path)
 
     aggregated_csv_path = os.path.join(evalaution_base_path, 'evaluation_aggregated.csv')
-    scene_graph_dir = '../data/matterport3d/scene_graphs'
+    scene_dir = '../data/matterport3d/scenes'
 
     # read the results of a model and the evaluation csv file
     query_results = load_from_json(query_results_input_path)
@@ -304,7 +304,7 @@ def main():
         query_results = {k: v for k, v in query_results.items() if k in evaluation_queries}
 
     # initialize the evaluator
-    evaluator = Evaluate(query_results=query_results, evaluation_path=evaluation_path, scene_graph_dir=scene_graph_dir,
+    evaluator = Evaluate(query_results=query_results, evaluation_path=evaluation_path, scene_dir=scene_dir,
                          curr_df=curr_df, mode=args.mode, overlap_threshold=0, q_theta=q_theta)
 
     # run evaluation and compute overlap mAP per query for each threshold.
