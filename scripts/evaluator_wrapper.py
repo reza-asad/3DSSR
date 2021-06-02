@@ -44,9 +44,8 @@ def main():
             command = 'python3 evaluator.py --mode {} --ablations {} --model_name {} --experiment_name {}'\
                 .format(args.mode, args.ablations, model_name, experiment_name)
             evaluation_process = Popen(command, shell=True)
-            while evaluation_process is None:
-                while evaluation_process.poll() is None:
-                    sleep(10)
+            while evaluation_process.poll() is None:
+                sleep(10)
             break
 
 
