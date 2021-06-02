@@ -96,7 +96,7 @@ def process_meshes(models_dir, voxel_dir, model_names):
 def main(num_chunks, chunk_idx, action='derive_zernike_features'):
     data_dir = '../../data/matterport3d'
     models_dir = os.path.join(data_dir, 'models')
-    accepted_cats = load_from_json('../data/matterport3d/accepted_cats.json')
+    accepted_cats = load_from_json(os.path.join(data_dir, 'accepted_cats.json'))
     metadata_path = os.path.join(data_dir, 'metadata.csv')
     voxel_dir = os.path.join(data_dir, 'voxels')
     if not os.path.exists(voxel_dir):
