@@ -123,7 +123,7 @@ def main(num_chunks, chunk_idx, action='derive_zernike_features'):
 
 if __name__ == '__main__':
     data_dir = '../../data/matterport3d'
-    voxel_dir = os.path.join(data_dir, 'voxels_test')
+    voxel_dir = os.path.join(data_dir, 'voxels')
     if not os.path.exists(voxel_dir):
         try:
             os.mkdir(voxel_dir)
