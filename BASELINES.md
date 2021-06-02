@@ -1,6 +1,6 @@
 ## Baselines
 To run each basedline model from scratch follow the instructions bellow:
-### GKRank
+#### GKRank
 This is an extention of [Fisher et al.][1]\'s graph kernel-based approach. 
 
 1. Build the scene graphs:
