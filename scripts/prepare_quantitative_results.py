@@ -55,7 +55,7 @@ def main():
 
     # define the paths and params and model names.
     if ablations:
-        aggregated_csv_path = '../results/matterport3d/evaluations/ablation/evaluation_aggregated.csv'
+        aggregated_csv_path = '../results/matterport3d/evaluations/ablations/evaluation_aggregated.csv'
         plot_name = 'alignment_ablation_global.png'
         model_name_exp_map = {('LearningBased', 'AlignRank'): 'AlignRank',
                               ('LearningBased', 'AlignRank[-GNN]'): 'AlignRank[-GNN]',
