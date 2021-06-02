@@ -6,7 +6,7 @@ from optparse import OptionParser
 from matplotlib import pyplot as plt
 
 
-def plot_results(metrics, model_name_exp_map, summary_results, plot_name, with_auc):
+def plot_results(metrics, model_name_exp_map, summary_results, plot_name):
     # plot results for each metric
     auc_dic = {}
     for metric in metrics:
@@ -20,7 +20,7 @@ def plot_results(metrics, model_name_exp_map, summary_results, plot_name, with_a
                 lambda x: x.split('-0')[0] == experiment_id)
             summary_resutls_model_experiment = summary_resutls_model.loc[this_experiment]
             # x axis represents thresholds
-            x = summary_resutls_model_experiment['experiment_id'].apply(lambda x: np.float(x.split('-')[-1])).values
+            x = summary_resutls_model_experiment['experiment_id'].apply(lambda x: np.float64(x.split('-')[-1])).values
             # y axis represents the mAP values
             y = summary_resutls_model_experiment[metric].values
 
@@ -76,7 +76,7 @@ def main():
     metrics = ['overlap_mAP']
 
     # plot the quantiative results
-    plot_results(metrics, model_name_exp_map, summary_results, plot_name, with_auc=True)
+    plot_results(metrics, model_name_exp_map, summary_results, plot_name)
 
 
 if __name__ == '__main__':
