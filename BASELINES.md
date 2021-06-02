@@ -36,7 +36,7 @@ python3 random_run.py --model_name RandomRank
 
 ## Ablations
 To run each ablation model from scratch follow the instructions bellow:
-### Linear Classifier
+#### Linear Classifier
 ```
 cd models/LearningBased
 python3 train_gnn.py
