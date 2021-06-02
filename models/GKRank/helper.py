@@ -65,10 +65,9 @@ def find_diverse_subset(subset_size, df):
     return subset
 
 
-def nth_closest_descriptor(voxel_dir, subset_size, metadata_path, n=2):
+def nth_closest_descriptor(voxel_dir, subset_size, df_metadata, n=2):
     voxel_names = [voxel for voxel in os.listdir(voxel_dir) if voxel.endswith('.inv')]
     # take a subset of the voxels for normalizing the geometric kernel.
-    df_metadata = pd.read_csv(metadata_path)
     voxel_names_subset = find_diverse_subset(subset_size, df_metadata)
     voxel_names_subset = {voxel_name+'.inv' for voxel_name in voxel_names_subset}
 
