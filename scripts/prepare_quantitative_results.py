@@ -41,7 +41,7 @@ def plot_results(metrics, model_name_exp_map, summary_results, plot_name, with_a
 def get_args():
     parser = OptionParser()
     parser.add_option('--mode', dest='mode', default='test', help='val|test')
-    parser.add_option('--ablations', action='store_true', dest='ablations', default=False,
+    parser.add_option('--ablations', action='store_true', dest='ablations', default='False',
                       help='If True the ablation results are plotted.')
 
     (options, args) = parser.parse_args()
@@ -51,33 +51,29 @@ def get_args():
 def main():
     # load the arguments
     args = get_args()
+    ablations = args.ablations == 'True'
 
-    # define the paths and params
-    if args.ablations:
+    # define the paths and params and model names.
+    if ablations:
         aggregated_csv_path = '../results/matterport3d/evaluations/ablation/evaluation_aggregated.csv'
-    else:
-        aggregated_csv_path = '../results/matterport3d/evaluations/{}/evaluation_aggregated.csv'.format(args.mode)
-
-    # read the aggregated results and choose the metric to plot
-    summary_results = pd.read_csv(aggregated_csv_path)
-    metrics = ['overlap_mAP']
-
-    # define the models that you would like to plot and the name that you will display
-    if args.ablations:
+        plot_name = 'alignment_ablation_global.png'
         model_name_exp_map = {('LearningBased', 'AlignRank'): 'AlignRank',
                               ('LearningBased', 'AlignRank[-GNN]'): 'AlignRank[-GNN]',
                               ('LearningBased', 'AlignRank[-Align]'): 'AlignRank[-Align]',
                               ('SVDRank', 'SVDRank1D'): 'SVDRank1D',
                               ('SVDRank', 'SVDRank3D'): 'SVDRank3D'}
-        plot_name = 'alignment_ablation_global.png'
-
     else:
+        aggregated_csv_path = '../results/matterport3d/evaluations/{}/evaluation_aggregated.csv'.format(args.mode)
+        plot_name = 'mAP_comparisons.png'
         model_name_exp_map = {('LearningBased', 'AlignRankOracle'): 'AlignRankOracle',
                               ('LearningBased', 'AlignRank'): 'AlignRank',
                               ('GKRank', 'GKRank'): 'GKRank',
                               ('CatRank', 'CatRank'): 'CatRank',
                               ('RandomRank', 'RandomRank'): 'RandomRank'}
-        plot_name = 'mAP_comparisons.png'
+
+    # read the aggregated results and choose the metric to plot
+    summary_results = pd.read_csv(aggregated_csv_path)
+    metrics = ['overlap_mAP']
 
     # plot the quantiative results
     plot_results(metrics, model_name_exp_map, summary_results, plot_name, with_auc=True)
