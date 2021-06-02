@@ -83,7 +83,10 @@ python3 train_gnn.py
 cd scripts
 python3 evaluator_wrapper.py --mode test --ablations < True, False >
 ```
-
+3. To plot the evaluated results and compute the Area Under the Curve (AUC) run:
+```
+python3 prepare_quantitative_results.py --ablations < True, False >
+```
 ## Rendering Results
 
 
