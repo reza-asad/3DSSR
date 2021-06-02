@@ -73,7 +73,7 @@ def process_meshes(models_dir, voxel_dir, model_names):
     for i, model_name in enumerate(model_names):
         print('Processing mesh {} ... '.format(model_name))
         print('Iteration {}/{}'.format(i+1, len(model_names)))
-        if model_name in visited:
+        if model_name.split('.')[0] in visited:
             continue
         t2 = time()
         # derive the voxel and save it
@@ -87,6 +87,7 @@ def process_meshes(models_dir, voxel_dir, model_names):
         # delete the voxel file
         os.remove(os.path.join(voxel_dir, voxel_name))
         duration = (time() - t2) / 60
+        visited.add(model_name.split('.')[0])
         print('Processing mesh {} took {} minutes'.format(model_name, round(duration, 2)))
         print('-' * 50)
     duration_all = (time() - t) / 60
@@ -94,11 +95,9 @@ def process_meshes(models_dir, voxel_dir, model_names):
 
 
 def main(num_chunks, chunk_idx, action='derive_zernike_features'):
-    data_dir = '../../data/matterport3d'
     models_dir = os.path.join(data_dir, 'models')
     accepted_cats = load_from_json(os.path.join(data_dir, 'accepted_cats.json'))
     metadata_path = os.path.join(data_dir, 'metadata.csv')
-    voxel_dir = os.path.join(data_dir, 'voxels')
     if not os.path.exists(voxel_dir):
         os.mkdir(voxel_dir)
 
@@ -125,7 +124,10 @@ def main(num_chunks, chunk_idx, action='derive_zernike_features'):
 
 
 if __name__ == '__main__':
-    visited = set()
+    data_dir = '../../data/matterport3d'
+    voxel_dir = os.path.join(data_dir, 'voxels')
+    processed_files = [e.split('.')[0] for e in os.listdir(voxel_dir) if e.split('.')[1] != 'txt']
+    visited = set(processed_files)
     if len(sys.argv) == 1:
         main(1, 0, 'derive_zernike_features')
     elif len(sys.argv) == 2:
