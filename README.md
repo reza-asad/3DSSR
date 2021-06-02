@@ -35,7 +35,7 @@ parallel -j5 "python3 -u extract_point_clouds.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 
 python3 extract_point_clouds.py split_train_test_val
 ```
 
-## AlignRank and ALignRankOracle
+## AlignRank and AlignRankOracle
 ### Scene Graph Construction
 First step is to construct the scene graphs:
 ```
@@ -80,9 +80,14 @@ python3 train_gnn.py
 1. To run each baseline and ablation model from scratch follow the instructions in [BASELINES.md](BASELINES.md). Otherwise, this step can be skipped. 
 2. To evaluate AlignRank against baselines run:
 ```
+cd scripts
+python3 evaluator_wrapper.py --mode test --ablations False
+python3 prepare_quantitative_results.py --ablations False
 ```
 3. To evaluate AlignRank against ablations run:
 ```
+python3 evaluator_wrapper.py --mode test --ablations True
+python3 prepare_quantitative_results.py --ablations True
 ```
 
 ## Rendering Results
