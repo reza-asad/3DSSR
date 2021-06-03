@@ -75,7 +75,7 @@ def plot_evaluations(x, y, fig, ax, label,):
 
 
 def main(num_chunks, chunk_idx, mode, model_name='LearningBased', experiment_name='AlignRank', render=False, topk=5,
-         make_folders=False, with_img_table=False, filter_queries=['all']):
+         make_folders=False, with_img_table=False, include_queries=['all']):
     # define paths
     query_results_path = '../results/matterport3d/{}/query_dict_{}_{}_evaluated.json'.format(model_name, mode,
                                                                                              experiment_name)
@@ -89,9 +89,9 @@ def main(num_chunks, chunk_idx, mode, model_name='LearningBased', experiment_nam
     # load the query results and filter them if necessary.
     query_results = load_from_json(query_results_path)
     filtered_query_results = {}
-    if filter_queries[0] != 'all':
+    if include_queries[0] != 'all':
         for query, results in query_results.items():
-            if query in filter_queries:
+            if query in include_queries:
                 filtered_query_results[query] = results
     else:
         filtered_query_results = query_results
@@ -157,8 +157,8 @@ def main(num_chunks, chunk_idx, mode, model_name='LearningBased', experiment_nam
 
 
 if __name__ == '__main__':
-    filter_queries = sys.argv[10]
-    qs = filter_queries.split(',')
+    include_queries = sys.argv[10]
+    qs = include_queries.split(',')
     new_qs = []
     for i, e in enumerate(qs):
         if i == 0:
