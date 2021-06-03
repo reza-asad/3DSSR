@@ -45,7 +45,7 @@ def main():
              '0 1 2 3 4 ::: '
         c2 = '{mode} ::: {model_name} ::: {experiment_name} ::: True ::: {topk} ::: False ::: False ' \
              '::: {filter_queries}'.format(mode=args.mode, model_name=model_name, experiment_name=experiment_name,
-                                           topk=args.topk, filter_queries=filter_queries)
+                                           topk=args.topk, filter_queries=include_queries)
         process_rendering = Popen(c1 + c2, shell=True)
         t0 = time()
         while process_rendering.poll() is None:
