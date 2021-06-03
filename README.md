@@ -88,11 +88,11 @@ python3 evaluator_wrapper.py --mode test --ablations < True, False >
 python3 prepare_quantitative_results.py --ablations < True, False >
 ```
 ## Rendering Results
-To render the qualitative results in the paper run:
+To render the top 5 results for the queries presented in the paper run:
 ```
 python3 render_results_wrapper.py --mode test --topk 5 --include_queries '["bed-33", "table-9", "sofa-28"]'
 ```
-To render the qualitative results for all test queries run:
+To render the top 5 results for all test queries run:
 ```
 python3 render_results_wrapper.py --mode test --topk 5 --include_queries '["all"]'
 ```
