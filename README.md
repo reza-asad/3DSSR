@@ -97,7 +97,7 @@ To render the top 5 results for all test queries run:
 python3 render_results_wrapper.py --mode test --topk 5 --include_queries '["all"]'
 ```
 
-[1]: https://sgp2021.github.io/
+[1]: https://github.com/reza-asad/3DSSR
 [2]: https://github.com/yongheng1991/3D-point-capsule-networks
 [RA]: https://reza-asad.github.io/
 [MS]: https://msavva.github.io/
