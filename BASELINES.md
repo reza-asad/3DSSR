@@ -39,7 +39,7 @@ To run each ablation model from scratch follow the instructions bellow:
 #### Linear Classifier
 ```
 cd models/LearningBased
-python3 train_gnn.py
+python3 train_linear_classifier.py
 ```
 #### AlignRank[-Align]
 ```
