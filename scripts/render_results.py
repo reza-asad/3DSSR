@@ -80,7 +80,7 @@ def main(num_chunks, chunk_idx, mode, model_name='LearningBased', experiment_nam
     query_results_path = '../results/matterport3d/{}/query_dict_{}_{}_evaluated.json'.format(model_name, mode,
                                                                                              experiment_name)
     scene_graph_dir = '../data/matterport3d/scene_graphs'
-    rendering_path = '../results/matterport3d/rendered_results_subset/{}/{}'.format(mode, experiment_name)
+    rendering_path = '../results/matterport3d/rendered_results/{}/{}'.format(mode, experiment_name)
     models_dir = '../data/matterport3d/models'
     colormap = load_from_json('../data/matterport3d/color_map.json')
     img_folder = 'imgs'
