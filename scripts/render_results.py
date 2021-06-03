@@ -15,7 +15,7 @@ def make_rendering_folders(query_results, rendering_path, img_folder='imgs'):
             os.makedirs(query_path)
 
 
-def render_model_results(query_results, scene_graph_dir, models_dir, rendering_path, colormap, num_chunks, chunk_size,
+def render_model_results(query_results, scene_dir, models_dir, rendering_path, colormap, num_chunks, chunk_size,
                          chunk_idx, mode, topk=50, img_folder='imgs'):
     # visualize the result of each query
     for i, (query, results) in enumerate(query_results.items()):
@@ -25,7 +25,7 @@ def render_model_results(query_results, scene_graph_dir, models_dir, rendering_p
         # render the query scene once only
         if chunk_idx == i % num_chunks:
             scene_name = results['example']['scene_name']
-            query_graph = load_from_json(os.path.join(scene_graph_dir, mode, scene_name))
+            query_graph = load_from_json(os.path.join(scene_dir, mode, scene_name))
             q = results['example']['query']
             q_context = set(results['example']['context_objects'] + [q])
 
@@ -40,7 +40,7 @@ def render_model_results(query_results, scene_graph_dir, models_dir, rendering_p
                                                                 (chunk_idx + 1) * chunk_size]
         for j, target_subscene in enumerate(top_results_chunk):
             target_scene_name = target_subscene['scene_name']
-            target_graph_path = os.path.join(scene_graph_dir, 'all', target_scene_name)
+            target_graph_path = os.path.join(scene_dir, 'all', target_scene_name)
             target_graph = load_from_json(target_graph_path)
             t = target_subscene['target']
             # rotate the target scene if the model outputs a rotation angle or matrix
@@ -79,7 +79,7 @@ def main(num_chunks, chunk_idx, mode, model_name='LearningBased', experiment_nam
     # define paths
     query_results_path = '../results/matterport3d/{}/query_dict_{}_{}_evaluated.json'.format(model_name, mode,
                                                                                              experiment_name)
-    scene_graph_dir = '../data/matterport3d/scene_graphs'
+    scene_dir = '../data/matterport3d/scenes'
     rendering_path = '../results/matterport3d/rendered_results/{}/{}'.format(mode, experiment_name)
     models_dir = '../data/matterport3d/models'
     colormap = load_from_json('../data/matterport3d/color_map.json')
@@ -103,7 +103,7 @@ def main(num_chunks, chunk_idx, mode, model_name='LearningBased', experiment_nam
     if render:
         # render results from the model
         chunk_size = int(np.ceil(topk / num_chunks))
-        render_model_results(filtered_query_results, scene_graph_dir, models_dir, rendering_path, colormap, num_chunks,
+        render_model_results(filtered_query_results, scene_dir, models_dir, rendering_path, colormap, num_chunks,
                              chunk_size, chunk_idx, mode, topk, img_folder)
 
     if with_img_table:
