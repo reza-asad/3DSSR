@@ -1,4 +1,5 @@
 import os
+import shutil
 import numpy as np
 from optparse import OptionParser
 from subprocess import Popen
@@ -32,7 +33,7 @@ def main():
         # delete the existing rendered results
         rendering_path = '../results/matterport3d/rendered_results/{}/{}'.format(args.mode, experiment_name)
         if os.path.exists(rendering_path):
-            os.rmdir(rendering_path)
+            shutil.rmtree(rendering_path)
 
         # make folders for rendering each query at scene and cropped scales.
         process(1, 0, mode=args.mode, model_name=model_name, experiment_name=experiment_name,
