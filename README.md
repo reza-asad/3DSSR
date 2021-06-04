@@ -22,7 +22,6 @@
 </td>
 
 </tr>
-</table>
 
 <tr>
 
@@ -32,7 +31,10 @@
 <br />
  Rank 1 Target Final Subscene
 </td>
-
+ 
+</tr>
+ </table>
+ 
 ## Dependencies and Python Enviroment
 ```
 python3 -m venv env
