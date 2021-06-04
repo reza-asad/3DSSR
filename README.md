@@ -20,7 +20,8 @@
 <br />
 
 </td>
-
+</tr>
+ 
 <td align="center" valign="center">
 <img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/rank1_final.gif" />
 <br />
