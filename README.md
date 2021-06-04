@@ -18,14 +18,14 @@
 <img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/rank1_alignment.gif" />
 <br />
 <br />
- Applying the AlignmentModule
+
 </td>
 
 <td align="center" valign="center">
 <img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/rank1_final.gif" />
 <br />
 <br />
- Rank 1 Target Subscene
+ 
 </td>
  
 </tr>
