@@ -6,6 +6,9 @@
 <div align="left">
   <img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/query_top_view.gif" width="550px" />
 </div>
+<div align="right">
+  <img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/rank1_center_view.gif" width="550px" />
+</div>
 
 ## Dependencies and Python Enviroment
 ```
