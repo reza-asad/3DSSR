@@ -10,6 +10,7 @@
 <img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/query_top_view.gif" />
 <br />
 <br />
+ Query Subscene
 </td>
 
 
@@ -17,6 +18,7 @@
 <img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/rank1_center_view.gif" />
 <br />
 <br />
+ Rank 1 Target Subscene
 </td>
 
 </tr>
