@@ -10,7 +10,7 @@
 <img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/query_top_view.gif" />
 <br />
 <br />
- Query Subscene
+
 </td>
 
 
