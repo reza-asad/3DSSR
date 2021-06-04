@@ -3,12 +3,24 @@
 **[3DSSR: 3D SubScene Retrieval][1]**  
 [Reza Asad][RA], [Manolis Savva][MS]
 
-<div align="left">
-  <img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/query_top_view.gif" width="550px" />
-</div>
-<div align="right">
-  <img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/rank1_center_view.gif" width="550px" />
-</div>
+<table width="500" border="0" cellpadding="5">
+<tr>
+
+<td align="center" valign="center">
+<img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/query_top_view.gif" />
+<br />
+<br />
+</td>
+
+
+<td align="center" valign="center">
+<img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/rank1_center_view.gif" />
+<br />
+<br />
+</td>
+
+</tr>
+</table>
 
 ## Dependencies and Python Enviroment
 ```
