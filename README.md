@@ -3,6 +3,9 @@
 **[3DSSR: 3D SubScene Retrieval][1]**  
 [Reza Asad][RA], [Manolis Savva][MS]
 
+<div align="center">
+  <img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/query_top_view.gif" width="550px" />
+</div>
 
 ## Dependencies and Python Enviroment
 ```
