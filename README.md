@@ -21,12 +21,6 @@
  Applying the AlignmentModule
 </td>
 
-</tr>
-</table>
-
-<table width="500" border="0" cellpadding="5" align="center">
-<tr>
-
 <td align="center" valign="center">
 <img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/rank1_final.gif" />
 <br />
@@ -35,7 +29,7 @@
 </td>
  
 </tr>
- </table>
+</table>
  
 ## Dependencies and Python Enviroment
 ```
