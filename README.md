@@ -1,6 +1,6 @@
 # Project
 
-**[3DSSR: 3D SubScene Retrieval][1]**  
+**[Project][1]**  
 [Reza Asad][RA], [Manolis Savva][MS]
 
 <table width="500" border="0" cellpadding="5">
