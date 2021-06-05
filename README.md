@@ -18,7 +18,7 @@ Query Subscene (bed*, chest-of-drawers, chair, lighting)
 <img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/rank1_alignment.gif" />
 <br />
 <br />
-Aligned Target Scene
+Aligning the Target Scene
 </td>
 </tr>
  
