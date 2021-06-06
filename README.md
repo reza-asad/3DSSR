@@ -57,7 +57,7 @@ python3 matterport_preprocessing.py save_metadata
 parallel -j5 "python3 -u build_scenes_matterport.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: build_scenes
 python3 -u build_scenes_matterport.py split_train_test_val
 ```
-4. Extract 3D pointclouds from the objects. The pointclouds are later fed into [3D Point Capsule Networks][2] and the latent capsules are used for category prediction.
+4. Extract 3D pointclouds from the objects. The pointclouds are later fed into [3D Point Capsule Networks][2] and the latent capsules are used for category prediction. This step can be skipped if you plan to use the latent capsules trained by us.
 ```
 parallel -j5 "python3 -u extract_point_clouds.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: extract_pc
 python3 extract_point_clouds.py split_train_test_val
