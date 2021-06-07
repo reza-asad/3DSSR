@@ -90,6 +90,7 @@ To train AlignRank and AlignRankOracle from scratch follow the steps below:
 cd models/LearningBased
 python3 train_AlignmentModule.py 
 ```
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; This will save the trained models in ```results/matterport3d/LearningBased/lstm_alignment```
 2. Download the trained latent capsules from [here][1] and place them in this directory:
  ```
  3DSSR/data/matterport3d/latent_caps
