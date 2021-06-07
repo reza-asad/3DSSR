@@ -119,7 +119,20 @@ To train AlignRank and AlignRankOracle from scratch follow the steps below:
     ```
     python3 prepare_quantitative_results.py --ablations < True, False >
     ```
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; If ```--ablations``` is True, the left plot compares AlignRank against ablations. Otherwise, the right plot contrasts AlignRank against the baselines.
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; If ```--ablations``` is True the left plot is generated. Otherwise, the output is the right plot.
+
+<table width="500" border="0" cellpadding="5">
+<tr>
+
+<td align="center" valign="center">
+<img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/query_top_view.gif" />
+</td>
+
+
+<td align="center" valign="center">
+<img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/rank1_alignment_colored.gif" />
+</td>
+</tr>
 
 
 ## Rendering Results
