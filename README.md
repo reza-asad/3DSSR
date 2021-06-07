@@ -124,13 +124,13 @@ To train AlignRank and AlignRankOracle from scratch follow the steps below:
 <table width="500" border="0" cellpadding="5">
 <tr>
 <td align="center" valign="center">
-<img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/query_top_view.gif" />
+<img src="https://github.com/reza-asad/Project/blob/master/results/matterport3d/evaluation_plots/alignment_ablation_global.png" />
 </td>
 <td align="center" valign="center">
-<img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/rank1_alignment_colored.gif" />
+<img src="https://github.com/reza-asad/Project/blob/master/results/matterport3d/evaluation_plots/mAP_comparisons.png" />
 </td>
 </tr>
-
+</table>
 
 ## Rendering Results
 To render the top 5 results for the queries presented in the paper run:
