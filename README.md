@@ -113,7 +113,7 @@ To train AlignRank and AlignRankOracle from scratch follow the steps below:
     cd scripts
     python3 evaluator_wrapper.py --mode test --ablations < True, False >
     ```
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; If ```--ablations``` is True, AlignRank is evaluated against the ablations. Otherwise, AlignRank is compared against the baseline models.
+    If ```--ablations``` is True, AlignRank is evaluated against the ablations. Otherwise, AlignRank is compared against the baseline models.
 
 3. To plot the evaluated results and compute the Area Under the Curve (AUC) run:
     ```
