@@ -113,12 +113,15 @@ python3 train_gnn.py
 cd scripts
 python3 evaluator_wrapper.py --mode test --ablations < True, False >
 ```
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; If ablations is True AlignRank is evaluated against the ablations. Otherwise, AlignRank is compared against the baseline models.
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; If --ablations is True, AlignRank is evaluated against the ablations. Otherwise, AlignRank is compared against the baseline models.
 
 3. To plot the evaluated results and compute the Area Under the Curve (AUC) run:
 ```
 python3 prepare_quantitative_results.py --ablations < True, False >
 ```
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; If --ablations is True, the left plot is generated where AlignRank is compared against ablations. Otherwise, the right plot contrasts AlignRank against the baselines.
+
+
 ## Rendering Results
 To render the top 5 results for the queries presented in the paper run:
 ```
