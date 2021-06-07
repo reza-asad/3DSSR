@@ -86,6 +86,7 @@ python3 run_AlignRank.py --experiment_name AlignRank
 To train AlignRank and AlignRankOracle from scratch follow the steps below:
 
 1. Train the AlignmentModule:
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 ```
 cd models/LearningBased
 python3 train_AlignmentModule.py 
