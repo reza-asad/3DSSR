@@ -15,7 +15,7 @@ Query Subscene (bed*, chest-of-drawers, chair, lighting)
 
 
 <td align="center" valign="center">
-<img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/rank1_alignment.gif" />
+<img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/rank1_alignment_colored.gif" />
 <br />
 <br />
 Aligning Rank 1 Target Scene
