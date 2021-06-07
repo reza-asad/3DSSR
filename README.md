@@ -90,13 +90,13 @@ To train AlignRank and AlignRankOracle from scratch follow the steps below:
     cd models/LearningBased
     python3 train_AlignmentModule.py 
     ```
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;The trained models will be saved in ```results/matterport3d/LearningBased/lstm_alignment```.
+    The trained models will be saved in ```results/matterport3d/LearningBased/lstm_alignment```.
 
 2. Download the trained latent capsules from [here][1] and place them in this directory:
     ```
     3DSSR/data/matterport3d/latent_caps
     ```
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;or train a [3D Point Capsule Network][2] on the pointclouds extracted in step 3 of data prepration.
+    or train a [3D Point Capsule Network][2] on the pointclouds extracted in step 3 of data prepration.
  
 3. Train GNN for object category prediction (this step can be skipped for AlignRankOracle)
     ```
@@ -119,7 +119,7 @@ To train AlignRank and AlignRankOracle from scratch follow the steps below:
     ```
     python3 prepare_quantitative_results.py --ablations < True, False >
     ```
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; If ```--ablations``` is True the left plot is generated. Otherwise, the output is the right plot.
+    If ```--ablations``` is True the left plot is generated. Otherwise, the output is the right plot.
 
 <table width="500" border="0" cellpadding="5">
 <tr>
