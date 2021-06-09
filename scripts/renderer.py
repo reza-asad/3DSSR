@@ -5,9 +5,11 @@ import gc
 
 
 class Render:
-    def __init__(self, kwargs, camera_pose=None):
+    def __init__(self, kwargs, camera_pose=None, animation=False):
         self.kwargs = kwargs
         self.camera_pose = camera_pose
+        self.animation = animation
+        self.scene = None
 
     def pyrender_render(self, scene, resolution, camera_pose, room_dimension):
         length, width, height = room_dimension
@@ -43,16 +45,19 @@ class Render:
         camera.znear = z_near
 
         # add light and camera to the scene
-        scene.add(light_directional, pose=light_directional_pose)
-        scene.add(light_point_spot_center, pose=light_point_spot_pose_center)
-        scene.add(camera, pose=camera_pose)
+        scene.add(light_directional, pose=light_directional_pose, name='directional_light')
+        scene.add(light_point_spot_center, pose=light_point_spot_pose_center, name='point_light')
+        scene.add(camera, pose=camera_pose, name='Camera')
         self.camera_pose = camera_pose
 
-        # render the image
+        # render the image or save the scene
         flags = RenderFlags.ALL_SOLID
         r = pyrender.OffscreenRenderer(viewport_width=resolution[0], viewport_height=resolution[1])
-        img, depth = r.render(scene, flags)
-        r.delete()
-        del scene
-        gc.collect()
-        return img
+        if self.animation:
+            self.scene = scene
+        else:
+            img, depth = r.render(scene, flags)
+            r.delete()
+            del scene
+            gc.collect()
+            return img
