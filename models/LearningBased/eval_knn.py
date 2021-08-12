@@ -12,7 +12,7 @@ import utils
 from train_linear_classifier import compute_accuracy
 from scripts.helper import load_from_json, sample_mesh
 from transformations import PointcloudToTensor
-from models import PointCapsNet
+from capsnet_models import PointCapsNet
 
 
 def compute_mean_accuracy_stats(per_class_accuracy, cat_to_freq, k, topk=10):
