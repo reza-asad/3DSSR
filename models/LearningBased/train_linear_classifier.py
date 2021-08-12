@@ -3,12 +3,16 @@ import copy
 from optparse import OptionParser
 from time import time
 import torch
+from torchvision import transforms
 from torch import optim
 from torch.utils.data import DataLoader
 import numpy as np
 
-from graph_dataset import Scene
-from models import MLP
+from region_dataset import Region
+from transformations import PointcloudToTensor, PointcloudScale, PointcloudJitter, PointcloudTranslate, \
+    PointcloudRotatePerturbation
+from projection_models import MLP
+from capsnet_models import PointCapsNet
 from scripts.helper import load_from_json
 
 alpha = 1
@@ -26,7 +30,7 @@ def compute_accuracy(per_class_accuracy, predicted_labels, labels, cat_to_idx):
         per_class_accuracy[c] = (num_correct, num_total)
 
 
-def evaluate_net(model_dic, valid_loader, cat_to_idx, device):
+def evaluate_net(model_dic, capsule_net, valid_loader, cat_to_idx, device,):
     # set models to evaluation mode
     for model_name, model in model_dic.items():
         model.eval()
@@ -36,15 +40,19 @@ def evaluate_net(model_dic, valid_loader, cat_to_idx, device):
     with torch.no_grad():
         for i, data in enumerate(valid_loader):
             # load data
-            features = data['features'].squeeze(dim=0)
-            labels = data['labels'].squeeze(dim=0)
+            global_crops = data['global_crops'].squeeze(dim=1)
+            labels = data['labels'].squeeze(dim=1)
 
             # move data to the right device
-            features = features.to(device=device, dtype=torch.float32)
+            global_crops = global_crops.to(device=device, dtype=torch.float32)
             labels = labels.to(device=device, dtype=torch.long)
 
+            # apply the pre-trained capsulenet model first
+            global_crops = global_crops.transpose(2, 1)
+            global_caps = capsule_net(global_crops).reshape(-1, 64 * 64)
+
             # apply the model
-            output = model_dic['lin_layer'](features)
+            output = model_dic['lin_layer'](global_caps)
 
             # compute loss
             ce_loss = torch.nn.functional.cross_entropy(output, labels, reduction='none')
@@ -64,22 +72,38 @@ def evaluate_net(model_dic, valid_loader, cat_to_idx, device):
     return total_validation_loss/(i + 1), per_class_accuracy
 
 
-def train_net(scene_graph_dir, latent_caps_dir, cat_to_idx, num_epochs, lr, device, hidden_dim, save_cp=True,
-              eval_itr=1000, patience=5, cp_dir=None):
+def train_net(device, cat_to_idx, args):
+    # create a list of transformations to be applied to the point cloud.
+    # TODO: uncomment augmentation.
+    transform = transforms.Compose([
+        PointcloudToTensor(),
+        PointcloudRotatePerturbation(angle_sigma=0.06, angle_clip=0.18),
+        PointcloudScale(),
+        PointcloudTranslate(),
+        PointcloudJitter(std=0.01, clip=0.05)
+    ])
+
     # create the training dataset
-    train_dataset = Scene(scene_graph_dir, latent_caps_dir, cat_to_idx, mode='train')
-    val_dataset = Scene(scene_graph_dir, latent_caps_dir, cat_to_idx, mode='val')
+    train_dataset = Region(args.data_dir, args.scene_dir, num_local_crops=args.num_local_crops,
+                           num_global_crops=args.num_global_crops, mode='train', cat_to_idx=cat_to_idx,
+                           transforms=transform)
+    val_dataset = Region(args.data_dir, args.scene_dir, num_local_crops=args.num_local_crops,
+                         num_global_crops=args.num_global_crops, mode='val', cat_to_idx=cat_to_idx,
+                         transforms=transform)
 
     # create the dataloaders
-    train_loader = DataLoader(train_dataset, batch_size=1, num_workers=4, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=1, num_workers=4, shuffle=True)
+    # TODO: increase num_workers and batch size
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
 
-    # find the required dimensions for building the GNN.
-    sample_data = list(enumerate(train_loader))[1][1]
-    input_dim = sample_data['features'].shape[-1]
+    # load the pre-trained capsulenet and set it to the right device
+    capsule_net = PointCapsNet(1024, 16, 64, 64, args.num_points)
+    capsule_net.load_state_dict(torch.load(args.best_capsule_net))
+    capsule_net = capsule_net.to(device=device)
+    capsule_net.eval()
 
     # load the model and set it to the right device
-    lin_layer = MLP(input_dim, hidden_dim, len(cat_to_idx))
+    lin_layer = MLP(64*64, args.hidden_dim, len(cat_to_idx))
     lin_layer = lin_layer.to(device=device)
 
     # prepare for training.
@@ -91,7 +115,7 @@ def train_net(scene_graph_dir, latent_caps_dir, cat_to_idx, num_epochs, lr, devi
     params = []
     for model_name, model in model_dic.items():
         params += list(model.parameters())
-    optimizer = optim.Adam(params, lr=lr)
+    optimizer = optim.Adam(params, lr=args.lr)
 
     # track losses and use that along with patience to stop early.
     training_losses = []
@@ -103,26 +127,29 @@ def train_net(scene_graph_dir, latent_caps_dir, cat_to_idx, num_epochs, lr, devi
     bad_epoch = 0
 
     print('Training...')
-    for epoch in range(num_epochs):
-        print('Epoch %d/%d' % (epoch + 1, num_epochs))
+    for epoch in range(args.epochs):
+        t = time()
+        print('Epoch %d/%d' % (epoch + 1, args.epochs))
         epoch_loss = 0
 
         # if validation loss is not improving after x many iterations, stop early.
-        if bad_epoch == patience:
+        if bad_epoch == args.patience:
             print('Stopped Early')
             break
 
         for i, data in enumerate(train_loader):
             # load data
-            features = data['features'].squeeze(dim=0)
-            labels = data['labels'].squeeze(dim=0)
+            global_crops = data['global_crops'].squeeze(dim=1)
+            labels = data['labels'].squeeze(dim=1)
 
             # move data to the right device
-            features = features.to(device=device, dtype=torch.float32)
+            global_crops = global_crops.to(device=device, dtype=torch.float32)
             labels = labels.to(device=device, dtype=torch.long)
 
-            # apply the model
-            output = lin_layer(features)
+            # apply the pre-trained capsulenet model first
+            global_crops = global_crops.transpose(2, 1)
+            global_caps = capsule_net(global_crops).reshape(-1, 64 * 64)
+            output = lin_layer(global_caps)
 
             # compute loss
             ce_loss = torch.nn.functional.cross_entropy(output, labels, reduction='none')
@@ -138,8 +165,8 @@ def train_net(scene_graph_dir, latent_caps_dir, cat_to_idx, num_epochs, lr, devi
             epoch_loss += loss.item()
 
             # compute validation loss to pick the best model
-            if (i+1) % eval_itr == 0:
-                validation_loss, accuracy = evaluate_net(model_dic, val_loader, cat_to_idx, device=device)
+            if (i+1) % args.eval_itr == 0:
+                validation_loss, accuracy = evaluate_net(model_dic, capsule_net, val_loader, cat_to_idx, device)
                 validation_losses.append(validation_loss)
                 if validation_loss < best_validation_loss:
                     best_model_dic = copy.deepcopy(model_dic)
@@ -155,19 +182,21 @@ def train_net(scene_graph_dir, latent_caps_dir, cat_to_idx, num_epochs, lr, devi
 
         # save model from every nth epoch
         print('Epoch %d finished! - Loss: %.10f' % (epoch + 1, epoch_loss / (i + 1)))
+        t2 = time()
+        print("Training took %.3f minutes" % ((t2 - t) / 60))
         print('-' * 50)
-        if save_cp and ((epoch + 1) % 20 == 0):
+        if args.save_cp and ((epoch + 1) % 20 == 0):
             for model_name, model in model_dic.items():
-                torch.save(model.state_dict(), os.path.join(cp_dir, 'CP_{}_{}.pth'.format(model_name, epoch + 1)))
+                torch.save(model.state_dict(), os.path.join(args.cp_dir, 'CP_{}_{}.pth'.format(model_name, epoch + 1)))
             print('Checkpoint %d saved !' % (epoch + 1))
         training_losses.append(epoch_loss / (i + 1))
 
     # save train/valid losses and the best model
-    if save_cp:
-        np.save(os.path.join(cp_dir, 'training_loss'), training_losses)
-        np.save(os.path.join(cp_dir, 'valid_loss'), validation_losses)
+    if args.save_cp:
+        np.save(os.path.join(args.cp_dir, 'training_loss'), training_losses)
+        np.save(os.path.join(args.cp_dir, 'valid_loss'), validation_losses)
         for model_name, model in best_model_dic.items():
-            torch.save(model.state_dict(), os.path.join(cp_dir, 'CP_{}_best.pth'.format(model_name)))
+            torch.save(model.state_dict(), os.path.join(args.cp_dir, 'CP_{}_best.pth'.format(model_name)))
 
     # report the attributes for the best model
     print('Best Validation loss is {}'.format(best_validation_loss))
@@ -179,20 +208,29 @@ def train_net(scene_graph_dir, latent_caps_dir, cat_to_idx, num_epochs, lr, devi
 
 def get_args():
     parser = OptionParser()
-    parser.add_option('--epochs', dest='epochs', default=200, type='int', help='number of epochs')
     parser.add_option('--accepted_cats_path', dest='accepted_cats_path',
                       default='../../data/matterport3d/accepted_cats.json')
-    parser.add_option('--scene_graph_dir', dest='scene_graph_dir',
-                      default='../../results/matterport3d/LearningBased/scene_graphs')
-    parser.add_option('--latent_caps_dir', dest='latent_caps_dir',
-                      default='../../../3D-point-capsule-networks/dataset/matterport3d/latent_caps')
-    parser.add_option('--hidden_dim', dest='hidden_dim', default=1024, type='int')
-    parser.add_option('--lr', dest='lr', default=1e-5, type='float')
-    parser.add_option('--patience', dest='patience', default=20, type='int')
-    parser.add_option('--eval_iter', dest='eval_iter', default=1000, type='int')
+    parser.add_option('--data_dir', dest='data_dir',
+                      default='../../data/matterport3d/mesh_regions')
+    parser.add_option('--scene_dir', dest='scene_dir', default='../../data/matterport3d/scenes')
     parser.add_option('--cp_dir', dest='cp_dir',
-                      default='../../results/matterport3d/LearningBased/linear_cat_prediction')
+                      default='../../results/matterport3d/LearningBased/region_classification_capsnet_linear')
+    parser.add_option('--best_capsule_net', dest='best_capsule_net',
+                      default='../../results/matterport3d/LearningBased/3D_DINO_exact_regions/best_capsule_net.pth')
+
+    parser.add_option('--num_points', dest='num_points', default=4096, type='int')
+    parser.add_option('--num_local_crops', dest='num_local_crops', default=0, type='int')
+    parser.add_option('--num_global_crops', dest='num_global_crops', default=0, type='int')
+
+    parser.add_option('--epochs', dest='epochs', default=100, type='int', help='number of epochs')
+    parser.add_option('--lr', dest='lr', default=1e-3, type='float')
+    parser.add_option('--batch_size', dest='batch_size', default=7, type='int')
+    parser.add_option('--hidden_dim', dest='hidden_dim', default=1024, type='int')
+    parser.add_option('--patience', dest='patience', default=20, type='int')
+    parser.add_option('--eval_itr', dest='eval_itr', default=2000, type='int')
+
     parser.add_option('--gpu', action='store_true', dest='gpu', default=True, help='use cuda')
+    parser.add_option('--save_cp', action='store_true', dest='save_cp', default=True, help='save the trained models')
 
     (options, args) = parser.parse_args()
     return options
@@ -218,16 +256,13 @@ def main():
 
     # time the training
     t = time()
-    train_net(scene_graph_dir=args.scene_graph_dir, latent_caps_dir=args.latent_caps_dir, cat_to_idx=cat_to_idx,
-              num_epochs=args.epochs, lr=args.lr,  device=device,  hidden_dim=args.hidden_dim, patience=args.patience,
-              eval_itr=args.eval_iter, cp_dir=args.cp_dir)
+    train_net(device, cat_to_idx, args)
     t2 = time()
     print("Training took %.3f minutes" % ((t2 - t) / 60))
 
 
 if __name__ == '__main__':
     main()
-
 
 
 
