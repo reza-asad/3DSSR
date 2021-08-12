@@ -11,14 +11,13 @@ from scripts.iou import IoU
 
 
 class Evaluate:
-    def __init__(self, query_results, evaluation_path, scene_dir, curr_df, mode, overlap_threshold, q_theta=0):
+    def __init__(self, query_results, evaluation_path, scene_dir, curr_df, mode, overlap_threshold):
         self.query_results = query_results
         self.evaluation_path = evaluation_path
         self.scene_dir = scene_dir
         self.curr_df = curr_df
         self.mode = mode
         self.metrics = {'overlap_mAP': [self.compute_overlap_match, overlap_threshold]}
-        self.q_theta = q_theta
 
     @staticmethod
     def map_obj_to_cat(scene):
@@ -32,19 +31,6 @@ class Evaluate:
         # build the transformation matrix
         transformation = np.eye(4)
         transformation[:3, 3] = translation
-
-        # apply tranlsation to the obbox
-        obbox = obbox.apply_transformation(transformation)
-
-        return obbox
-
-    @staticmethod
-    def rotate_obbox(obbox, theta):
-        # build the transformation matrix
-        transformation = np.eye(4)
-        transformation[:3, :3] = np.asarray([[np.cos(theta), -np.sin(theta), 0],
-                                             [np.sin(theta), np.cos(theta), 0],
-                                             [0, 0, 1]])
 
         # apply tranlsation to the obbox
         obbox = obbox.apply_transformation(transformation)
@@ -80,14 +66,11 @@ class Evaluate:
         t_translation = -obbox_target.translation
         obbox_target = self.translate_obbox(obbox_target, t_translation)
 
-        # rotate the target obbox if rotation angle is predicted and is greater than 0
-        if 'theta' in target_subscene and target_subscene['theta'] > 0:
-            obbox_target = self.rotate_obbox(obbox_target, target_subscene['theta'])
-
         # compute the iou between the query and target objects if their category match
         num_matches = 0
-        query_target_iou = 0.0
-        if obj_to_cat_query[query_object] == obj_to_cat_target[target_object]:
+        if obj_to_cat_query[query_object] != obj_to_cat_target[target_object]:
+            return 0
+        else:
             query_target_iou = self.compute_iou(obbox_target, obbox_query)
             if query_target_iou > self.metrics['overlap_mAP'][1]:
                 num_matches += 1
@@ -109,11 +92,6 @@ class Evaluate:
             t_context_obbox_vertices = np.asarray(target_scene[candidate]['obbox'])
             t_c_obbox = Box(t_context_obbox_vertices)
             t_c_obbox = self.translate_obbox(t_c_obbox, t_translation)
-
-            # rotate the candidate obbox around the target object (origin), if rotation is predicted and is greater
-            # than 0.
-            if 'theta' in target_subscene and target_subscene['theta'] > 0:
-                t_c_obbox = self.rotate_obbox(t_c_obbox, target_subscene['theta'])
 
             # compute the IoU between the candidate and context obboxes.
             iou = self.compute_iou(t_c_obbox, q_c_obbox)
@@ -146,46 +124,12 @@ class Evaluate:
             accuracies.append(acc)
         return np.mean(accuracies)
 
-    def rotate_query(self, query_scene, query_obj, context_objects):
-        # create a box for each query and context object. translate the query subscene to the origin.
-        obj_to_obbox = {}
-        vertices = np.asarray(query_scene[query_obj]['obbox'])
-        obj_to_obbox[query_obj] = Box(vertices)
-        q_translation = -obj_to_obbox[query_obj].translation
-        obj_to_obbox[query_obj] = self.translate_obbox(obj_to_obbox[query_obj], q_translation)
-
-        for c_obj in context_objects:
-            vertices = np.asarray(query_scene[c_obj]['obbox'])
-            obj_to_obbox[c_obj] = Box(vertices)
-            obj_to_obbox[c_obj] = self.translate_obbox(obj_to_obbox[c_obj], q_translation)
-
-        # rotate the query subscene
-        transformation = np.eye(4)
-        rotation = np.asarray([[np.cos(self.q_theta), -np.sin(self.q_theta), 0],
-                               [np.sin(self.q_theta), np.cos(self.q_theta), 0],
-                               [0, 0, 1]])
-        transformation[:3, :3] = rotation
-        for obj in obj_to_obbox.keys():
-            obj_to_obbox[obj] = obj_to_obbox[obj].apply_transformation(transformation)
-
-            # translate the query subscne back to where it was
-            obj_to_obbox[obj] = self.translate_obbox(obj_to_obbox[obj], -q_translation)
-
-            # record the obboxes for the rotated subscene.
-            query_scene[obj]['obbox'] = obj_to_obbox[obj].vertices.tolist()
-
-        return query_scene
-
     def compute_mAP(self, metric, query_name, model_name, experiment_id, topk=10):
         # load the query subscene and find the query and context objects
         query_scene_name = self.query_results[query_name]['example']['scene_name']
         query_scene = load_from_json(os.path.join(self.scene_dir, self.mode, query_scene_name))
         query_object = self.query_results[query_name]['example']['query']
         context_objects = self.query_results[query_name]['example']['context_objects']
-
-        # rotate the query scene if theta is bigger than 0
-        if self.q_theta > 0:
-            query_scene = self.rotate_query(query_scene, query_object, context_objects)
 
         if len(context_objects) == 0:
             mAP = 1
@@ -227,18 +171,15 @@ class Evaluate:
 
 def get_args():
     parser = OptionParser()
-    parser.add_option('--mode', dest='mode', default='test', help='val|test')
+    parser.add_option('--mode', dest='mode', default='val', help='val|test')
     parser.add_option('--remove_model', action='store_true', dest='remove_model', default=False,
                       help='If True the model and its corresponding experiment are removed from the evaluation table.')
     parser.add_option('--ablations', dest='ablations', default='False',
                       help='If True the evaluation results are stored in the ablation folder.')
-    parser.add_option('--model_name', dest='model_name', default='LearningBased', help='LearningBased|GKRank|CatRank|'
-                                                                                    'SVDRank|RandomRank')
-    parser.add_option('--experiment_name', dest='experiment_name', default='AlignRank', help='AlignRankOracle|AlignRank|'
-                                                                                              'GKRank|CatRank|RandomRank|'
-                                                                                              'SVDRank1D|SVDRank3D|'
-                                                                                              'AlignRank[-Align]|'
-                                                                                              'AlignRank[-GNN]')
+    parser.add_option('--model_name', dest='model_name', default='LearningBased',
+                      help='LearningBased|GKRank|CatRank|RandomRank')
+    parser.add_option('--experiment_name', dest='experiment_name', default='obbox_DINO_sim',
+                      help='GKRank|CatRank|RandomRank|')
 
     (options, args) = parser.parse_args()
     return options
@@ -250,7 +191,6 @@ def main():
     ablations = args.ablations == 'True'
 
     # define paths and parameters
-    q_theta = 0*np.pi/4
     thresholds = np.linspace(0.05, 0.95, num=10)
     metrics = ['overlap_mAP']
     query_results_input_path = '../results/matterport3d/{}/query_dict_{}_{}.json'.format(args.model_name, args.mode,
@@ -305,7 +245,7 @@ def main():
 
     # initialize the evaluator
     evaluator = Evaluate(query_results=query_results, evaluation_path=evaluation_path, scene_dir=scene_dir,
-                         curr_df=curr_df, mode=args.mode, overlap_threshold=0, q_theta=q_theta)
+                         curr_df=curr_df, mode=args.mode, overlap_threshold=0)
 
     # run evaluation and compute overlap mAP per query for each threshold.
     for i, (query_name, results_info) in enumerate(query_results.items()):

@@ -3,7 +3,7 @@ import sys
 import numpy as np
 from matplotlib import pyplot as plt
 
-from scripts.helper import load_from_json, render_single_scene, create_img_table
+from scripts.helper import load_from_json, render_scene_subscene, create_img_table
 
 
 def make_rendering_folders(query_results, rendering_path, img_folder='imgs'):
@@ -32,8 +32,8 @@ def render_model_results(query_results, scene_dir, models_dir, rendering_path, c
             # render the image
             faded_nodes = [obj for obj in query_graph.keys() if obj not in q_context]
             path = os.path.join(rendering_path, query, img_folder, 'query_{}_{}.png'.format(scene_name.split('.')[0], q))
-            render_single_scene(graph=query_graph, objects=query_graph.keys(), highlighted_object=[q],
-                                faded_nodes=faded_nodes, path=path, model_dir=models_dir, colormap=colormap)
+            render_scene_subscene(graph=query_graph, objects=query_graph.keys(), highlighted_object=[q],
+                                  faded_nodes=faded_nodes, path=path, model_dir=models_dir, colormap=colormap)
 
         # render the topk results from the model
         top_results_chunk = results['target_subscenes'][: topk][chunk_idx * chunk_size:
@@ -61,9 +61,9 @@ def render_model_results(query_results, scene_dir, models_dir, rendering_path, c
             faded_nodes = [obj for obj in target_graph.keys() if obj not in t_context]
             path = os.path.join(rendering_path, query, img_folder, 'top_{}_{}_{}.png'
                                 .format(chunk_idx * chunk_size + j + 1, target_scene_name.split('.')[0], t))
-            render_single_scene(graph=target_graph, objects=target_graph.keys(),
-                                highlighted_object=highlighted_object, faded_nodes=faded_nodes, path=path,
-                                model_dir=models_dir, colormap=colormap, alpha=alpha, beta=beta, gamma=gamma)
+            render_scene_subscene(graph=target_graph, objects=target_graph.keys(),
+                                  highlighted_object=highlighted_object, faded_nodes=faded_nodes, path=path,
+                                  model_dir=models_dir, colormap=colormap, alpha=alpha, beta=beta, gamma=gamma)
 
 
 def plot_evaluations(x, y, fig, ax, label,):

@@ -40,7 +40,7 @@ def plot_results(metrics, model_name_exp_map, summary_results, plot_name):
 
 def get_args():
     parser = OptionParser()
-    parser.add_option('--mode', dest='mode', default='test', help='val|test')
+    parser.add_option('--mode', dest='mode', default='val', help='val|test')
     parser.add_option('--ablations', dest='ablations', default='False',
                       help='If True the ablation results are plotted.')
 
@@ -56,20 +56,19 @@ def main():
     # define the paths and params and model names.
     if ablations:
         aggregated_csv_path = '../results/matterport3d/evaluations/ablations/evaluation_aggregated.csv'
-        plot_name = 'alignment_ablation_global.png'
-        model_name_exp_map = {('LearningBased', 'AlignRank'): 'AlignRank',
-                              ('LearningBased', 'AlignRank[-GNN]'): 'AlignRank[-GNN]',
-                              ('LearningBased', 'AlignRank[-Align]'): 'AlignRank[-Align]',
-                              ('SVDRank', 'SVDRank1D'): 'SVDRank1D',
-                              ('SVDRank', 'SVDRank3D'): 'SVDRank3D'}
+        plot_name = '.png'
+        model_name_exp_map = {}
     else:
         aggregated_csv_path = '../results/matterport3d/evaluations/{}/evaluation_aggregated.csv'.format(args.mode)
-        plot_name = 'mAP_comparisons.png'
-        model_name_exp_map = {('LearningBased', 'AlignRankOracle'): 'AlignRankOracle',
-                              ('LearningBased', 'AlignRank'): 'AlignRank',
-                              ('GKRank', 'GKRank'): 'GKRank',
-                              ('CatRank', 'CatRank'): 'CatRank',
-                              ('RandomRank', 'RandomRank'): 'RandomRank'}
+        plot_name = 'mAP_comparisons_{}.png'.format(args.mode)
+        model_name_exp_map = {
+            ('LearningBased', 'obbox_sim'): 'OBB_SIM',
+            ('LearningBased', 'obbox_DINO_sim'): 'OBB_DINO_SIM',
+            ('LearningBased', 'OracleRank'): 'OracleRank',
+            # ('GKRank', 'GKRank'): 'GKRank',
+            ('CatRank', 'CatRank'): 'CatRank',
+            ('RandomRank', 'RandomRank'): 'RandomRank'
+        }
 
     # read the aggregated results and choose the metric to plot
     summary_results = pd.read_csv(aggregated_csv_path)

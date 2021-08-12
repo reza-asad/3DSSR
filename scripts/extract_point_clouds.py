@@ -3,6 +3,7 @@ import sys
 import numpy as np
 import pandas as pd
 import trimesh
+import torch
 
 from scripts.mesh import Mesh
 from scripts.helper import sample_mesh, load_from_json, create_train_val_test
@@ -20,7 +21,7 @@ class PointCloud:
 
         # sample points on the mesh
         self.num_points = num_points
-        self.pc, _ = sample_mesh(self.mesh, count=self.num_points)
+        self.pc, _ = sample_mesh(self.mesh, num_points=self.num_points)
 
     def save(self):
         file_name = self.model_name.split('.')[0]
@@ -35,17 +36,21 @@ def derive_pc(models_dir, file_names, results_dir, num_points):
     for file_name in file_names:
         pc_object = PointCloud(models_dir, file_name, results_dir, num_points)
         pc_object.save()
+        # pc_object.visualize()
 
 
 def main(num_chunks, chunk_idx, action='extract_pc'):
-    # define some params
-    models_dir = '../data/matterport3d/models'
-    accepted_cats = load_from_json('../data/matterport3d/accepted_cats.json')
-    metadata_path = '../data/matterport3d/metadata.csv'
-    results_dir = '../data/matterport3d/point_clouds/all'
-    if not os.path.exists(results_dir):
+    # define paths and params
+    num_points = 4096
+    data_dir = '../data/matterport3d'
+    models_dir = os.path.join(data_dir, 'mesh_regions', 'all')
+    accepted_cats = load_from_json(os.path.join(data_dir, 'accepted_cats.json'))
+    metadata_path = os.path.join(data_dir, 'metadata.csv')
+    results_dir = os.path.join(data_dir, 'point_cloud_regions')
+    results_dir_all = os.path.join(results_dir, 'all')
+    if not os.path.exists(results_dir_all):
         try:
-            os.makedirs(results_dir)
+            os.makedirs(results_dir_all)
         except FileExistsError:
             pass
 
@@ -59,11 +64,9 @@ def main(num_chunks, chunk_idx, action='extract_pc'):
         model_names = model_names.tolist()
         chunk_size = int(np.ceil(len(model_names) / num_chunks))
         derive_pc(models_dir=models_dir, file_names=model_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size],
-                  results_dir=results_dir, num_points=2048)
+                  results_dir=results_dir_all, num_points=num_points)
 
     if action == 'split_train_test_val':
-        data_dir = '../data/matterport3d'
-        results_dir = '../data/matterport3d/point_clouds'
         train_path = os.path.join(data_dir, 'scenes_train.txt')
         val_path = os.path.join(data_dir, 'scenes_val.txt')
         test_path = os.path.join(data_dir, 'scenes_test.txt')
