@@ -6,9 +6,6 @@ import torch
 from torchvision import transforms
 from torch.utils.data import DataLoader
 import numpy as np
-from tqdm import tqdm
-import logging
-import importlib
 
 from region_dataset import Region
 from transformations import PointcloudToTensor, PointcloudScale, PointcloudJitter, PointcloudTranslate, \
