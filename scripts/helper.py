@@ -5,6 +5,7 @@ import json
 import numpy as np
 import trimesh
 from PIL import Image
+from matplotlib import pyplot as plt
 
 from .renderer import Render
 from .mesh import Mesh
@@ -20,8 +21,33 @@ def write_to_json(dictionary, path, mode='w', indent=4):
         json.dump(dictionary, f, indent=indent)
 
 
+def basic_x_y_plot(x, y):
+    plt.plot(x, y)
+
+    return plt
+
+
 def render_single_scene(graph, objects, highlighted_object, path, model_dir, colormap, resolution=(512, 512),
                         faded_nodes=[], rendering_kwargs=None, alpha=0, beta=0, gamma=0):
+    # setup default rendering conditions such as lighting
+    if rendering_kwargs is None:
+        rendering_kwargs = {'fov': np.pi/4, 'light_directional_intensity': 0.01, 'light_point_intensity_center': 0.0,
+                            'wall_thickness': 5}
+
+    # prepare scene, camera pose and the room dimensions and render the entire scene.
+    r = Render(rendering_kwargs)
+    scene, camera_pose, room_dimension = prepare_scene_for_rendering(graph, objects, models_dir=model_dir,
+                                                                     query_objects=highlighted_object,
+                                                                     faded_nodes=faded_nodes, colormap=colormap,
+                                                                     crop=False, alpha=alpha, beta=beta, gamma=gamma)
+    img = r.pyrender_render(scene, resolution=resolution, camera_pose=camera_pose, room_dimension=room_dimension)
+
+    # save the side-by-side image
+    Image.fromarray(img).save(path)
+
+
+def render_scene_subscene(graph, objects, highlighted_object, path, model_dir, colormap, resolution=(512, 512),
+                          faded_nodes=[], rendering_kwargs=None, alpha=0, beta=0, gamma=0):
     # setup default rendering conditions such as lighting
     if rendering_kwargs is None:
         rendering_kwargs = {'fov': np.pi/4, 'light_directional_intensity': 0.01, 'light_point_intensity_center': 0.0,
@@ -236,19 +262,19 @@ def visualize_scene(scene_graph_dir, models_dir, scene_name, accepted_cats=set()
     scene.show()
 
 
-def sample_mesh(mesh, count=1000):
+def sample_mesh(mesh, num_points=1000):
     """
     Sample points from the mesh.
     :param mesh: Mesh representing the 3d object.
     :param count: Number of query points/
     :return: Sample points on the mesh and the face index corresponding to them.
     """
-    faces_idx = np.zeros(count, dtype=int)
-    points = np.zeros((count, 3), dtype=float)
+    faces_idx = np.zeros(num_points, dtype=int)
+    points = np.zeros((num_points, 3), dtype=float)
     # pick a triangle randomly promotional to its area
     cum_area = np.cumsum(mesh.area_faces)
-    random_areas = np.random.uniform(0, cum_area[-1]+0.001, count)
-    for i in range(count):
+    random_areas = np.random.uniform(0, cum_area[-1]+0.001, num_points)
+    for i in range(num_points):
         face_idx = np.argmin(np.abs(cum_area - random_areas[i]))
         faces_idx[i] = face_idx
         r1, r2, = np.random.uniform(0, 1), np.random.uniform(0, 1)
