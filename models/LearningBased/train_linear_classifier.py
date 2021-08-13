@@ -206,7 +206,8 @@ def get_args():
     parser.add_option('--cp_dir', dest='cp_dir',
                       default='../../results/matterport3d/LearningBased/region_classification_capsnet_linear')
     parser.add_option('--best_capsule_net', dest='best_capsule_net',
-                      default='../../results/matterport3d/LearningBased/3D_DINO_exact_regions/best_capsule_net.pth')
+                      default='../../results/matterport3d/LearningBased/region_classification_capsnet_linear/'
+                              'best_capsule_net.pth')
 
     parser.add_option('--epochs', dest='epochs', default=100, type='int', help='number of epochs')
     parser.add_option('--num_points', dest='num_points', default=4096, type='int')
