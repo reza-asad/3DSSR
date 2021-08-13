@@ -9,8 +9,8 @@ from scripts.helper import load_from_json, sample_mesh
 
 
 class Region(Dataset):
-    def __init__(self, mesh_dir, pc_dir, scene_dir, metadata_path, accepted_cats_path, mode, transforms, cat_to_idx=None,
-                 num_global_crops=2, num_local_crops=8, num_points=4096, global_crop_bounds=(0.6, 1),
+    def __init__(self, mesh_dir, pc_dir, scene_dir, metadata_path, accepted_cats_path, mode, transforms=None,
+                 cat_to_idx=None, num_global_crops=2, num_local_crops=8, num_points=4096, global_crop_bounds=(0.6, 1),
                  local_crop_bounds=(0.3, 0.5), max_crop_tries=10, num_files=None):
         self.mesh_dir = mesh_dir
         self.pc_dir = pc_dir
@@ -21,6 +21,7 @@ class Region(Dataset):
         self.transforms = transforms
         self.cat_to_idx = cat_to_idx
         self.file_names = self.filter_file_names(num_files)
+        # self.max_coord = self.find_max_coord()
         self.max_scale = self.find_max_scale()
 
         self.num_global_crops = num_global_crops
@@ -243,7 +244,7 @@ class Region(Dataset):
 
         return crops_pc
 
-    def apply_augmentation(self, num_crops, crops):
+    def apply_transformation(self, num_crops, crops):
         for i in range(num_crops):
             crops[i, ...] = self.transforms(crops[i, ...])
 
@@ -266,15 +267,17 @@ class Region(Dataset):
         if self.num_global_crops > 0:
             global_crops = self.extract_crops_mesh(mesh_region, self.num_global_crops, self.global_crop_bounds,
                                                    self.num_points)
-            global_crops = self.apply_augmentation(self.num_global_crops, global_crops)
+            if self.transforms is not None:
+                global_crops = self.apply_transformation(self.num_global_crops, global_crops)
         else:
-            global_crops = self.apply_augmentation(1, np.expand_dims(pc, axis=0))
+            global_crops = pc
 
         # load local views of the region and normalize them.
         if self.num_local_crops > 0:
             local_crops = self.extract_crops_mesh(mesh_region, self.num_local_crops, self.local_crop_bounds,
                                                   self.num_points)
-            local_crops = self.apply_augmentation(self.num_local_crops, local_crops)
+            if self.transforms is not None:
+                local_crops = self.apply_transformation(self.num_local_crops, local_crops)
         else:
             local_crops = global_crops
 
@@ -290,6 +293,10 @@ class Region(Dataset):
             scene = load_from_json(os.path.join(self.scene_dir, self.mode, scene_name))
             cat = scene[obj]['category'][0]
             labels[0] = self.cat_to_idx[cat]
+
+        # convert from numpy to torch
+        global_crops = torch.from_numpy(global_crops).float()
+        local_crops = torch.from_numpy(local_crops).float()
 
         # prepare the data
         data = {'file_name': self.file_names[idx], 'global_crops': global_crops, 'local_crops': local_crops,
