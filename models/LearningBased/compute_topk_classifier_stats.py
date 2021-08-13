@@ -5,7 +5,7 @@ from scripts.helper import load_from_json
 
 # set the paths
 topk = 10
-model_name = 'region_classification_linear'
+model_name = 'region_classification_transformer'
 cat_to_freq_path = '../../data/matterport3d/accepted_cats_to_frequency.json'
 per_class_accuracy_path = os.path.join('../../results/matterport3d/LearningBased', model_name, 'per_class_accuracy.json')
 
