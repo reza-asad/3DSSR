@@ -8,8 +8,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 
 from region_dataset import Region
-from transformations import PointcloudToTensor, PointcloudScale, PointcloudJitter, PointcloudTranslate, \
-    PointcloudRotatePerturbation
+from transformations import PointcloudScale, PointcloudJitter, PointcloudTranslate, PointcloudRotatePerturbation
 from transformer_models import PointTransformerCls
 from scripts.helper import load_from_json
 
@@ -37,7 +36,7 @@ def evaluate_net(classifier, valid_loader, cat_to_idx):
     with torch.no_grad():
         for i, data in enumerate(valid_loader):
             # load data
-            pc = data['global_crops'].squeeze(dim=1)
+            pc = data['global_crops']
             labels = data['labels'].squeeze(dim=1)
 
             # move data to the right device
@@ -62,27 +61,27 @@ def evaluate_net(classifier, valid_loader, cat_to_idx):
 def train_net(cat_to_idx, args):
     # create a list of transformations to be applied to the point cloud.
     transform = transforms.Compose([
-        PointcloudToTensor(),
         PointcloudRotatePerturbation(angle_sigma=0.06, angle_clip=0.18),
         PointcloudScale(),
         PointcloudTranslate(),
-        PointcloudJitter(std=0.01, clip=0.05)
+        PointcloudJitter(std=0.01, clip=0.05),
     ])
 
     # create the training dataset
     train_dataset = Region(args.mesh_dir, args.pc_dir, args.scene_dir, args.metadata_path, args.accepted_cats_path,
-                           num_local_crops=0, num_global_crops=0, mode='train', cat_to_idx=cat_to_idx, num_files=800,
+                           num_local_crops=0, num_global_crops=0, mode='train', cat_to_idx=cat_to_idx, num_files=None,
                            transforms=transform)
     val_dataset = Region(args.mesh_dir, args.pc_dir, args.scene_dir, args.metadata_path, args.accepted_cats_path,
-                         num_local_crops=0, num_global_crops=0, mode='val', cat_to_idx=cat_to_idx, num_files=200,
-                         transforms=transform)
+                         num_local_crops=0, num_global_crops=0, mode='val', cat_to_idx=cat_to_idx, num_files=None)
 
     # create the dataloaders
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=8, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=8, shuffle=True)
 
     # load the model
-    classifier = PointTransformerCls(args).cuda()
+    classifier = PointTransformerCls(args)
+    classifier = torch.nn.DataParallel(classifier).cuda()
+    classifier.train()
 
     # check if training is form scratch or a best model
     try:
@@ -95,7 +94,6 @@ def train_net(cat_to_idx, args):
         start_epoch = 0
 
     # define the optimizer and learning rate scheduler.
-    classifier.train()
     optimizer = torch.optim.Adam(
         classifier.parameters(),
         lr=args.lr,
@@ -123,7 +121,7 @@ def train_net(cat_to_idx, args):
 
         for i, data in enumerate(train_loader):
             # load data
-            pc = data['global_crops'].squeeze(dim=1)
+            pc = data['global_crops']
             labels = data['labels'].squeeze(dim=1)
 
             # move data to the right device
@@ -216,20 +214,19 @@ def get_args():
     parser.add_option('--scene_dir', dest='scene_dir', default='../../data/matterport3d/scenes')
     parser.add_option('--metadata_path', dest='metadata_path', default='../../data/matterport3d/metadata.csv')
     parser.add_option('--cp_dir', dest='cp_dir',
-                      default='../../results/matterport3d/LearningBased/region_classification_transformer')
+                      default='../../results/matterport3d/LearningBased/region_classification_transformer_cc')
     parser.add_option('--best_model_name', dest='best_model_name', default='CP_best.pth')
 
     parser.add_option('--num_point', dest='num_point', default=4096, type='int')
     parser.add_option('--nblocks', dest='nblocks', default=4, type='int')
     parser.add_option('--nneighbor', dest='nneighbor', default=16, type='int')
     parser.add_option('--input_dim', dest='input_dim', default=3, type='int')
-    # TODO: use 512
-    parser.add_option('--transformer_dim', dest='transformer_dim', default=256, type='int')
+    parser.add_option('--transformer_dim', dest='transformer_dim', default=512, type='int')
 
     parser.add_option('--epochs', dest='epochs', default=100, type='int', help='number of epochs')
     parser.add_option('--lr', dest='lr', default=1e-4, type='float')
     parser.add_option('--weight_decay', dest='weight_decay', default=1e-4, type='float')
-    parser.add_option('--batch_size', dest='batch_size', default=8, type='int')
+    parser.add_option('--batch_size', dest='batch_size', default=4, type='int')
     parser.add_option('--save_cp', action='store_true', dest='save_cp', default=True, help='save the trained models')
 
     (options, args) = parser.parse_args()
