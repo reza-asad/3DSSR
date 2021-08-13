@@ -153,30 +153,30 @@ def train_net(cat_to_idx, args):
             # keep track of the losses
             epoch_loss += loss.item()
 
-            # compute validation loss to pick the best model
-            if (i+1) % args.eval_itr == 0:
-                validation_loss, accuracy = evaluate_net(model_dic, capsule_net, val_loader, cat_to_idx)
-                validation_losses.append(validation_loss)
-                if validation_loss < best_validation_loss:
-                    best_model_dic = copy.deepcopy(model_dic)
-                    best_validation_loss = validation_loss
-                    best_accuracy = accuracy
-                    best_epoch = epoch
-
-                # set the models back to training mode
-                for model_name, model in model_dic.items():
-                    model.train()
-
-        # save model from every nth epoch
         print('Epoch %d finished! - Loss: %.10f' % (epoch + 1, epoch_loss / (i + 1)))
         t2 = time()
-        print("Training took %.3f minutes" % ((t2 - t) / 60))
-        print('-' * 50)
+        print("Training epoch took %.3f minutes" % ((t2 - t) / 60))
+
+        # compute validation loss.
+        validation_loss, accuracy = evaluate_net(model_dic, capsule_net, val_loader, cat_to_idx)
+        validation_losses.append(validation_loss)
+        if validation_loss < best_validation_loss:
+            best_model_dic = copy.deepcopy(model_dic)
+            best_validation_loss = validation_loss
+            best_accuracy = accuracy
+            best_epoch = epoch
+
+        # set the models back to training mode
+        for model_name, model in model_dic.items():
+            model.train()
+
+        # save model from every nth epoch
         if args.save_cp and ((epoch + 1) % 20 == 0):
             for model_name, model in model_dic.items():
                 torch.save(model.state_dict(), os.path.join(args.cp_dir, 'CP_{}_{}.pth'.format(model_name, epoch + 1)))
             print('Checkpoint %d saved !' % (epoch + 1))
         training_losses.append(epoch_loss / (i + 1))
+        print('-' * 50)
 
     # save train/valid losses and the best model
     if args.save_cp:
@@ -214,7 +214,6 @@ def get_args():
     parser.add_option('--lr', dest='lr', default=1e-3, type='float')
     parser.add_option('--batch_size', dest='batch_size', default=7, type='int')
     parser.add_option('--hidden_dim', dest='hidden_dim', default=1024, type='int')
-    parser.add_option('--eval_itr', dest='eval_itr', default=2000, type='int')
     parser.add_option('--save_cp', action='store_true', dest='save_cp', default=True, help='save the trained models')
 
     (options, args) = parser.parse_args()
