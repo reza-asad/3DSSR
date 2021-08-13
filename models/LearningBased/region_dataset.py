@@ -84,15 +84,15 @@ class Region(Dataset):
 
         return max_scale
 
-    def find_max_coord(self):
-        all_pc = []
-        for file_name in self.file_names:
-            file_name = file_name.split('.')[0] + '.npy'
-            pc = np.load(os.path.join(self.pc_dir, self.mode, file_name))
-            all_pc.append(pc)
-        all_pc = np.concatenate(all_pc, axis=0)
-
-        return np.max(np.max(np.max(all_pc, axis=0)))
+    # def find_max_coord(self):
+    #     all_pc = []
+    #     for file_name in self.file_names:
+    #         file_name = file_name.split('.')[0] + '.npy'
+    #         pc = np.load(os.path.join(self.pc_dir, self.mode, file_name))
+    #         all_pc.append(pc)
+    #     all_pc = np.concatenate(all_pc, axis=0)
+    #
+    #     return np.max(np.max(np.max(all_pc, axis=0)))
 
     def __len__(self):
         return len(self.file_names)
