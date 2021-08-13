@@ -158,18 +158,6 @@ class Region(Dataset):
 
         return submesh
 
-    def find_subpc(self, pc, cube):
-        # trimesh.points.PointCloud(pc).show()
-        # filter points to only include the ones inside the cube
-        centroid = cube.centroid
-        extents = cube.extents
-        within_cube = np.sum(np.abs(pc - centroid) < extents, axis=1) == 3
-        subpc = pc[within_cube, :]
-        # trimesh.points.PointCloud(subpc).show()
-        # t=y
-
-        return subpc
-
     def extract_crops_mesh(self, mesh, num_crops, crop_bounds, num_points):
         crops_pc = np.zeros((num_crops, num_points, 3), dtype=np.float)
         for i in range(num_crops):
@@ -206,41 +194,6 @@ class Region(Dataset):
             crops_pc[i, :] = pc
             # trimesh.points.PointCloud(pc).show()
             # t=y
-
-        return crops_pc
-
-    def extract_crops_pc(self, mesh, pc, num_crops, crop_bounds, num_points):
-        crops_pc = np.zeros((num_crops, num_points, 3), dtype=np.float)
-        for i in range(num_crops):
-            # sample what percentage of the original region you are going to cover.
-            coverage_percent = np.random.uniform(crop_bounds[0], crop_bounds[1])
-
-            # create a cube to crop the pointcloud.
-            cube = self.build_cube_crop(mesh, coverage_percent)
-
-            # find the intersection of the cube and the region
-            # trimesh.Scene([mesh, cube]).show()
-            subpc = self.find_subpc(pc, cube)
-            itr = 0
-            while len(subpc) < 100 and (itr < self.max_crop_tries):
-                # if no vertices found increase the cube size
-                scale = cube.extents * 1.5
-                centroid = cube.centroid
-                # build the cube
-                transformation = np.eye(4)
-                transformation[:3, 3] = centroid
-                cube = trimesh.creation.box(scale, transform=transformation)
-                # compute the submesh with the bigger cube
-                subpc = self.find_subpc(pc, cube)
-                itr += 1
-
-                # take the entire region if you could not crop anything out of it
-                if itr == self.max_crop_tries:
-                    subpc = pc
-                    break
-
-            # sample points on the view
-            crops_pc[i, :] = subpc
 
         return crops_pc
 
