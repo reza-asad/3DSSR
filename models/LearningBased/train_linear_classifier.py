@@ -29,7 +29,7 @@ def compute_accuracy(per_class_accuracy, predicted_labels, labels, cat_to_idx):
         per_class_accuracy[c] = (num_correct, num_total)
 
 
-def evaluate_net(model_dic, capsule_net, valid_loader, cat_to_idx, device,):
+def evaluate_net(model_dic, capsule_net, valid_loader, cat_to_idx):
     # set models to evaluation mode
     for model_name, model in model_dic.items():
         model.eval()
@@ -42,9 +42,9 @@ def evaluate_net(model_dic, capsule_net, valid_loader, cat_to_idx, device,):
             global_crops = data['global_crops']
             labels = data['labels'].squeeze(dim=1)
 
-            # move data to the right device
-            global_crops = global_crops.to(device=device, dtype=torch.float32)
-            labels = labels.to(device=device, dtype=torch.long)
+            # set datatype
+            global_crops = global_crops.to(dtype=torch.float32).cuda()
+            labels = labels.to(dtype=torch.long).cuda()
 
             # apply the pre-trained capsulenet model first
             global_crops = global_crops.transpose(2, 1)
@@ -71,7 +71,7 @@ def evaluate_net(model_dic, capsule_net, valid_loader, cat_to_idx, device,):
     return total_validation_loss/(i + 1), per_class_accuracy
 
 
-def train_net(device, cat_to_idx, args):
+def train_net(cat_to_idx, args):
     # create a list of transformations to be applied to the point cloud.
     transform = transforms.Compose([
         PointcloudRotatePerturbation(angle_sigma=0.06, angle_clip=0.18),
@@ -91,16 +91,14 @@ def train_net(device, cat_to_idx, args):
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
 
-    # load the pre-trained capsulenet and set it to the right device
+    # load the pre-trained capsulenet.
     capsule_net = PointCapsNet(1024, 16, 64, 64, args.num_points)
     capsule_net.load_state_dict(torch.load(args.best_capsule_net))
-    capsule_net = torch.nn.DataParallel(capsule_net)
-    capsule_net = capsule_net.to(device=device)
+    capsule_net = torch.nn.DataParallel(capsule_net).cuda()
     capsule_net.eval()
 
-    # load the model and set it to the right device
-    lin_layer = MLP(64*64, args.hidden_dim, len(cat_to_idx))
-    lin_layer = lin_layer.to(device=device)
+    # load the model.
+    lin_layer = MLP(64*64, args.hidden_dim, len(cat_to_idx)).cuda()
 
     # prepare for training.
     model_dic = {'lin_layer': lin_layer}
@@ -133,9 +131,9 @@ def train_net(device, cat_to_idx, args):
             global_crops = data['global_crops']
             labels = data['labels'].squeeze(dim=1)
 
-            # move data to the right device
-            global_crops = global_crops.to(device=device, dtype=torch.float32)
-            labels = labels.to(device=device, dtype=torch.long)
+            # set datatype
+            global_crops = global_crops.to(dtype=torch.float32).cuda()
+            labels = labels.to(dtype=torch.long).cuda()
 
             # apply the pre-trained capsulenet model first
             global_crops = global_crops.transpose(2, 1)
@@ -157,7 +155,7 @@ def train_net(device, cat_to_idx, args):
 
             # compute validation loss to pick the best model
             if (i+1) % args.eval_itr == 0:
-                validation_loss, accuracy = evaluate_net(model_dic, capsule_net, val_loader, cat_to_idx, device)
+                validation_loss, accuracy = evaluate_net(model_dic, capsule_net, val_loader, cat_to_idx)
                 validation_losses.append(validation_loss)
                 if validation_loss < best_validation_loss:
                     best_model_dic = copy.deepcopy(model_dic)
@@ -216,8 +214,6 @@ def get_args():
     parser.add_option('--batch_size', dest='batch_size', default=7, type='int')
     parser.add_option('--hidden_dim', dest='hidden_dim', default=1024, type='int')
     parser.add_option('--eval_itr', dest='eval_itr', default=2000, type='int')
-
-    parser.add_option('--gpu', action='store_true', dest='gpu', default=True, help='use cuda')
     parser.add_option('--save_cp', action='store_true', dest='save_cp', default=True, help='save the trained models')
 
     (options, args) = parser.parse_args()
@@ -232,11 +228,6 @@ def main():
     if not os.path.exists(args.cp_dir):
         os.makedirs(args.cp_dir)
 
-    # Set the right device for all the models
-    device = torch.device('cpu')
-    if args.gpu:
-        device = torch.device('cuda')
-
     # prepare the accepted categories for training.
     accepted_cats = load_from_json(args.accepted_cats_path)
     accepted_cats = sorted(accepted_cats)
@@ -244,7 +235,7 @@ def main():
 
     # time the training
     t = time()
-    train_net(device, cat_to_idx, args)
+    train_net(cat_to_idx, args)
     t2 = time()
     print("Training took %.3f minutes" % ((t2 - t) / 60))
 
