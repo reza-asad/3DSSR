@@ -9,8 +9,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 
 from region_dataset import Region
-from transformations import PointcloudToTensor, PointcloudScale, PointcloudJitter, PointcloudTranslate, \
-    PointcloudRotatePerturbation
+from transformations import PointcloudScale, PointcloudJitter, PointcloudTranslate, PointcloudRotatePerturbation
 from projection_models import MLP
 from capsnet_models import PointCapsNet
 from scripts.helper import load_from_json
@@ -40,7 +39,7 @@ def evaluate_net(model_dic, capsule_net, valid_loader, cat_to_idx, device,):
     with torch.no_grad():
         for i, data in enumerate(valid_loader):
             # load data
-            global_crops = data['global_crops'].squeeze(dim=1)
+            global_crops = data['global_crops']
             labels = data['labels'].squeeze(dim=1)
 
             # move data to the right device
@@ -74,9 +73,7 @@ def evaluate_net(model_dic, capsule_net, valid_loader, cat_to_idx, device,):
 
 def train_net(device, cat_to_idx, args):
     # create a list of transformations to be applied to the point cloud.
-    # TODO: uncomment augmentation.
     transform = transforms.Compose([
-        PointcloudToTensor(),
         PointcloudRotatePerturbation(angle_sigma=0.06, angle_clip=0.18),
         PointcloudScale(),
         PointcloudTranslate(),
@@ -84,21 +81,20 @@ def train_net(device, cat_to_idx, args):
     ])
 
     # create the training dataset
-    train_dataset = Region(args.data_dir, args.scene_dir, num_local_crops=args.num_local_crops,
-                           num_global_crops=args.num_global_crops, mode='train', cat_to_idx=cat_to_idx,
+    train_dataset = Region(args.data_dir, args.pc_dir, args.scene_dir, args.metadata_path, args.accepted_cats_path,
+                           num_local_crops=0, num_global_crops=0, mode='train', cat_to_idx=cat_to_idx, num_files=None,
                            transforms=transform)
-    val_dataset = Region(args.data_dir, args.scene_dir, num_local_crops=args.num_local_crops,
-                         num_global_crops=args.num_global_crops, mode='val', cat_to_idx=cat_to_idx,
-                         transforms=transform)
+    val_dataset = Region(args.data_dir, args.pc_dir, args.scene_dir, args.metadata_path, args.accepted_cats_path,
+                         num_local_crops=0, num_global_crops=0, mode='val', cat_to_idx=cat_to_idx, num_files=None)
 
     # create the dataloaders
-    # TODO: increase num_workers and batch size
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
 
     # load the pre-trained capsulenet and set it to the right device
     capsule_net = PointCapsNet(1024, 16, 64, 64, args.num_points)
     capsule_net.load_state_dict(torch.load(args.best_capsule_net))
+    capsule_net = torch.nn.DataParallel(capsule_net)
     capsule_net = capsule_net.to(device=device)
     capsule_net.eval()
 
@@ -117,14 +113,13 @@ def train_net(device, cat_to_idx, args):
         params += list(model.parameters())
     optimizer = optim.Adam(params, lr=args.lr)
 
-    # track losses and use that along with patience to stop early.
+    # track losses.
     training_losses = []
     validation_losses = []
     best_validation_loss = float('inf')
     best_epoch = 0
     best_model_dic = model_dic
     best_accuracy = 0
-    bad_epoch = 0
 
     print('Training...')
     for epoch in range(args.epochs):
@@ -133,13 +128,9 @@ def train_net(device, cat_to_idx, args):
         epoch_loss = 0
 
         # if validation loss is not improving after x many iterations, stop early.
-        if bad_epoch == args.patience:
-            print('Stopped Early')
-            break
-
         for i, data in enumerate(train_loader):
             # load data
-            global_crops = data['global_crops'].squeeze(dim=1)
+            global_crops = data['global_crops']
             labels = data['labels'].squeeze(dim=1)
 
             # move data to the right device
@@ -173,9 +164,7 @@ def train_net(device, cat_to_idx, args):
                     best_validation_loss = validation_loss
                     best_accuracy = accuracy
                     best_epoch = epoch
-                    bad_epoch = 0
-                else:
-                    bad_epoch += 1
+
                 # set the models back to training mode
                 for model_name, model in model_dic.items():
                     model.train()
@@ -212,21 +201,20 @@ def get_args():
                       default='../../data/matterport3d/accepted_cats.json')
     parser.add_option('--data_dir', dest='data_dir',
                       default='../../data/matterport3d/mesh_regions')
+    parser.add_option('--pc_dir', dest='pc_dir',
+                      default='../../data/matterport3d/point_cloud_regions')
     parser.add_option('--scene_dir', dest='scene_dir', default='../../data/matterport3d/scenes')
+    parser.add_option('--metadata_path', dest='metadata_path', default='../../data/matterport3d/metadata.csv')
     parser.add_option('--cp_dir', dest='cp_dir',
                       default='../../results/matterport3d/LearningBased/region_classification_capsnet_linear')
     parser.add_option('--best_capsule_net', dest='best_capsule_net',
                       default='../../results/matterport3d/LearningBased/3D_DINO_exact_regions/best_capsule_net.pth')
 
-    parser.add_option('--num_points', dest='num_points', default=4096, type='int')
-    parser.add_option('--num_local_crops', dest='num_local_crops', default=0, type='int')
-    parser.add_option('--num_global_crops', dest='num_global_crops', default=0, type='int')
-
     parser.add_option('--epochs', dest='epochs', default=100, type='int', help='number of epochs')
+    parser.add_option('--num_points', dest='num_points', default=4096, type='int')
     parser.add_option('--lr', dest='lr', default=1e-3, type='float')
     parser.add_option('--batch_size', dest='batch_size', default=7, type='int')
     parser.add_option('--hidden_dim', dest='hidden_dim', default=1024, type='int')
-    parser.add_option('--patience', dest='patience', default=20, type='int')
     parser.add_option('--eval_itr', dest='eval_itr', default=2000, type='int')
 
     parser.add_option('--gpu', action='store_true', dest='gpu', default=True, help='use cuda')
