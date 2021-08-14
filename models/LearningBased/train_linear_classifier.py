@@ -93,7 +93,7 @@ def train_net(cat_to_idx, args):
 
     # load the pre-trained capsulenet.
     capsule_net = PointCapsNet(1024, 16, 64, 64, args.num_points)
-    capsule_net.load_state_dict(torch.load(args.best_capsule_net))
+    capsule_net.load_state_dict(torch.load(os.path.join(args.cp_dir, args.best_capsule_net)))
     capsule_net = torch.nn.DataParallel(capsule_net).cuda()
     capsule_net.eval()
 
@@ -205,9 +205,7 @@ def get_args():
     parser.add_option('--metadata_path', dest='metadata_path', default='../../data/matterport3d/metadata.csv')
     parser.add_option('--cp_dir', dest='cp_dir',
                       default='../../results/matterport3d/LearningBased/region_classification_capsnet_linear')
-    parser.add_option('--best_capsule_net', dest='best_capsule_net',
-                      default='../../results/matterport3d/LearningBased/region_classification_capsnet_linear/'
-                              'best_capsule_net.pth')
+    parser.add_option('--best_capsule_net', dest='best_capsule_net', default='best_capsule_net.pth')
 
     parser.add_option('--epochs', dest='epochs', default=100, type='int', help='number of epochs')
     parser.add_option('--num_points', dest='num_points', default=4096, type='int')
