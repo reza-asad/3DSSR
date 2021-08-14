@@ -22,7 +22,7 @@ class Region(Dataset):
         self.cat_to_idx = cat_to_idx
         self.file_names = self.filter_file_names(num_files)
         # self.max_coord = self.find_max_coord()
-        self.max_scale = self.find_max_scale()
+        # self.max_scale = self.find_max_scale()
 
         self.num_global_crops = num_global_crops
         self.num_local_crops = num_local_crops
@@ -72,17 +72,17 @@ class Region(Dataset):
 
         return file_names
 
-    def find_max_scale(self):
-        max_scale = 0
-        for file_name in self.file_names:
-            file_name = file_name.split('.')[0] + '.npy'
-            pc = np.load(os.path.join(self.pc_dir, self.mode, file_name))
-            scales = trimesh.points.PointCloud(pc).extents
-            max_scale_curr_pc = np.max(scales)
-            if max_scale_curr_pc > max_scale:
-                max_scale = max_scale_curr_pc
-
-        return max_scale
+    # def find_max_scale(self):
+    #     max_scale = 0
+    #     for file_name in self.file_names:
+    #         file_name = file_name.split('.')[0] + '.npy'
+    #         pc = np.load(os.path.join(self.pc_dir, self.mode, file_name))
+    #         scales = trimesh.points.PointCloud(pc).extents
+    #         max_scale_curr_pc = np.max(scales)
+    #         if max_scale_curr_pc > max_scale:
+    #             max_scale = max_scale_curr_pc
+    #
+    #     return max_scale
 
     # def find_max_coord(self):
     #     all_pc = []
@@ -214,7 +214,10 @@ class Region(Dataset):
         pc, _ = sample_mesh(mesh_region, num_points=self.num_points)
         centroid = np.mean(pc, axis=0)
         pc = pc - centroid
-        pc = pc / self.max_scale
+        # TODO: Pick the correct normalization.
+        # pc = pc / self.max_scale
+        std = np.max(np.sqrt(np.sum(pc ** 2, axis=1)))
+        pc = pc / std
 
         # load global crops of the region and augment.
         if self.num_global_crops > 0:
