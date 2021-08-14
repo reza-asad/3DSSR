@@ -88,8 +88,8 @@ def train_net(cat_to_idx, args):
                          num_local_crops=0, num_global_crops=0, mode='val', cat_to_idx=cat_to_idx, num_files=None)
 
     # create the dataloaders
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True)
 
     # load the pre-trained capsulenet.
     capsule_net = PointCapsNet(1024, 16, 64, 64, args.num_points)
@@ -204,13 +204,15 @@ def get_args():
     parser.add_option('--scene_dir', dest='scene_dir', default='../../data/matterport3d/scenes')
     parser.add_option('--metadata_path', dest='metadata_path', default='../../data/matterport3d/metadata.csv')
     parser.add_option('--cp_dir', dest='cp_dir',
-                      default='../../results/matterport3d/LearningBased/region_classification_capsnet_linear')
+                      default='../../results/matterport3d/LearningBased/'
+                              'region_classification_capsnet_linear_ar_not_preserved')
     parser.add_option('--best_capsule_net', dest='best_capsule_net', default='best_capsule_net.pth')
 
     parser.add_option('--epochs', dest='epochs', default=100, type='int', help='number of epochs')
     parser.add_option('--num_points', dest='num_points', default=4096, type='int')
     parser.add_option('--lr', dest='lr', default=1e-3, type='float')
     parser.add_option('--batch_size', dest='batch_size', default=7, type='int')
+    parser.add_option('--num_workers', dest='num_workers', default=4, type='int')
     parser.add_option('--hidden_dim', dest='hidden_dim', default=1024, type='int')
     parser.add_option('--save_cp', action='store_true', dest='save_cp', default=True, help='save the trained models')
 
@@ -218,9 +220,17 @@ def get_args():
     return options
 
 
+def adjust_paths(args):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    for k, v in vars(args).items():
+        if type(v) is str and '/' in v:
+            vars(args)[k] = os.path.join(base_dir, v)
+
+
 def main():
-    # get the arguments
+    # get the arguments and allow for running the script from anywhere
     args = get_args()
+    adjust_paths(args)
 
     # create a directory for checkpoints
     if not os.path.exists(args.cp_dir):
