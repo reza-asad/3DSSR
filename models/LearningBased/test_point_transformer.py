@@ -2,7 +2,6 @@ import os
 from optparse import OptionParser
 from time import time
 import torch
-from torchvision import transforms
 from torch.utils.data import DataLoader
 
 from region_dataset import Region
@@ -53,16 +52,16 @@ def get_args():
     parser.add_option('--scene_dir', dest='scene_dir', default='../../data/matterport3d/scenes')
     parser.add_option('--metadata_path', dest='metadata_path', default='../../data/matterport3d/metadata.csv')
     parser.add_option('--cp_dir', dest='cp_dir',
-                      default='../../results/matterport3d/LearningBased/region_classification_transformer_cc')
+                      default='../../results/matterport3d/LearningBased/region_classification_transformer_ar_not_preserved')
     # TODO: change this to the best
-    parser.add_option('--best_model_name', dest='best_model_name', default='CP_20.pth')
+    parser.add_option('--best_model_name', dest='best_model_name', default='CP_best.pth')
 
     parser.add_option('--num_point', dest='num_point', default=4096, type='int')
     parser.add_option('--nblocks', dest='nblocks', default=4, type='int')
     parser.add_option('--nneighbor', dest='nneighbor', default=16, type='int')
     parser.add_option('--input_dim', dest='input_dim', default=3, type='int')
     parser.add_option('--transformer_dim', dest='transformer_dim', default=512, type='int')
-    parser.add_option('--batch_size', dest='batch_size', default=4, type='int')
+    parser.add_option('--batch_size', dest='batch_size', default=8, type='int')
 
     (options, args) = parser.parse_args()
     return options
