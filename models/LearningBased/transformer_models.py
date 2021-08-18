@@ -51,8 +51,7 @@ class TransitionUp(nn.Module):
 class Backbone(nn.Module):
     def __init__(self, args):
         super().__init__()
-        npoints, nblocks, nneighbor, n_c, d_points = args.num_point, args.nblocks, args.nneighbor, args.num_class, \
-                                                     args.input_dim
+        npoints, nblocks, nneighbor, d_points = args.num_point, args.nblocks, args.nneighbor, args.input_dim
         self.fc1 = nn.Sequential(
             nn.Linear(d_points, 32),
             nn.ReLU(),
