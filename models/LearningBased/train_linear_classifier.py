@@ -39,7 +39,7 @@ def evaluate_net(model_dic, capsule_net, valid_loader, cat_to_idx):
     with torch.no_grad():
         for i, data in enumerate(valid_loader):
             # load data
-            global_crops = data['global_crops']
+            global_crops = data['global_crops'].squeeze(dim=1)
             labels = data['labels'].squeeze(dim=1)
 
             # set datatype
@@ -128,7 +128,7 @@ def train_net(cat_to_idx, args):
         # if validation loss is not improving after x many iterations, stop early.
         for i, data in enumerate(train_loader):
             # load data
-            global_crops = data['global_crops']
+            global_crops = data['global_crops'].squeeze(dim=1)
             labels = data['labels'].squeeze(dim=1)
 
             # set datatype
