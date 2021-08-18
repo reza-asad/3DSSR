@@ -32,12 +32,13 @@ def train_net(args):
     cudnn.benchmark = True
 
     # create a list of transformations to be applied to the point cloud.
-    transform = transforms.Compose([
-        PointcloudRotatePerturbation(angle_sigma=0.06, angle_clip=0.18),
-        PointcloudScale(),
-        PointcloudTranslate(),
-        PointcloudJitter(std=0.01, clip=0.05)
-    ])
+    # TODO: also run with augmentation.
+    # transform = transforms.Compose([
+    #     PointcloudRotatePerturbation(angle_sigma=0.06, angle_clip=0.18),
+    #     PointcloudScale(),
+    #     PointcloudTranslate(),
+    #     PointcloudJitter(std=0.01, clip=0.05)
+    # ])
 
     # create the training dataset
     dataset = Region(args.mesh_dir, args.pc_dir, args.scene_dir, args.metadata_path, args.accepted_cats_path,
