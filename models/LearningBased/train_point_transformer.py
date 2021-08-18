@@ -36,7 +36,7 @@ def evaluate_net(classifier, valid_loader, cat_to_idx):
     with torch.no_grad():
         for i, data in enumerate(valid_loader):
             # load data
-            pc = data['global_crops']
+            pc = data['global_crops'].squeeze(dim=1)
             labels = data['labels'].squeeze(dim=1)
 
             # move data to the right device
@@ -75,8 +75,8 @@ def train_net(cat_to_idx, args):
                          num_local_crops=0, num_global_crops=0, mode='val', cat_to_idx=cat_to_idx, num_files=None)
 
     # create the dataloaders
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=8, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=8, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True)
 
     # load the model
     classifier = PointTransformerCls(args)
@@ -121,7 +121,7 @@ def train_net(cat_to_idx, args):
 
         for i, data in enumerate(train_loader):
             # load data
-            pc = data['global_crops']
+            pc = data['global_crops'].squeeze(dim=1)
             labels = data['labels'].squeeze(dim=1)
 
             # move data to the right device
@@ -227,15 +227,24 @@ def get_args():
     parser.add_option('--lr', dest='lr', default=1e-4, type='float')
     parser.add_option('--weight_decay', dest='weight_decay', default=1e-4, type='float')
     parser.add_option('--batch_size', dest='batch_size', default=4, type='int')
+    parser.add_option('--num_workers', dest='num_workers', default=4, type='int')
     parser.add_option('--save_cp', action='store_true', dest='save_cp', default=True, help='save the trained models')
 
     (options, args) = parser.parse_args()
     return options
 
 
+def adjust_paths(args):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    for k, v in vars(args).items():
+        if (type(v) is str) and ('/' in v):
+            vars(args)[k] = os.path.join(base_dir, v)
+
+
 def main():
     # get the arguments
     args = get_args()
+    adjust_paths(args)
 
     # create a directory for checkpoints
     if not os.path.exists(args.cp_dir):
