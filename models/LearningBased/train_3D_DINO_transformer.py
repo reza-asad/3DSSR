@@ -23,7 +23,6 @@ from transformations import PointcloudScale, PointcloudJitter, PointcloudTransla
 import utils
 from transformer_models import Backbone
 from projection_models import DINOHead
-from scripts.helper import load_from_json
 
 
 def train_net(args):
@@ -42,8 +41,7 @@ def train_net(args):
 
     # create the training dataset
     dataset = Region(args.mesh_dir, args.pc_dir, args.scene_dir, args.metadata_path, args.accepted_cats_path,
-                     num_local_crops=args.local_crops_number, num_global_crops=args.global_crops_number, mode='train',
-                     transforms=transform)
+                     num_local_crops=args.local_crops_number, num_global_crops=args.global_crops_number, mode='train')
     sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
 
     # create the dataloaders
