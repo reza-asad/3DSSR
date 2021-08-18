@@ -21,8 +21,6 @@ class Region(Dataset):
         self.transforms = transforms
         self.cat_to_idx = cat_to_idx
         self.file_names = self.filter_file_names(num_files)
-        # self.max_coord = self.find_max_coord()
-        # self.max_scale = self.find_max_scale()
 
         self.num_global_crops = num_global_crops
         self.num_local_crops = num_local_crops
@@ -69,30 +67,8 @@ class Region(Dataset):
             # c = Counter(df_metadata.loc[I, 'mpcat40'])
             # print(c)
             # print(len(c))
-
+            # t=y
         return file_names
-
-    # def find_max_scale(self):
-    #     max_scale = 0
-    #     for file_name in self.file_names:
-    #         file_name = file_name.split('.')[0] + '.npy'
-    #         pc = np.load(os.path.join(self.pc_dir, self.mode, file_name))
-    #         scales = trimesh.points.PointCloud(pc).extents
-    #         max_scale_curr_pc = np.max(scales)
-    #         if max_scale_curr_pc > max_scale:
-    #             max_scale = max_scale_curr_pc
-    #
-    #     return max_scale
-
-    # def find_max_coord(self):
-    #     all_pc = []
-    #     for file_name in self.file_names:
-    #         file_name = file_name.split('.')[0] + '.npy'
-    #         pc = np.load(os.path.join(self.pc_dir, self.mode, file_name))
-    #         all_pc.append(pc)
-    #     all_pc = np.concatenate(all_pc, axis=0)
-    #
-    #     return np.max(np.max(np.max(all_pc, axis=0)))
 
     def __len__(self):
         return len(self.file_names)
@@ -153,8 +129,6 @@ class Region(Dataset):
 
         # build the submesh from the filtered vertices and faces
         submesh = trimesh.Trimesh(vertices=filtered_vertices, faces=filtered_faces)
-        # submesh.show()
-        # t=y
 
         return submesh
 
@@ -192,13 +166,14 @@ class Region(Dataset):
             # sample points on the view
             pc, _ = sample_mesh(submesh, num_points=num_points)
             crops_pc[i, :] = pc
+            # submesh.show()
             # trimesh.points.PointCloud(pc).show()
             # t=y
 
         return crops_pc
 
-    def apply_transformation(self, num_crops, crops):
-        for i in range(num_crops):
+    def apply_transformation(self, crops):
+        for i in range(len(crops)):
             crops[i, ...] = self.transforms(crops[i, ...])
 
         return crops
@@ -207,33 +182,33 @@ class Region(Dataset):
         # load the mesh region.
         mesh_region = trimesh.load(os.path.join(self.mesh_dir, self.mode, self.file_names[idx]))
 
-        # find the mean and std of the point cloud representing the mesh region.
-        # file_name = self.file_names[idx].split('.')[0] + '.npy'
-        # pc = np.load(os.path.join(self.pc_dir, self.mode, file_name))
-
-        pc, _ = sample_mesh(mesh_region, num_points=self.num_points)
-        centroid = np.mean(pc, axis=0)
-        pc = pc - centroid
-        # TODO: Pick the correct normalization.
-        # pc = pc / self.max_scale
-        std = np.max(np.sqrt(np.sum(pc ** 2, axis=1)))
-        pc = pc / std
+        # normalize the mesh region.
+        centroid = np.mean(mesh_region.vertices, axis=0)
+        mesh_region.vertices = mesh_region.vertices - centroid
+        std = np.max(np.sqrt(np.sum(mesh_region.vertices ** 2, axis=1)))
+        mesh_region.vertices /= std
 
         # load global crops of the region and augment.
         if self.num_global_crops > 0:
             global_crops = self.extract_crops_mesh(mesh_region, self.num_global_crops, self.global_crop_bounds,
                                                    self.num_points)
-            if self.transforms is not None:
-                global_crops = self.apply_transformation(self.num_global_crops, global_crops)
         else:
-            global_crops = pc
+            pc, _ = sample_mesh(mesh_region, num_points=self.num_points)
+            global_crops = np.expand_dims(pc, axis=0)
+
+        # apply normalization and augmentation.
+        global_crops = torch.from_numpy(global_crops).float()
+        if self.transforms:
+            global_crops = self.apply_transformation(global_crops)
 
         # load local views of the region and normalize them.
         if self.num_local_crops > 0:
             local_crops = self.extract_crops_mesh(mesh_region, self.num_local_crops, self.local_crop_bounds,
                                                   self.num_points)
-            if self.transforms is not None:
-                local_crops = self.apply_transformation(self.num_local_crops, local_crops)
+            # apply augmentation if asked.
+            local_crops = torch.from_numpy(local_crops).float()
+            if self.transforms:
+                local_crops = self.apply_transformation(local_crops)
         else:
             local_crops = global_crops
 
@@ -249,10 +224,6 @@ class Region(Dataset):
             scene = load_from_json(os.path.join(self.scene_dir, self.mode, scene_name))
             cat = scene[obj]['category'][0]
             labels[0] = self.cat_to_idx[cat]
-
-        # convert from numpy to torch
-        global_crops = torch.from_numpy(global_crops).float()
-        local_crops = torch.from_numpy(local_crops).float()
 
         # prepare the data
         data = {'file_name': self.file_names[idx], 'global_crops': global_crops, 'local_crops': local_crops,
