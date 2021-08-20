@@ -190,7 +190,8 @@ class Region(Dataset):
 
         # load global crops of the region and augment.
         if self.num_global_crops > 0:
-            global_crops = self.extract_crops_mesh(mesh_region, self.num_global_crops, self.global_crop_bounds,
+            # 2 * number of global crops because half are used for teach and the other half for student.
+            global_crops = self.extract_crops_mesh(mesh_region, self.num_global_crops * 2, self.global_crop_bounds,
                                                    self.num_points)
         else:
             pc, _ = sample_mesh(mesh_region, num_points=self.num_points)
