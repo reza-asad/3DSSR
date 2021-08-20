@@ -23,9 +23,10 @@ from transformations import PointcloudScale, PointcloudJitter, PointcloudTransla
 import utils
 from transformer_models import Backbone
 from projection_models import DINOHead
+from scripts.helper import load_from_json
 
 
-def train_net(args):
+def train_net(cat_to_idx, args):
     utils.init_distributed_mode(args)
     utils.fix_random_seeds(args.seed)
     cudnn.benchmark = True
@@ -40,12 +41,13 @@ def train_net(args):
     # ])
 
     # create the training dataset
+    # TODO: make sure you run on the entire dataset and not a subset.
     dataset = Region(args.mesh_dir, args.pc_dir, args.scene_dir, args.metadata_path, args.accepted_cats_path,
-                     num_local_crops=args.local_crops_number, num_global_crops=args.global_crops_number, mode='train')
+                     num_local_crops=args.local_crops_number, num_global_crops=2, mode='train', num_files=None,
+                     cat_to_idx=cat_to_idx)
     sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
 
     # create the dataloaders
-    # TODO: change number of workers and shuffle.
     data_loader = DataLoader(dataset,
                              sampler=sampler,
                              batch_size=args.batch_size_per_gpu,
@@ -197,9 +199,9 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
         local_crops = local_crops.to(dtype=torch.float32).cuda()
 
         # apply 3D DINO model.
-        all_crops = torch.cat([global_crops, local_crops], dim=1)
-        teacher_output = teacher(global_crops)
-        student_output = student(all_crops)
+        student_crops = torch.cat([global_crops[:, 2:, ...], local_crops], dim=1)
+        teacher_output = teacher(global_crops[:, :2, ...])
+        student_output = student(student_crops)
         loss = dino_loss(student_output, teacher_output, epoch)
 
         # exit if the loss is infinity.
@@ -279,6 +281,7 @@ class DINOLoss(nn.Module):
                 if v == iq:
                     # we skip cases where student and teacher operate on the same view
                     continue
+
                 loss = torch.sum(-q * F.log_softmax(student_out[v], dim=-1), dim=-1)
                 total_loss += loss.mean()
                 n_loss_terms += 1
@@ -308,7 +311,8 @@ def get_args():
     parser.add_argument('--pc_dir', default='../../data/matterport3d/point_cloud_regions')
     parser.add_argument('--scene_dir', default='../../data/matterport3d/scenes')
     parser.add_argument('--metadata_path', default='../../data/matterport3d/metadata.csv')
-    parser.add_argument('--cp_dir', default='../../results/matterport3d/LearningBased/3D_DINO_exact_regions_transformer')
+    parser.add_argument('--cp_dir', default='../../results/matterport3d/LearningBased/'
+                                            '3D_DINO_exact_regions_transformer')
 
     # transformer parameters
     parser.add_argument('--num_point', default=4096, type=int)
@@ -316,14 +320,15 @@ def get_args():
     parser.add_argument('--nneighbor', default=16, type=int)
     parser.add_argument('--input_dim', default=3, type=int)
     parser.add_argument('--transformer_dim', default=512, type=int)
+    # TODO: change this to 2000
     parser.add_argument('--out_dim', dest='out_dim', default=2000, type=int)
     parser.add_argument('--norm_last_layer', default=True, type=utils.bool_flag)
     parser.add_argument('--momentum_teacher', default=0.996, type=float)
     parser.add_argument('--use_bn_in_head', default=False, type=utils.bool_flag)
 
     # temerature teacher parameters
-    parser.add_argument('--warmup_teacher_temp', default=0.02, type=float)
-    parser.add_argument('--teacher_temp', default=0.02, type=float)
+    parser.add_argument('--warmup_teacher_temp', default=0.04, type=float)
+    parser.add_argument('--teacher_temp', default=0.04, type=float)
     parser.add_argument('--warmup_teacher_temp_epochs', default=30, type=int)
 
     # optimization parameters
@@ -343,10 +348,10 @@ def get_args():
 
     # crop parameters
     # TODO: could also add the crop scales here
-    parser.add_argument('--global_crops_number', default=2, type=int)
     parser.add_argument('--local_crops_number', default=2, type=int)
 
     # remaining params
+    # TODO: make sure you are using enough workers
     parser.add_argument('--saveckp_freq', default=20, type=int)
     parser.add_argument('--seed', default=0, type=int, help='Random seed.')
     parser.add_argument('--num_workers', default=4, type=int)
@@ -373,8 +378,14 @@ def main():
     if not os.path.exists(args.cp_dir):
         os.makedirs(args.cp_dir)
 
+    # prepare the accepted categories for training.
+    accepted_cats = load_from_json(args.accepted_cats_path)
+    accepted_cats = sorted(accepted_cats)
+    cat_to_idx = {cat: i for i, cat in enumerate(accepted_cats)}
+    args.num_class = len(cat_to_idx)
+
     # time the training
-    train_net(args)
+    train_net(cat_to_idx, args)
 
 
 if __name__ == '__main__':
