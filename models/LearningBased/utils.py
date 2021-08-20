@@ -451,7 +451,4 @@ class DINO(nn.Module):
         # take mean over the blocks
         x = x.mean(1)
 
-        # reshape back to include the batch size
-        x = x.reshape(num_crops * batch_size, -1)
-
         return self.head(x)
