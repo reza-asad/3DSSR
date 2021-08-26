@@ -312,7 +312,7 @@ def get_args():
     parser.add_argument('--scene_dir', default='../../data/matterport3d/scenes')
     parser.add_argument('--metadata_path', default='../../data/matterport3d/metadata.csv')
     parser.add_argument('--cp_dir', default='../../results/matterport3d/LearningBased/'
-                                            '3D_DINO_exact_regions_transformer')
+                                            '3D_DINO_exact_regions_transformer_multinode')
 
     # transformer parameters
     parser.add_argument('--num_point', default=4096, type=int)
@@ -329,7 +329,7 @@ def get_args():
     # temerature teacher parameters
     parser.add_argument('--warmup_teacher_temp', default=0.04, type=float)
     parser.add_argument('--teacher_temp', default=0.04, type=float)
-    parser.add_argument('--warmup_teacher_temp_epochs', default=30, type=int)
+    parser.add_argument('--warmup_teacher_temp_epochs', default=0, type=int)
 
     # optimization parameters
     # TODO: also try this with True.
@@ -354,7 +354,7 @@ def get_args():
     # TODO: make sure you are using enough workers
     parser.add_argument('--saveckp_freq', default=20, type=int)
     parser.add_argument('--seed', default=0, type=int, help='Random seed.')
-    parser.add_argument('--num_workers', default=4, type=int)
+    parser.add_argument('--num_workers', default=8, type=int)
     parser.add_argument("--dist_url", default='env://', type=str)
     parser.add_argument("--local_rank", default=0, type=int)
 
@@ -373,6 +373,9 @@ def main():
     parser = argparse.ArgumentParser('DINO', parents=[get_args()])
     args = parser.parse_args()
     adjust_paths(args, exceptions=['dist_url'])
+
+    if "WORLD_SIZE" in os.environ:
+        args.world_size = int(os.environ["WORLD_SIZE"])
 
     # create a directory for checkpoints
     if not os.path.exists(args.cp_dir):
