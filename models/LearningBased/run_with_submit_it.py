@@ -3,12 +3,14 @@ import os
 import uuid
 from pathlib import Path
 
-import train_3D_DINO_transformer
+import train_3D_DINO_transformer_distributed
+from train_3D_DINO_transformer_distributed import adjust_paths
+from scripts.helper import load_from_json
 import submitit
 
 
 def parse_args():
-    parser = argparse.ArgumentParser("Submitit for DINO", parents=[train_3D_DINO_transformer.get_args()])
+    parser = argparse.ArgumentParser("Submitit for DINO", parents=[train_3D_DINO_transformer_distributed.get_args()])
     parser.add_argument("--ngpus", default=8, type=int, help="Number of gpus to request on each node")
     parser.add_argument("--nodes", default=2, type=int, help="Number of nodes to request")
     parser.add_argument("--timeout", default=2800, type=int, help="Duration of the job")
@@ -22,8 +24,8 @@ def parse_args():
 
 def get_shared_folder() -> Path:
     user = os.getenv("USER")
-    if Path("/checkpoint/").is_dir():
-        p = Path(f"/checkpoint/{user}/experiments")
+    if Path("/scratch/").is_dir():
+        p = Path(f"/scratch/{user}/experiments")
         p.mkdir(exist_ok=True)
         return p
     raise RuntimeError("No shared folder available")
@@ -43,10 +45,13 @@ class Trainer(object):
         self.args = args
 
     def __call__(self):
-        import train_3D_DINO_transformer
+        import os
+        import sys
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        import train_3D_DINO_transformer_distributed
 
         self._setup_gpu_args()
-        train_3D_DINO_transformer.train_net(self.args)
+        train_3D_DINO_transformer_distributed.train_net(self.args.cat_to_idx, self.args)
 
     def checkpoint(self):
         import os
@@ -71,6 +76,15 @@ class Trainer(object):
 
 def main():
     args = parse_args()
+    adjust_paths(args, exceptions=['dist_url'])
+
+    # prepare the accepted categories for training.
+    accepted_cats = load_from_json(args.accepted_cats_path)
+    accepted_cats = sorted(accepted_cats)
+    cat_to_idx = {cat: i for i, cat in enumerate(accepted_cats)}
+    args.num_class = len(cat_to_idx)
+    args.cat_to_idx = cat_to_idx
+
     if args.cp_dir == "":
         args.cp_dir = get_shared_folder() / "%j"
     Path(args.cp_dir).mkdir(parents=True, exist_ok=True)
@@ -80,7 +94,7 @@ def main():
     nodes = args.nodes
     timeout_min = args.timeout
 
-    partition = args.partition
+    #partition = args.partition
     kwargs = {}
     if args.use_volta32:
         kwargs['slurm_constraint'] = 'volta32gb'
@@ -88,19 +102,20 @@ def main():
         kwargs['slurm_comment'] = args.comment
 
     executor.update_parameters(
-        mem_gb=40 * num_gpus_per_node,
+        mem_gb=11 * num_gpus_per_node,
         gpus_per_node=num_gpus_per_node,
         tasks_per_node=num_gpus_per_node,  # one task per GPU
-        cpus_per_task=10,
+        cpus_per_task=8,
         nodes=nodes,
         timeout_min=timeout_min,  # max is 60 * 72
+        additional_parameters={'account': 'rrg-msavva'},
         # Below are cluster dependent parameters
-        slurm_partition=partition,
+        #slurm_partition=partition,
         slurm_signal_delay_s=120,
         **kwargs
     )
 
-    executor.update_parameters(name="dino")
+    executor.update_parameters(name="3D_pc_embedding")
 
     args.dist_url = get_init_file().as_uri()
 
@@ -113,4 +128,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
