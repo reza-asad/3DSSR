@@ -19,7 +19,8 @@ from region_dataset import Region
 from transformations import PointcloudToTensor, PointcloudScale, PointcloudJitter, PointcloudTranslate, \
     PointcloudRotatePerturbation
 import utils
-from projection_models import PointCapsNet, DINOHead
+from projection_models import DINOHead
+from capsnet_models import PointCapsNet
 
 
 def train_net(device, args):
