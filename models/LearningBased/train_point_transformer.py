@@ -36,7 +36,7 @@ def evaluate_net(classifier, valid_loader, cat_to_idx):
     with torch.no_grad():
         for i, data in enumerate(valid_loader):
             # load data
-            pc = data['global_crops'].squeeze(dim=1)
+            pc = data['crops'][0]
             labels = data['labels'].squeeze(dim=1)
 
             # move data to the right device
@@ -60,19 +60,25 @@ def evaluate_net(classifier, valid_loader, cat_to_idx):
 
 def train_net(cat_to_idx, args):
     # create a list of transformations to be applied to the point cloud.
-    transform = transforms.Compose([
-        PointcloudRotatePerturbation(angle_sigma=0.06, angle_clip=0.18),
-        PointcloudScale(),
-        PointcloudTranslate(),
-        PointcloudJitter(std=0.01, clip=0.05),
-    ])
+    transformations = []
+    if args.aug_rotation:
+        transformations.append(PointcloudRotatePerturbation(angle_sigma=0.06, angle_clip=0.18))
+    if args.aug_scale:
+        transformations.append(PointcloudScale())
+    if args.aug_translation:
+        transformations.append(PointcloudTranslate())
+    if len(transformations) > 0:
+        transformations = transforms.Compose(transformations)
+    else:
+        transformations = None
 
     # create the training dataset
-    train_dataset = Region(args.mesh_dir, args.pc_dir, args.scene_dir, args.metadata_path, args.accepted_cats_path,
+    train_dataset = Region(args.mesh_dir, args.scene_dir, args.metadata_path, args.accepted_cats_path,
                            num_local_crops=0, num_global_crops=0, mode='train', cat_to_idx=cat_to_idx, num_files=None,
-                           transforms=transform)
-    val_dataset = Region(args.mesh_dir, args.pc_dir, args.scene_dir, args.metadata_path, args.accepted_cats_path,
-                         num_local_crops=0, num_global_crops=0, mode='val', cat_to_idx=cat_to_idx, num_files=None)
+                           transforms=transformations, num_points=args.num_point)
+    val_dataset = Region(args.mesh_dir, args.scene_dir, args.metadata_path, args.accepted_cats_path,
+                         num_local_crops=0, num_global_crops=0, mode='val', cat_to_idx=cat_to_idx, num_files=None,
+                         num_points=args.num_point)
 
     # create the dataloaders
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True)
@@ -121,7 +127,7 @@ def train_net(cat_to_idx, args):
 
         for i, data in enumerate(train_loader):
             # load data
-            pc = data['global_crops'].squeeze(dim=1)
+            pc = data['crops'][0]
             labels = data['labels'].squeeze(dim=1)
 
             # move data to the right device
@@ -153,10 +159,11 @@ def train_net(cat_to_idx, args):
         # evaluate the model on the validation dataset.
         validation_loss, accuracy = evaluate_net(classifier, val_loader, cat_to_idx)
         validation_losses.append(validation_loss)
-        print('Evaluating after epoch {} ...'.format(epoch + 1))
-        print('Total validation loss: {}'.format(validation_loss))
+        print('Evaluated after epoch {} ...'.format(epoch + 1))
+        print('***Total validation loss: {}'.format(validation_loss))
         for c, (num_correct, num_total) in accuracy.items():
-            print('class {}: {}'.format(c, float(num_correct) / num_total))
+            if num_total > 0:
+                print('class {}: {}'.format(c, float(num_correct) / num_total))
 
         if validation_loss < best_validation_loss:
             best_model = copy.deepcopy(classifier)
@@ -200,21 +207,22 @@ def train_net(cat_to_idx, args):
     print('Best model comes from epoch: {}'.format(best_epoch + 1))
     print('Best accuracy on validation: ')
     for c, (num_correct, num_total) in best_accuracy.items():
-        print('class {}: {}'.format(c, float(num_correct)/num_total))
+        if num_total > 0:
+            print('class {}: {}'.format(c, float(num_correct)/num_total))
 
 
 def get_args():
     parser = OptionParser()
+    parser.add_option('--dataset', dest='dataset', default='matterport3d')
     parser.add_option('--accepted_cats_path', dest='accepted_cats_path',
-                      default='../../data/matterport3d/accepted_cats.json')
+                      default='../../data/{}/accepted_cats.json')
     parser.add_option('--mesh_dir', dest='mesh_dir',
-                      default='../../data/matterport3d/mesh_regions')
-    parser.add_option('--pc_dir', dest='pc_dir',
-                      default='../../data/matterport3d/point_cloud_regions')
-    parser.add_option('--scene_dir', dest='scene_dir', default='../../data/matterport3d/scenes')
-    parser.add_option('--metadata_path', dest='metadata_path', default='../../data/matterport3d/metadata.csv')
+                      default='../../data/{}/mesh_regions')
+    parser.add_option('--scene_dir', dest='scene_dir', default='../../data/{}/scenes')
+    parser.add_option('--metadata_path', dest='metadata_path', default='../../data/{}/metadata.csv')
     parser.add_option('--cp_dir', dest='cp_dir',
-                      default='../../results/matterport3d/LearningBased/region_classification_transformer_cc')
+                      default='../../results/{}/LearningBased/')
+    parser.add_option('--results_folder_name', dest='results_folder_name', default='region_classification_transformer_test')
     parser.add_option('--best_model_name', dest='best_model_name', default='CP_best.pth')
 
     parser.add_option('--num_point', dest='num_point', default=4096, type='int')
@@ -222,6 +230,10 @@ def get_args():
     parser.add_option('--nneighbor', dest='nneighbor', default=16, type='int')
     parser.add_option('--input_dim', dest='input_dim', default=3, type='int')
     parser.add_option('--transformer_dim', dest='transformer_dim', default=512, type='int')
+
+    parser.add_option('--aug_rotation', action='store_true', dest='aug_rotation', default=False)
+    parser.add_option('--aug_translation', action='store_true', dest='aug_translation', default=False)
+    parser.add_option('--aug_scale', action='store_true', dest='aug_scale', default=False)
 
     parser.add_option('--epochs', dest='epochs', default=100, type='int', help='number of epochs')
     parser.add_option('--lr', dest='lr', default=1e-4, type='float')
@@ -238,6 +250,7 @@ def adjust_paths(args):
     base_dir = os.path.dirname(os.path.abspath(__file__))
     for k, v in vars(args).items():
         if (type(v) is str) and ('/' in v):
+            v = v.format(args.dataset)
             vars(args)[k] = os.path.join(base_dir, v)
 
 
@@ -247,6 +260,7 @@ def main():
     adjust_paths(args)
 
     # create a directory for checkpoints
+    args.cp_dir = os.path.join(args.cp_dir, args.results_folder_name)
     if not os.path.exists(args.cp_dir):
         os.makedirs(args.cp_dir)
 
