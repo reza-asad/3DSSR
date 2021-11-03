@@ -11,10 +11,19 @@ class Render:
         self.animation = animation
         self.scene = None
 
-    def pyrender_render(self, scene, resolution, camera_pose, room_dimension):
+    def pyrender_render(self, scene, resolution, camera_pose, room_dimension, points=False, with_obbox=False,
+                        obbox=None, colors=(255, 0, 0)):
         length, width, height = room_dimension
+
         # convert trimesh scene to pyrender scene
-        scene = pyrender.Scene.from_trimesh_scene(scene)
+        if not points:
+            scene = pyrender.Scene.from_trimesh_scene(scene)
+        else:
+            pc = pyrender.Mesh.from_points(scene, colors=colors)
+            scene = pyrender.Scene()
+            scene.add(pc)
+            if with_obbox:
+                scene.add(pyrender.Mesh.from_trimesh(obbox))
 
         # create and adjust one point light source and one directional one.
         light_directional = pyrender.DirectionalLight(color=[255.0, 255.0, 255.0],
@@ -60,4 +69,4 @@ class Render:
             r.delete()
             del scene
             gc.collect()
-            return img
+            return img, depth
