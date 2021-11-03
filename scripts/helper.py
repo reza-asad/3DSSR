@@ -1,6 +1,7 @@
 import os
 import gc
 import shutil
+import random
 import json
 import numpy as np
 import trimesh
@@ -21,10 +22,22 @@ def write_to_json(dictionary, path, mode='w', indent=4):
         json.dump(dictionary, f, indent=indent)
 
 
-def basic_x_y_plot(x, y):
-    plt.plot(x, y)
+def vanilla_plot(values, cp_dir, plot_label='Train', xlabel='Epoch', ylabel='Loss', plot_name='loss.png',
+                 with_legend=False, scatter=False):
+    # plot
+    if scatter:
+        plt.scatter(range(1, len(values)+1), values, label=plot_label)
+    else:
+        plt.plot(range(1, len(values)+1), values, label=plot_label)
 
-    return plt
+    # add label
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    if with_legend:
+        plt.legend()
+
+    # save the plot
+    plt.savefig(os.path.join(cp_dir, plot_name))
 
 
 def render_single_scene(graph, objects, highlighted_object, path, model_dir, colormap, resolution=(512, 512),
@@ -40,7 +53,7 @@ def render_single_scene(graph, objects, highlighted_object, path, model_dir, col
                                                                      query_objects=highlighted_object,
                                                                      faded_nodes=faded_nodes, colormap=colormap,
                                                                      crop=False, alpha=alpha, beta=beta, gamma=gamma)
-    img = r.pyrender_render(scene, resolution=resolution, camera_pose=camera_pose, room_dimension=room_dimension)
+    img, _ = r.pyrender_render(scene, resolution=resolution, camera_pose=camera_pose, room_dimension=room_dimension)
 
     # save the side-by-side image
     Image.fromarray(img).save(path)
@@ -62,7 +75,7 @@ def render_scene_subscene(graph, objects, highlighted_object, path, model_dir, c
                                                                          query_objects=highlighted_object,
                                                                          faded_nodes=faded_nodes, colormap=colormap,
                                                                          crop=crop, alpha=alpha, beta=beta, gamma=gamma)
-        img = r.pyrender_render(scene, resolution=resolution, camera_pose=camera_pose, room_dimension=room_dimension)
+        img, _ = r.pyrender_render(scene, resolution=resolution, camera_pose=camera_pose, room_dimension=room_dimension)
         imgs.append(img)
 
     # put images of the full and subscene side-by-side
@@ -155,7 +168,7 @@ def create_img_table(img_dir, img_folder, imgs, html_file_name, topk=25, ncols=5
         # add caption
         file.write('<br />\n')
         if caption is not None:
-            file.write(img_name)
+            # file.write(img_name)
             file.write(caption)
             file.write('<br />\n')
         file.write('</td>\n')
@@ -194,7 +207,7 @@ def create_img_table(img_dir, img_folder, imgs, html_file_name, topk=25, ncols=5
         f.write('</table>\n')
 
 
-def create_train_val_test(data_dir, train_path, val_path, test_path):
+def create_train_val_test(data_dir, train_path, val_path, test_path, split_char='_'):
     # make sure the 3 folders exist
     folder_to_path = {'train': train_path, 'val': val_path, 'test': test_path}
     for folder in folder_to_path.keys():
@@ -214,7 +227,9 @@ def create_train_val_test(data_dir, train_path, val_path, test_path):
     # for each scene find out which folder it belongs to and copy it there
     scene_names = os.listdir(os.path.join(data_dir, 'all'))
     for scene_name in scene_names:
-        house_name = scene_name.split('_')[0]
+        house_name = scene_name.split('.')[0]
+        if split_char is not None:
+            house_name = house_name.split(split_char)[0]
         folder = house_to_folder[house_name]
         d1 = os.path.join(data_dir, 'all', scene_name)
         d2 = os.path.join(data_dir, folder, scene_name)
@@ -271,7 +286,7 @@ def sample_mesh(mesh, num_points=1000):
     """
     faces_idx = np.zeros(num_points, dtype=int)
     points = np.zeros((num_points, 3), dtype=float)
-    # pick a triangle randomly promotional to its area
+    # pick a triangle randomly proportional to its area
     cum_area = np.cumsum(mesh.area_faces)
     random_areas = np.random.uniform(0, cum_area[-1]+0.001, num_points)
     for i in range(num_points):
@@ -285,3 +300,16 @@ def sample_mesh(mesh, num_points=1000):
         points[i, :] = point
     return points, faces_idx
 
+
+def visualize_labled_pc(pc, labels):
+    # define a color map
+    pc_colors = np.zeros((len(pc), 4))
+    number_of_colors = len(np.unique(labels))
+    colors = ["#" + ''.join([random.choice('0123456789ABCDEF') for j in range(6)]) for i in range(number_of_colors)]
+    color_map = {e: colors[i] for i, e in enumerate(np.unique(labels))}
+
+    # color the points
+    for i, seg_idx in enumerate(labels):
+        pc_colors[i, :] = trimesh.visual.color.hex_to_rgba(color_map[seg_idx])
+
+    trimesh.points.PointCloud(pc, colors=pc_colors).show()
