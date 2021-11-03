@@ -12,7 +12,8 @@ model_names = [
     '3D_DINO_exact_regions_transformer_normalized',
     '3D_DINO_exact_regions_transformer_fixed_crop_normalized',
     '3D_DINO_exact_regions_transformer_fixed_crop_normalized_aug',
-    '3D_DINO_exact_regions_transformer_variable_crops_normalized'
+    '3D_DINO_exact_regions_transformer_variable_crops_normalized',
+    '3D_DINO_exact_regions_transformer_fixed_crop_normalized_centralized'
 ]
 
 log_file_name = 'log.txt'
