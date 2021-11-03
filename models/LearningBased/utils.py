@@ -12,6 +12,8 @@ import torch
 from torch import nn
 import torch.distributed as dist
 
+from transformer_models import PointTransformerCls
+
 
 def get_rank():
     if not is_dist_avail_and_initialized():
@@ -437,18 +439,69 @@ class LARS(torch.optim.Optimizer):
                 p.add_(mu, alpha=-g['lr'])
 
 
+def load_pretrained_weights(model, pretrained_weights, checkpoint_key):
+    state_dict = torch.load(pretrained_weights, map_location="cpu")
+    if checkpoint_key is not None and checkpoint_key in state_dict:
+        print(f"Take key {checkpoint_key} in provided checkpoint dict")
+        state_dict = state_dict[checkpoint_key]
+    # remove `module.` prefix
+    state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
+    # remove `backbone.` prefix induced by multicrop wrapper
+    state_dict = {k.replace("backbone.", ""): v for k, v in state_dict.items()}
+    msg = model.load_state_dict(state_dict, strict=False)
+    print('Pretrained weights found at {} and loaded with msg: {}'.format(pretrained_weights, msg))
+
+
+def load_pretrained_weights_transformer(args):
+    classifier = PointTransformerCls(args)
+    classifier = torch.nn.DataParallel(classifier).cuda()
+    checkpoint = torch.load(args.best_transformer_dir)
+    classifier.load_state_dict(checkpoint['model_state_dict'])
+
+    return classifier.module.backbone
+
+
 class DINO(nn.Module):
-    def __init__(self, backbone, head):
+    def __init__(self, backbone, head, num_local_crops, num_global_crops, network_type):
         super(DINO, self).__init__()
         self.backbone = backbone
         self.head = head
 
-    def forward(self, x):
-        # reshape to absorb the num crops into the batch size
-        batch_size, num_crops, num_points, points_dim = x.shape
-        x = x.reshape(-1, num_points, points_dim)
-        x, _ = self.backbone(x)
-        # take mean over the blocks
-        x = x.mean(1)
+        self.num_local_crops = num_local_crops
+        self.num_global_crops = num_global_crops
+        self.network_type = network_type
 
-        return self.head(x)
+    def forward(self, x):
+        # convert to list
+        if not isinstance(x, list):
+            x = [x]
+        if self.network_type == 'teacher':
+            idx_crops = [self.num_global_crops]
+        else:
+            idx_crops = [self.num_global_crops, self.num_local_crops + self.num_global_crops]
+        start_idx, output = 0, torch.empty(0).to(x[0].device)
+        for end_idx in idx_crops:
+            _out, _ = self.backbone(torch.cat(x[start_idx: end_idx]))
+            _out = _out.mean(1)
+            # accumulate outputs
+            output = torch.cat((output, _out))
+            start_idx = end_idx
+
+        # Run the head forward on the concatenated features.
+        return self.head(output)
+
+# class DINO(nn.Module):
+#     def __init__(self, backbone, head):
+#         super(DINO, self).__init__()
+#         self.backbone = backbone
+#         self.head = head
+#
+#     def forward(self, x):
+#         # reshape to absorb the num crops into the batch size
+#         batch_size, num_crops, num_points, points_dim = x.shape
+#         x = x.reshape(-1, num_points, points_dim)
+#         x, _ = self.backbone(x)
+#         # take mean over the blocks
+#         x = x.mean(1)
+#
+#         return self.head(x)
