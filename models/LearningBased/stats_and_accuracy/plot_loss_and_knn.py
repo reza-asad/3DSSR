@@ -8,12 +8,7 @@ from scripts.helper import load_from_json, vanilla_plot
 # define the model name and paths
 results_dir = '../../../results/matterport3d/LearningBased'
 model_names = [
-    '3D_DINO_exact_regions_transformer_default',
-    '3D_DINO_exact_regions_transformer_normalized',
-    '3D_DINO_exact_regions_transformer_fixed_crop_normalized',
-    '3D_DINO_exact_regions_transformer_fixed_crop_normalized_aug',
-    '3D_DINO_exact_regions_transformer_variable_crops_normalized',
-    '3D_DINO_exact_regions_transformer_fixed_crop_normalized_centralized'
+    '3D_DINO_exact_regions_transformer_default_start_pretrain',
 ]
 
 log_file_name = 'log.txt'
