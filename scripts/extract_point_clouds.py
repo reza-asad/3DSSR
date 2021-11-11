@@ -10,6 +10,14 @@ from scripts.helper import load_from_json, sample_mesh, visualize_labled_pc, cre
 from render_scene_functions import render_pc, render_mesh
 
 
+def sample_files(files_dir, num_files, seed=12):
+    file_names = sorted(os.listdir(files_dir))
+    np.random.seed(seed)
+    np.random.shuffle(file_names)
+
+    return file_names[:num_files]
+
+
 def find_majority_label(vertices, point, face, segIndices):
     # find the closest vertex to the point
     min_dist = 1000
@@ -202,7 +210,7 @@ def main(num_chunks, chunk_idx, action='extract_pc'):
                   with_label=with_label)
     elif action == 'render':
         # render the pc
-        pc_file_names = os.listdir(results_dir_pc)[:num_imgs]
+        pc_file_names = sample_files(results_dir_pc, num_imgs)
         render_pc(results_dir_pc, pc_file_names, results_dir_rendered, resolution, rendering_kwargs)
 
     elif action == 'create_img_table':
@@ -210,7 +218,7 @@ def main(num_chunks, chunk_idx, action='extract_pc'):
         imgs = sorted(imgs)
         create_img_table(results_dir_rendered, 'imgs', imgs, 'img_table.html', ncols=4, captions=imgs, topk=40)
     elif action == 'save_room_subset':
-        pc_file_names = os.listdir(results_dir_pc)[:num_imgs]
+        pc_file_names = sample_files(results_dir_pc, num_imgs)
         out_dir = 'pc_rooms_subset'
         if not os.path.exists(out_dir):
             os.mkdir(out_dir)
