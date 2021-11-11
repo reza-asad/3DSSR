@@ -112,20 +112,19 @@ def save_rendered_images(results_dir, results_to_render):
                     img.save(img_path)
 
 
-def render_cubical_multicrop(accepted_regions, args):
+def render_cubical_multicrop(args):
     # create dataset
     if args.crop_fixed and args.crop_normalized:
-        dataset = RegionFixedNorm(args.pc_dir, args.scene_dir, accepted_regions=accepted_regions,
-                                  models_dir=args.models_dir, num_local_crops=args.local_crops_number,
-                                  num_global_crops=args.global_crops_number, mode='train', num_points=args.num_point,
-                                  save_crops=True)
+        dataset = RegionFixedNorm(args.pc_dir, args.scene_dir, models_dir=args.models_dir,
+                                  num_local_crops=args.local_crops_number, num_global_crops=args.global_crops_number,
+                                  mode='train', num_points=args.num_point, save_crops=True)
     elif args.crop_normalized:
-        dataset = RegionNorm(args.pc_dir, args.scene_dir, accepted_regions=accepted_regions, models_dir=args.models_dir,
+        dataset = RegionNorm(args.pc_dir, args.scene_dir, models_dir=args.models_dir,
                              num_local_crops=args.local_crops_number, num_global_crops=args.global_crops_number,
                              mode='train', num_points=args.num_point, global_crop_bounds=args.global_crop_bounds,
                              local_crop_bounds=args.local_crop_bounds, save_crops=True)
     else:
-        dataset = Region(args.pc_dir, args.scene_dir, accepted_regions=accepted_regions, models_dir=args.models_dir,
+        dataset = Region(args.pc_dir, args.scene_dir, models_dir=args.models_dir,
                          num_local_crops=args.local_crops_number, num_global_crops=args.global_crops_number,
                          mode='train', num_points=args.num_point, global_crop_bounds=args.global_crop_bounds,
                          local_crop_bounds=args.local_crop_bounds, save_crops=True)
@@ -213,13 +212,12 @@ def get_args():
     # path parameters
     parser.add_argument('--dataset', default='matterport3d')
     parser.add_argument('--accepted_cats_path', default='../../data/{}/accepted_cats.json')
-    parser.add_argument('--accepted_regions_path', default='../../data/{}/accepted_regions.json')
-    parser.add_argument('--pc_dir', default='../../data/{}/pc_regions')
+    parser.add_argument('--pc_dir', default='../../data/{}/pc_regions_overlapping')
     parser.add_argument('--scene_dir', default='../../data/{}/scenes')
     parser.add_argument('--models_dir', default='../../data/{}/models')
     parser.add_argument('--metadata_path', default='../../data/{}/metadata.csv')
     parser.add_argument('--results_dir', default='../../results/{}/multicrop_rendering/')
-    parser.add_argument('--results_folder_name', default='normalized_square_crops')
+    parser.add_argument('--results_folder_name', default='variable_crop_normalized_block_sampling')
 
     # cropping strategy and data type
     parser.add_argument('--data_type', default='3D')
@@ -263,13 +261,10 @@ def main():
     cat_to_idx = {cat: i for i, cat in enumerate(accepted_cats)}
     args.cat_to_idx = cat_to_idx
 
-    # load the accepted regions for training
-    accepted_regions = set(load_from_json(args.accepted_regions_path))
-
     if args.cropping_strategy == 'rectangular':
         if args.data_type == '3D':
             # 3D cube crops.
-            render_cubical_multicrop(accepted_regions, args)
+            render_cubical_multicrop(args)
         else:
             # 2D depth images
             pass
