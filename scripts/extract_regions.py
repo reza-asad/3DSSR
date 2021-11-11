@@ -8,6 +8,14 @@ from scripts.helper import load_from_json, create_img_table
 from render_scene_functions import render_pc, render_mesh
 
 
+def sample_files(files_dir, num_files, seed=12):
+    file_names = sorted(os.listdir(files_dir))
+    np.random.seed(seed)
+    np.random.shuffle(file_names)
+
+    return file_names[:num_files]
+
+
 def extract_region_mesh(obj_info, vertices, faces, face_normals, max_dist):
     # find the centroid of the object.
     centroid = np.asarray(obj_info['obbox'])[0, :]
@@ -195,8 +203,8 @@ def main(num_chunks, chunk_idx, action='extract'):
 
         # processed_mesh = set([e.split('-')[0] for e in os.listdir(os.path.join(data_dir, 'mesh_regions', mode))])
         # scene_names = [e for e in scene_names if e.split('.')[0] in processed_mesh]
-        np.random.seed(73)
-        np.random.shuffle(scene_names)
+        # np.random.seed(73)
+        # np.random.shuffle(scene_names)
         chunk_size = int(np.ceil(len(scene_names) / num_chunks))
         if region_type == 'mesh':
             derive_mesh_regions(scene_names=scene_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size])
@@ -204,16 +212,16 @@ def main(num_chunks, chunk_idx, action='extract'):
             derive_pc_regions(scene_names=scene_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size])
     elif action == 'render':
         if region_type == 'mesh':
-            mesh_file_names = os.listdir(results_dir)[:num_imgs]
+            mesh_file_names = sample_files(results_dir, num_imgs)
             render_mesh(results_dir, mesh_file_names, results_dir_rendered, resolution, rendering_kwargs, region=True)
         elif region_type == 'pc':
-            pc_file_names = os.listdir(results_dir)[:num_imgs]
+            pc_file_names = sample_files(results_dir, num_imgs)
             render_pc(results_dir, pc_file_names, results_dir_rendered, resolution, rendering_kwargs, region=True)
     elif action == 'create_img_table':
         imgs = os.listdir(results_dir_rendered)
         create_img_table(results_dir_rendered, 'imgs', imgs, 'img_table.html', ncols=4, captions=imgs, topk=num_imgs)
     elif action == 'save_room_subset':
-        pc_file_names = os.listdir(results_dir)[:num_imgs]
+        pc_file_names = sample_files(results_dir, num_imgs)
         out_dir = 'pc_regions_subset'
         if not os.path.exists(out_dir):
             os.mkdir(out_dir)
@@ -233,7 +241,7 @@ if __name__ == '__main__':
     region_size = 'fixed'
 
     # define paths
-    mode = 'train'
+    mode = 'val'
     dataset_name = 'matterport3d'
     split_char = '_' if dataset_name == 'matterport3d' else '-'
     data_dir = '../data/{}'.format(dataset_name)
