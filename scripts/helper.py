@@ -301,12 +301,18 @@ def sample_mesh(mesh, num_points=1000):
     return points, faces_idx
 
 
-def visualize_labled_pc(pc, labels):
+def visualize_labled_pc(pc, labels, center_segment=None):
     # define a color map
     pc_colors = np.zeros((len(pc), 4))
     number_of_colors = len(np.unique(labels))
     colors = ["#" + ''.join([random.choice('0123456789ABCDEF') for j in range(6)]) for i in range(number_of_colors)]
     color_map = {e: colors[i] for i, e in enumerate(np.unique(labels))}
+
+    # make the center segment black
+    if center_segment is not None:
+        for k in color_map.keys():
+            if k != center_segment:
+                color_map[k] = "#000000"
 
     # color the points
     for i, seg_idx in enumerate(labels):
