@@ -108,14 +108,6 @@ def read_houses(path):
 
 
 def main(num_chunks, chunk_idx, action='extract_mesh'):
-    # define paths and set up folders for the extracted object meshes
-    models_dir = os.path.join(data_dir, 'models')
-    if not os.path.exists(models_dir):
-        try:
-            os.mkdir(models_dir)
-        except FileExistsError:
-            pass
-
     if action == 'extract_mesh':
         rooms_dir = os.path.join(data_dir, 'rooms')
         room_names = os.listdir(rooms_dir)
@@ -208,6 +200,13 @@ def main(num_chunks, chunk_idx, action='extract_mesh'):
 if __name__ == '__main__':
     # define paths
     data_dir = '../data/scannet'
+    models_dir = '/media/reza/Large/ScanNet/models'#os.path.join(data_dir, 'models')
+    if not os.path.exists(models_dir):
+        try:
+            os.mkdir(models_dir)
+        except FileExistsError:
+            pass
+
     train_split_path = '../data/scannet/scenes_train.txt'
     val_split_path = '../data/scannet/scenes_val.txt'
     test_split_path = '../data/scannet/scenes_test.txt'

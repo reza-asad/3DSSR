@@ -12,6 +12,7 @@ def process_scenes(scene_files_chunk):
     idx = 0
     for scene_name in scene_files_chunk:
         # for each scene build scene graphs
+        idx += 1
         print('Processing scene {} ... '.format(scene_name))
         print('Iteration {}/{}'.format(idx, len(scene_files_chunk)))
         t2 = time()
@@ -51,13 +52,15 @@ def main(num_chunks, chunk_idx, action='build_scenes'):
         train_path = os.path.join(data_dir, train_split_name)
         val_path = os.path.join(data_dir, val_split_name)
         test_path = os.path.join(data_dir, test_split_name)
-        create_train_val_test(scene_graph_dir, train_path, val_path, test_path, split_char=None)
+        create_train_val_test(scene_graph_dir, train_path, val_path, test_path, split_char=split_char)
 
 
 if __name__ == '__main__':
     # define the paths
-    data_dir = '../data/scannet'
-    room_dir = os.path.join(data_dir, 'rooms')
+    dataset = 'matterport3d'
+    split_char = '_' if dataset == 'matterport3d' else None
+    data_dir = '../data/{}'.format(dataset)
+    room_dir = '/media/reza/Large/Matterport3D_rooms/rooms'#os.path.join(data_dir, 'rooms')
     scene_files = os.listdir(room_dir)
     metadata_path = os.path.join(data_dir, 'metadata.csv')
     models_dir = os.path.join(data_dir, 'models')

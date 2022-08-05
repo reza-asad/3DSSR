@@ -1,9 +1,20 @@
+import argparse
 import os
 import sys
 import numpy as np
 from matplotlib import pyplot as plt
 
-from scripts.helper import load_from_json, render_scene_subscene, create_img_table
+from scripts.helper import load_from_json, render_single_scene, render_scene_subscene, create_img_table_scrollable
+from scripts.box import Box
+
+
+def translate_obbox(box, translation):
+    # build the transformation matrix
+    transformation = np.eye(4)
+    transformation[:3, 3] = translation
+
+    # apply tranlsation to the obbox
+    return box.apply_transformation(transformation)
 
 
 def make_rendering_folders(query_results, rendering_path, img_folder='imgs'):
@@ -33,7 +44,8 @@ def render_model_results(query_results, scene_dir, models_dir, rendering_path, c
             faded_nodes = [obj for obj in query_graph.keys() if obj not in q_context]
             path = os.path.join(rendering_path, query, img_folder, 'query_{}_{}.png'.format(scene_name.split('.')[0], q))
             render_scene_subscene(graph=query_graph, objects=query_graph.keys(), highlighted_object=[q],
-                                  faded_nodes=faded_nodes, path=path, model_dir=models_dir, colormap=colormap)
+                                  faded_nodes=faded_nodes, path=path, model_dir=models_dir, colormap=colormap,
+                                  with_height_offset=True)
 
         # render the topk results from the model
         top_results_chunk = results['target_subscenes'][: topk][chunk_idx * chunk_size:
@@ -63,7 +75,8 @@ def render_model_results(query_results, scene_dir, models_dir, rendering_path, c
                                 .format(chunk_idx * chunk_size + j + 1, target_scene_name.split('.')[0], t))
             render_scene_subscene(graph=target_graph, objects=target_graph.keys(),
                                   highlighted_object=highlighted_object, faded_nodes=faded_nodes, path=path,
-                                  model_dir=models_dir, colormap=colormap, alpha=alpha, beta=beta, gamma=gamma)
+                                  model_dir=models_dir, colormap=colormap, alpha=alpha, beta=beta, gamma=gamma,
+                                  with_height_offset=True)
 
 
 def plot_evaluations(x, y, fig, ax, label,):
@@ -74,58 +87,67 @@ def plot_evaluations(x, y, fig, ax, label,):
     leg = ax.legend()
 
 
-def main(num_chunks, chunk_idx, mode, model_name='LearningBased', experiment_name='AlignRank', render=False, topk=5,
-         make_folders=False, with_img_table=False, include_queries=['all']):
-    # define paths
-    query_results_path = '../results/matterport3d/{}/query_dict_{}_{}_evaluated.json'.format(model_name, mode,
-                                                                                             experiment_name)
-    scene_dir = '../data/matterport3d/scenes'
-    rendering_path = '../results/matterport3d/rendered_results/{}/{}'.format(mode, experiment_name)
-    models_dir = '../data/matterport3d/models'
-    colormap = load_from_json('../data/matterport3d/color_map.json')
-    img_folder = 'imgs'
-    caption_keys = {'overlap_mAP', 'theta'}
+def find_anchor_translation(scene, o):
+    vertices = np.asarray(scene[o]['obbox'])
+    o_box = Box(vertices)
 
-    # load the query results and filter them if necessary.
+    return -o_box.translation
+
+
+def find_obj_center(target_scene, t_c, t_translation):
+    vertices = np.asarray(target_scene[t_c]['obbox'])
+    t_c_box = Box(vertices)
+    t_c_box = translate_obbox(t_c_box, t_translation)
+    center = t_c_box.translation[:2]
+    center = [np.round(c, 2) for c in center]
+
+    return center
+
+
+def main():
+    # path to render the experiment
+    rendering_path = os.path.join(args.rendering_path, args.mode, args.experiment_name)
+
+    # load the query results.
+    if args.results_folder_name == 'None':
+        args.results_folder_name = ''
+    query_results_path = os.path.join(args.cp_dir, args.model_name, args.results_folder_name,
+                                      'query_dict_top10_{}_{}.json'.format(args.mode, args.experiment_name))
+    # print(query_results_path)
+    # t=y
     query_results = load_from_json(query_results_path)
+
+    # filter query results if necessary.
     filtered_query_results = {}
-    if include_queries[0] != 'all':
+    if args.query_list[0] != 'all':
         for query, results in query_results.items():
-            if query in include_queries:
+            if query in args.query_list:
                 filtered_query_results[query] = results
     else:
         filtered_query_results = query_results
 
-    if make_folders:
-        # make rending folders
-        make_rendering_folders(filtered_query_results, rendering_path, img_folder)
+    if args.action == 'make_folders':
+        make_rendering_folders(filtered_query_results, rendering_path, args.img_folder_name)
 
-    if render:
+    elif args.action == 'render':
+        # load the color map for rendering
+        colormap = load_from_json(args.colormap_path)
+
         # render results from the model
-        chunk_size = int(np.ceil(topk / num_chunks))
-        render_model_results(filtered_query_results, scene_dir, models_dir, rendering_path, colormap, num_chunks,
-                             chunk_size, chunk_idx, mode, topk, img_folder)
+        chunk_size = int(np.ceil(args.topk / args.num_chunks))
+        render_model_results(filtered_query_results, args.scene_dir, args.models_dir, rendering_path, colormap,
+                             args.num_chunks, chunk_size, args.chunk_idx, args.mode, args.topk, args.img_folder_name)
 
-    if with_img_table:
+    elif args.action == 'create_img_table':
         for query, results in filtered_query_results.items():
-            # plot the distance and overlap mAP for the query
-            evaluation_plot_name = 'evaluation.png'
-            evaluation_plot_path = os.path.join(rendering_path, query, img_folder, evaluation_plot_name)
-            fig, ax = plt.subplots()
-            for metric in ['overlap_mAP']:
-                x, y = list(zip(*results[metric]['mAP']))
-                plot_evaluations(x, y, fig, ax, metric)
-            plt.savefig(evaluation_plot_path)
-            plt.close()
-
             # read images in the img directory and find the query img
-            imgs_path = os.path.join(rendering_path, query, img_folder)
+            imgs_path = os.path.join(rendering_path, query, args.img_folder_name)
             imgs = os.listdir(imgs_path)
             query_img = [e for e in imgs if 'query' in e]
 
             # sort the topk images
             imgs.remove(query_img[0])
-            imgs.remove(evaluation_plot_name)
+            # imgs.remove(evaluation_plot_name)
             ranks = [int(img_name.split('_')[1]) for img_name in imgs]
             ranks_imgs = zip(ranks, imgs)
             ranks_imgs = sorted(ranks_imgs, key=lambda x: x[0])
@@ -133,45 +155,78 @@ def main(num_chunks, chunk_idx, mode, model_name='LearningBased', experiment_nam
             if len(ranks_imgs) > 0:
                 sorted_imgs = list(list(zip(*ranks_imgs))[1])
 
+            # load the query scene.
+            query_scene = load_from_json(os.path.join(args.scene_dir, args.mode, results['example']['scene_name']))
+            q = results['example']['query']
+            context_objects = results['example']['context_objects']
+
+            # add caption for the query.
+            query_caption = '<br />\n'
+            q_translation = find_anchor_translation(query_scene, q)
+            for q_c in context_objects:
+                center = find_obj_center(query_scene, q_c, q_translation)
+                query_caption += '{} {}: {} <br />\n'.format(query_scene[q_c]['category'][0], q_c, center)
+
             # add captions for the top10 results
             captions = []
             target_subscenes = results['target_subscenes']
-            topk = 10
             for i in range(len(sorted_imgs)):
                 caption = '<br />\n'
-                # add number of context matches
-                if i < topk:
-                    caption += 'num_objects: {} <br />\n'.format(target_subscenes[i]['context_match'] + 1)
-                for key, value in target_subscenes[i].items():
-                    if key in caption_keys:
-                        if 'theta' in key:
-                            caption_value = np.round(value * 180 / np.pi, 0)
-                        else:
-                            caption_value = value
-                        caption += ' {}: {} <br />\n'.format(key, caption_value)
+                # load the target scene
+                target_scene_name = target_subscenes[i]['scene_name']
+                t = target_subscenes[i]['target']
+                target_scene = load_from_json(os.path.join(args.scene_dir, args.mode, target_scene_name))
+                correspondence = target_subscenes[i]['correspondence']
+                # find the translation for the query and target boxes to the origin
+                t_translation = find_anchor_translation(target_scene, t)
+                for t_c, _ in correspondence.items():
+                    center = find_obj_center(target_scene, t_c, t_translation)
+                    caption += '{} {}: {} <br />\n'.format(target_scene[t_c]['category'][0], t_c, center)
                 captions.append(caption)
 
-            create_img_table(imgs_path, img_folder, sorted_imgs, with_query_scene=True, query_img=query_img[0],
-                             evaluation_plot=evaluation_plot_name, html_file_name='img_table.html', topk=len(imgs),
-                             ncols=3, captions=captions)
+            create_img_table_scrollable(imgs_path, args.img_folder_name, sorted_imgs, query_img=query_img[0],
+                                        html_file_name='img_table.html', topk=len(imgs), ncols=2, captions=captions,
+                                        query_caption=query_caption)
+
+
+def adjust_paths(args, exceptions):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    for k, v in vars(args).items():
+        if (type(v) is str) and ('/' in v) and k not in exceptions:
+            v = v.format(args.dataset)
+            vars(args)[k] = os.path.join(base_dir, v)
+
+
+def get_args():
+    parser = argparse.ArgumentParser('Render Results', add_help=False)
+    parser.add_argument('--action', default='make_folders', help='make_folders | render | create_img_table')
+    parser.add_argument('--dataset', default='matterport3d')
+    parser.add_argument('--mode', default='val', help='train | val | test')
+    parser.add_argument('--scene_dir', default='../data/{}/scenes')
+    parser.add_argument('--models_dir', default='../data/{}/models')
+    parser.add_argument('--cp_dir', default='../results/{}')
+    parser.add_argument('--img_folder_name', default='imgs')
+    parser.add_argument('--rendering_path', default='../results/{}/rendered_results')
+    parser.add_argument('--results_folder_name', default='')
+    parser.add_argument('--colormap_path', default='../data/{}/color_map.json')
+    parser.add_argument('--query_list', dest='query_list', default=["all"], type=str, nargs='+',
+                        help='Name of the queries to render. If ["all"] is chosen all queries will be rendered')
+
+    parser.add_argument('--topk', dest='topk', default=10, type=int, help='Number of images rendered for each query.')
+    parser.add_argument('--model_name', default='')
+    parser.add_argument('--experiment_name', default='')
+
+    parser.add_argument('--num_chunks', default=1, type=int, help='number of chunks for parallel run')
+    parser.add_argument('--chunk_idx', default=0, type=int, help='chunk id for parallel run')
+
+    return parser
 
 
 if __name__ == '__main__':
-    include_queries = sys.argv[10]
-    qs = include_queries.split(',')
-    new_qs = []
-    for i, e in enumerate(qs):
-        if i == 0:
-            new_qs.append(e[1:])
-        elif i == (len(qs) - 1):
-            new_qs.append(e[:-1])
-        else:
-            new_qs.append(e)
+    # read the args
+    parser_ = argparse.ArgumentParser('Extract Regions', parents=[get_args()])
+    args = parser_.parse_args()
+    adjust_paths(args, exceptions=[])
 
-    bool_args = [sys.argv[6], sys.argv[8], sys.argv[9]]
-    for i in range(len(bool_args)):
-        bool_args[i] = bool_args[i].lower() == 'true'
-
-    main(int(sys.argv[1]), int(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5], bool_args[0],
-         int(sys.argv[7]), bool_args[1], bool_args[2], new_qs)
+    main()
 

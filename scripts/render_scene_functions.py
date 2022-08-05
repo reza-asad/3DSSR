@@ -6,6 +6,27 @@ from PIL import Image
 from scripts.renderer import Render
 
 
+def render_single_mesh(mesh, resolution, rendering_kwargs, region=False):
+    # initialize the renderer.
+    r = Render(rendering_kwargs)
+
+    radii = np.linalg.norm(mesh.vertices - mesh.bounding_box.centroid, axis=1)
+    mesh.visual.vertex_colors = trimesh.visual.interpolate(radii, color_map='viridis')
+    mesh = trimesh.Trimesh.scene(mesh)
+
+    # setup the camera pose and extract the dimensions of the room
+    room_dimension = mesh.extents
+    camera_pose, _ = mesh.graph[mesh.camera.name]
+    if region:
+        camera_pose[0:2, 3] = 0
+
+    # render the pc
+    img, _ = r.pyrender_render(mesh, resolution=resolution, camera_pose=camera_pose, room_dimension=room_dimension,
+                               adjust_camera_height=False)
+
+    return img
+
+
 def render_single_pc(pc, resolution, rendering_kwargs, region=False, with_obbox=False, obbox=None):
     # initialize the renderer.
     r = Render(rendering_kwargs)
@@ -24,7 +45,8 @@ def render_single_pc(pc, resolution, rendering_kwargs, region=False, with_obbox=
 
     # render the pc
     img, _ = r.pyrender_render(pc, resolution=resolution, camera_pose=camera_pose, room_dimension=room_dimension,
-                               points=True, colors=colors, with_obbox=with_obbox, obbox=obbox)
+                               points=True, colors=colors, with_obbox=with_obbox, obbox=obbox,
+                               adjust_camera_height=False, point_size=1.5, with_height_offset=False)
 
     return img
 

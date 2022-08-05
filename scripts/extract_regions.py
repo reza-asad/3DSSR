@@ -5,6 +5,7 @@ import numpy as np
 import trimesh
 
 from scripts.helper import load_from_json, create_img_table
+from scripts.box import Box
 from render_scene_functions import render_pc, render_mesh
 
 
@@ -18,14 +19,18 @@ def sample_files(files_dir, num_files, seed=12):
 
 def extract_region_mesh(obj_info, vertices, faces, face_normals, max_dist):
     # find the centroid of the object.
-    centroid = np.asarray(obj_info['obbox'])[0, :]
+    if 'obbox' in obj_info:
+        centroid = np.asarray(obj_info['obbox'])[0, :]
+    else:
+        centroid = np.asarray(obj_info['aabb'])[0, :]
 
     # compute the distance of each vertex to the centroid
     distance_x = np.abs(vertices[:, 0] - centroid[0])
     distance_y = np.abs(vertices[:, 1] - centroid[1])
+    distance_z = np.abs(vertices[:, 2] - centroid[2])
 
     # find the vertices in the region.
-    is_close = (distance_x <= max_dist[0]) & (distance_y <= max_dist[1])
+    is_close = (distance_x <= max_dist[0]) & (distance_y <= max_dist[1]) & (distance_z <= max_dist[2])
     filtered_vertices = vertices[is_close]
 
     # find a map that sends the indices of the filter vertices in the old mesh to the vertex indices in the
@@ -70,23 +75,21 @@ def extract_region_pc(obj_info, pc, num_points, max_dist):
     return pc_region
 
 
-def derive_mesh_regions(scene_names, expansion_factor=2.0, scene_coverage=0.8):
+def derive_mesh_regions(scene_names):
     for scene_name in scene_names:
         # load the room mesh.
         scene_name = scene_name.split('.')[0]
-        # if scene_name != 'X7HyMhZNoso_room6':
-        #     continue
         room_mesh = trimesh.load(os.path.join(room_dir, scene_name, '{}.annotated.ply'.format(scene_name)))
         # room_mesh.show()
 
         # load the scene.
         scene = load_from_json(os.path.join(scenes_dir, scene_name+'.json'))
 
-        # for each accepted object in the room extract the region around it.
+        # for each accepted object in the room extract the surrounding region.
         for obj, obj_info in scene.items():
+            # if obj != '5':
+            #     continue
             if obj_info['category'][0] in accepted_cats:
-                # if obj != '16':
-                #     continue
                 visited = set([e.split('.')[0] for e in os.listdir(results_dir)])
                 model_name = obj_info['file_name'].split('.')[0]
                 if model_name in visited:
@@ -100,22 +103,31 @@ def derive_mesh_regions(scene_names, expansion_factor=2.0, scene_coverage=0.8):
                 # extract region for the object.
                 if region_size == 'fixed':
                     room_aabbox_extents = room_mesh.bounding_box.extents
-                    # room_aabbox_extents = room_aabbox_extents * 1.1
                     max_dist = room_aabbox_extents / 2.0 * scene_coverage
-                else:
+                elif region_size == 'variable':
                     # load the object mesh
                     mesh = trimesh.load(os.path.join(model_dir, obj_info['file_name']))
                     max_dist = mesh.bounding_box.extents / 2.0 * expansion_factor
+                elif region_size == 'given':
+                    box_corners = np.asarray(obj_info['aabb'], dtype=np.float64)
+                    aabb = Box(box_corners)
+                    max_dist = aabb.scale / 2.0
+                    # box_vis = trimesh.creation.box(aabb.scale, aabb.transformation)
+                    # trimesh.Scene([room_mesh, box_vis]).show()
+                else:
+                    raise NotImplementedError('region_size {} not implremented'.format(region_size))
                 mesh_region = extract_region_mesh(obj_info, vertices, faces, face_normals, max_dist)
-                # vertices = np.asarray(scene[obj]['obbox'], dtype=np.float64)
-                # from scripts.box import Box
+                # vertices = np.asarray(scene[obj]['aabb'], dtype=np.float64)
+                # print(scene[obj]['category'][0])
                 # obbox = Box(vertices)
                 # transformation = np.eye(4)
                 # transformation[:3, 3] = -obbox.translation
                 # obbox = obbox.apply_transformation(transformation)
                 # obbox = trimesh.creation.box(obbox.scale, obbox.transformation)
                 # obbox.visual.vertex_colors = trimesh.visual.color.hex_to_rgba("##FF0000")
-                # trimesh.Scene([obbox, mesh_region]).show()
+                # trimesh.Scene([mesh_region]).show()
+                # obj = trimesh.load(os.path.join(model_dir, scene[obj]['file_name']))
+                # obj.show()
                 # t=y
                 # save the region.
                 mesh_region.export(os.path.join(results_dir, obj_info['file_name']))
@@ -124,7 +136,7 @@ def derive_mesh_regions(scene_names, expansion_factor=2.0, scene_coverage=0.8):
                 visited.add(model_name)
 
 
-def derive_pc_regions(scene_names, num_points=4096, expansion_factor=2.0, scene_coverage=0.8):
+def derive_pc_regions(scene_names, num_points=4096):
     for scene_name in scene_names:
         # load the scene.
         scene_name = scene_name.split('.')[0]
@@ -199,12 +211,12 @@ def find_processed_scenes(scene_names):
 def main(num_chunks, chunk_idx, action='extract'):
     if action == 'extract':
         scene_names = os.listdir(scenes_dir)
-        scene_names = find_processed_scenes(scene_names)
+        # scene_names = find_processed_scenes(scene_names)
 
         # processed_mesh = set([e.split('-')[0] for e in os.listdir(os.path.join(data_dir, 'mesh_regions', mode))])
         # scene_names = [e for e in scene_names if e.split('.')[0] in processed_mesh]
-        # np.random.seed(73)
-        # np.random.shuffle(scene_names)
+        np.random.seed(3)
+        np.random.shuffle(scene_names)
         chunk_size = int(np.ceil(len(scene_names) / num_chunks))
         if region_type == 'mesh':
             derive_mesh_regions(scene_names=scene_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size])
@@ -237,27 +249,30 @@ if __name__ == '__main__':
     num_imgs = 20
 
     # define the type of extract and its size
-    region_type = 'pc'
-    region_size = 'fixed'
+    region_type = 'mesh'
+    region_size = 'given'
+    scene_coverage = 0.3
+    expansion_factor = 1.5
 
     # define paths
-    mode = 'val'
+    mode = 'test'
     dataset_name = 'matterport3d'
     split_char = '_' if dataset_name == 'matterport3d' else '-'
     data_dir = '../data/{}'.format(dataset_name)
-    if region_type == 'pc':
-        room_dir = '/media/reza/Large/Matterport3D_rooms/rooms_pc'
-        results_dir = os.path.join(data_dir, 'pc_regions', mode)#'/media/reza/Large/pc_regions/{}'.format(mode)
-        results_dir_rendered = os.path.join(data_dir, 'pc_regions_rendered', 'imgs')
-    else:
-        room_dir = '/media/reza/Large/Matterport3D_rooms/rooms/'
-        results_dir = os.path.join(data_dir, 'mesh_regions', mode)
-        results_dir_rendered = os.path.join(data_dir, 'mesh_regions_rendered', 'imgs')
-
     model_dir = os.path.join(data_dir, 'models')
     scenes_dir = os.path.join(data_dir, 'scenes', mode)
     accepted_cats = load_from_json(os.path.join(data_dir, 'accepted_cats.json'))
-    for folder in [results_dir, results_dir_rendered]:
+    if region_type == 'pc':
+        room_dir = '/media/reza/Large/matterport3d/rooms_pc'
+        results_dir = os.path.join(data_dir, 'pc_regions', mode)#'/media/reza/Large/pc_regions/{}'.format(mode)
+        results_dir_rendered = os.path.join(data_dir, 'pc_regions_rendered', 'imgs')
+    else:
+        room_dir = '/media/reza/Large/matterport3d/rooms/'
+        results_dir = os.path.join(data_dir, 'mesh_regions_predicted_nms', mode)
+        results_dir_rendered = os.path.join(data_dir, 'mesh_regions_rendered', 'imgs')
+        scenes_dir = os.path.join('../results/{}/predicted_boxes_large/scenes_predicted_nms_raw'.format(dataset_name), mode)
+
+    for folder in [results_dir]:
         if not os.path.exists(folder):
             try:
                 os.makedirs(folder)
