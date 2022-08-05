@@ -420,5 +420,3 @@ def visualize_pc(pc):
     radii = np.linalg.norm(pc, axis=1)
     colors = trimesh.visual.interpolate(radii, color_map='viridis')
     trimesh.points.PointCloud(pc, colors=colors).show()
-
-t=y
