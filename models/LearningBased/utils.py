@@ -5,6 +5,7 @@ import math
 import warnings
 import time
 import datetime
+import subprocess
 from collections import defaultdict, deque
 import argparse
 
@@ -12,7 +13,38 @@ import torch
 from torch import nn
 import torch.distributed as dist
 
-from transformer_models import PointTransformerCls
+from models.LearningBased.transformer_models import PointTransformerCls
+
+
+def compute_accuracy(per_class_accuracy, predicted_labels, labels, cat_to_idx):
+    for c, (num_correct, num_total) in per_class_accuracy.items():
+        c_idx = cat_to_idx[c]
+        labels_c = labels[labels == c_idx]
+        predicted_labels_c = predicted_labels[labels == c_idx]
+
+        num_total += len(labels_c)
+        num_correct += sum(predicted_labels_c == labels_c)
+        per_class_accuracy[c] = (num_correct, num_total)
+
+
+def get_sha():
+    cwd = os.path.dirname(os.path.abspath(__file__))
+
+    def _run(command):
+        return subprocess.check_output(command, cwd=cwd).decode('ascii').strip()
+    sha = 'N/A'
+    diff = "clean"
+    branch = 'N/A'
+    try:
+        sha = _run(['git', 'rev-parse', 'HEAD'])
+        subprocess.check_output(['git', 'diff'], cwd=cwd)
+        diff = _run(['git', 'diff-index', 'HEAD'])
+        diff = "has uncommited changes" if diff else "clean"
+        branch = _run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])
+    except Exception:
+        pass
+    message = f"sha: {sha}, status: {diff}, branch: {branch}"
+    return message
 
 
 def get_rank():
@@ -444,10 +476,14 @@ def load_pretrained_weights(model, pretrained_weights, checkpoint_key):
     if checkpoint_key is not None and checkpoint_key in state_dict:
         print(f"Take key {checkpoint_key} in provided checkpoint dict")
         state_dict = state_dict[checkpoint_key]
+
     # remove `module.` prefix
     state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
     # remove `backbone.` prefix induced by multicrop wrapper
-    state_dict = {k.replace("backbone.", ""): v for k, v in state_dict.items()}
+    # state_dict = {k.replace("backbone.", ""): v for k, v in state_dict.items()}
+    # print(state_dict.keys())
+    # print(model.backbone)
+    # t=y
     msg = model.load_state_dict(state_dict, strict=False)
     print('Pretrained weights found at {} and loaded with msg: {}'.format(pretrained_weights, msg))
 
@@ -481,7 +517,7 @@ class DINO(nn.Module):
             idx_crops = [self.num_global_crops, self.num_local_crops + self.num_global_crops]
         start_idx, output = 0, torch.empty(0).to(x[0].device)
         for end_idx in idx_crops:
-            _out, _ = self.backbone(torch.cat(x[start_idx: end_idx]))
+            _out = self.backbone(torch.cat(x[start_idx: end_idx]))
             _out = _out.mean(1)
             # accumulate outputs
             output = torch.cat((output, _out))
@@ -505,3 +541,4 @@ class DINO(nn.Module):
 #         x = x.mean(1)
 #
 #         return self.head(x)
+

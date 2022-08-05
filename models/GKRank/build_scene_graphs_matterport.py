@@ -1,5 +1,6 @@
 import os
 import sys
+import pandas as pd
 import numpy as np
 from time import time
 
@@ -17,10 +18,7 @@ def process_scenes(scene_files, models_dir, metadata_path, accepted_cats, scene_
         print('Iteration {}/{}'.format(idx, len(scene_files)))
         t2 = time()
 
-        seen = os.listdir(scene_graph_dir)
-        seen = [e.replace('.json', '') for e in seen]
-        seen = set(seen)
-        if scene_name in seen:
+        if scene_name in visited:
             continue
 
         # first initialize the graph
@@ -29,14 +27,16 @@ def process_scenes(scene_files, models_dir, metadata_path, accepted_cats, scene_
         scene_graph.build_from_matterport(scene_name, metadata_path)
         # filter the graph to only contain the objects with accepted category
         scene_graph.filter_by_accepted_cats()
-        if len(scene_graph.graph) < 2:
-            print('Skipped scene {} as there is 1 or 0 object there ... '.format(scene_name))
+
+        if len(scene_graph.graph) == 0:
+            print('Skipped scene {} as there are 0 object there ... '.format(scene_name))
             continue
         # derive scene graphs and save them
         scene_graph.build_scene_graph(test_objects, num_samples=num_samples, chunk_size=500, dist_eps=dist_eps,
                                       angle_eps=angle_eps, room_cats=['wall', 'unknown', 'roof', 'ceiling'],
                                       bad_object_cats=['remove', 'delete', 'void'])
         scene_graph.to_json()
+        visited.add(scene_name)
 
         duration_house = (time() - t2) / 60
         print('Scene {} took {} minutes to process'.format(scene_name, round(duration_house, 2)))
@@ -48,18 +48,7 @@ def process_scenes(scene_files, models_dir, metadata_path, accepted_cats, scene_
 
 def main(num_chunks, chunk_idx, action='build_scene_graphs'):
     # define the paths
-    room_dir = '../../data/matterport3d/rooms'
-    scene_files = os.listdir(room_dir)
     test_objects = []
-    models_dir = '../../data/matterport3d/models'
-    metadata_path = '../../data/matterport3d/metadata.csv'
-    accepted_cats = set(load_from_json('../../data/matterport3d/accepted_cats.json'))
-    scene_graph_dir = '../../results/matterport3d/GKRank/scene_graphs/all'
-    if not os.path.exists(scene_graph_dir):
-        try:
-            os.makedirs(scene_graph_dir)
-        except FileExistsError:
-            pass
 
     if action == 'build_scene_graphs':
         # process the houses in batches
@@ -74,16 +63,30 @@ def main(num_chunks, chunk_idx, action='build_scene_graphs'):
                        dist_eps=0.1,
                        angle_eps=1)
 
-    if action == 'split_train_test_val':
-        data_dir = '../../data/matterport3d'
-        scene_graph_dir = '../../results/matterport3d/GKRank/scene_graphs'
-        train_path = os.path.join(data_dir, 'scenes_train.txt')
-        val_path = os.path.join(data_dir, 'scenes_val.txt')
-        test_path = os.path.join(data_dir, 'scenes_test.txt')
-        create_train_val_test(scene_graph_dir, train_path, val_path, test_path)
-
 
 if __name__ == '__main__':
+    mode = 'test'
+    models_dir = '../../data/matterport3d/mesh_regions/{}'.format(mode)
+    metadata_path = '../../data/matterport3d/metadata.csv'
+    accepted_cats = set(load_from_json('../../data/matterport3d/accepted_cats.json'))
+    data_dir = '../../data/matterport3d'
+
+    scene_graph_dir = '../../results/matterport3d/GKRank/scene_graphs/{}'.format(mode)
+    if not os.path.exists(scene_graph_dir):
+        try:
+            os.makedirs(scene_graph_dir)
+        except FileExistsError:
+            pass
+
+    # find the scene names for the requested mode
+    df_metadata = pd.read_csv(metadata_path)
+    all_scene_names = df_metadata.loc[df_metadata['split'] == mode, 'room_name'].unique().tolist()
+
+    # find the scenes that are already processed (if any)
+    visited = os.listdir(scene_graph_dir)
+    visited = set([e.replace('.json', '') for e in visited])
+    scene_files = [e for e in all_scene_names if e not in visited]
+
     if len(sys.argv) == 1:
         main(1, 0, 'build_scene_graphs')
     elif len(sys.argv) == 2:

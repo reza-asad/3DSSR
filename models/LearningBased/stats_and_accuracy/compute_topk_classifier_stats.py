@@ -10,14 +10,16 @@ topk = 10
 mode = 'val'
 with_loss = False
 dataset = 'matterport3d'
-model_name = 'region_classification_transformer_random_init'
-cp_dir = os.path.join('../../results/{}/LearningBased'.format(dataset), model_name)
-per_class_accuracy_path = os.path.join(cp_dir, 'per_class_accuracy_fixed_region.json')
+model_name = 'region_classification_transformer_4_64_4096_non_equal_full_region_top10_pret'
+cp_dir = os.path.join('../../../results/{}/LearningBased/'.format(dataset), model_name)
+per_class_accuracy_path = os.path.join(cp_dir, 'per_class_accuracy.json')
 
 # load the cat to frequency data and per class accuracy
-cat_to_freq_path = '../../data/matterport3d/accepted_cats_to_frequency.json'.format(dataset)
-df_metadata = pd.read_csv('../../data/matterport3d/metadata.csv'.format(dataset))
-cat_to_freq = load_from_json(cat_to_freq_path)
+# TODO: change these to MP3D
+cat_to_freq_path = '../../../data/matterport3d/accepted_cats_to_frequency.json'
+df_metadata = pd.read_csv('../../../data/matterport3d/metadata_non_equal_full_top10.csv')
+# cat_to_freq = load_from_json(cat_to_freq_path)
+cat_to_freq = Counter(df_metadata['mpcat40'].values)
 per_class_accuracy = load_from_json(per_class_accuracy_path)
 
 # take the topk categories by frequency

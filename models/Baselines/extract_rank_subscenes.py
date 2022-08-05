@@ -36,9 +36,9 @@ def load_boxes(scene, objects, box_type):
     return boxes
 
 
-def find_topk_target_nodes(args, query_scene_name, target_scene_names, query_node):
+def find_topk_target_nodes(args, query_number, query_scene_name, target_scene_names, query_node):
     # load the query scene and find the category of the query object.
-    query_scene = load_from_json(os.path.join(args.scene_dir, query_scene_name))
+    query_scene = load_from_json(os.path.join(args.scene_dir_queries, query_scene_name))
     query_cat = query_scene[query_node]['category'][0]
 
     # for each object in the target scene take it if it has the same category as the query object.
@@ -54,8 +54,11 @@ def find_topk_target_nodes(args, query_scene_name, target_scene_names, query_nod
         if args.include_cat:
             # take all the objects with the same category as the query object and assign them to the target scene.
             for obj in target_scene.keys():
-                target_cat = target_scene[obj]['category'][0]
-                if target_cat == query_cat:
+                cat_key = 'category'
+                if args.with_cat_predictions:
+                    cat_key = 'predicted_category'
+                target_cat = target_scene[obj][cat_key][0]
+                if query_cat == target_cat:
                     if target_scene_name not in target_scene_to_nodes:
                         target_scene_to_nodes[target_scene_name] = [obj]
                     else:
@@ -64,30 +67,33 @@ def find_topk_target_nodes(args, query_scene_name, target_scene_names, query_nod
             # take a random object as categories are not used
             all_objects = list(target_scene.keys())
             if len(all_objects) > 0:
-                np.random.seed(0)
+                np.random.seed(query_number)
                 np.random.shuffle(all_objects)
                 target_scene_to_nodes[target_scene_name] = [all_objects[0]]
 
     return target_scene_to_nodes
 
 
-def find_best_correspondence(args, query_scene, target_scene_name, target_scene, query_node, target_node,
-                             context_objects, q_boxes, t_boxes):
+def find_best_correspondence(args, query_number, query_scene, target_scene_name, target_scene, query_node, target_node,
+                             context_objects, q_boxes, t_boxes, theta):
     # read the box for the query object and find the translation that brings it to the origin.
     q_box = q_boxes[query_node]
     q_translation = -q_box.translation
-    q_box_origin = translate_obbox(q_box, q_translation)
 
     # read the box for the target object and find the translation that brings it to the origin.
     t_box = t_boxes[target_node]
     t_translation = -t_box.translation
-    t_box_origin = translate_obbox(t_box, t_translation)
+
+    # compute the rotation matrix.
+    transformation = np.eye(4)
+    rotation = np.asarray([[np.cos(theta), -np.sin(theta), 0],
+                           [np.sin(theta), np.cos(theta), 0],
+                           [0, 0, 1]])
+    transformation[:3, :3] = rotation
 
     # for each context object find the best candidate in the target object.
     correspondence = {}
-    total_sim = IoU(t_box_origin, q_box_origin).iou()
     for context_object in context_objects:
-        highest_sim = 0
         best_candidate = None
 
         # translate the context object using the translation that brings the query object to the origin.
@@ -96,7 +102,7 @@ def find_best_correspondence(args, query_scene, target_scene_name, target_scene,
 
         # the best candidate has IoU > 0 and highest embedding similarity.
         all_candidates = [candidate for candidate in target_scene.keys() if candidate != target_node]
-        np.random.seed(0)
+        np.random.seed(query_number)
         np.random.shuffle(all_candidates)
         for candidate in all_candidates:
             # skip if the candidate is already assigned or is the target node.
@@ -105,17 +111,13 @@ def find_best_correspondence(args, query_scene, target_scene_name, target_scene,
 
             if args.include_cat:
                 # skip if the candidate and context have different categories.
-                if query_scene[context_object]['category'][0] != target_scene[candidate]['category'][0]:
+                cat_key = 'category'
+                if args.with_cat_predictions:
+                    cat_key = 'predicted_category'
+                if query_scene[context_object]['category'][0] != target_scene[candidate][cat_key][0]:
                     continue
 
             if not args.include_iou:
-                # pick the random candidate and stop.
-                # translate the candidate object using the translation that brings the target object to the origin.
-                t_c_box = t_boxes[candidate]
-                t_c_box_translated = translate_obbox(t_c_box, t_translation)
-
-                # compute the IoU between the context and candidate objects.
-                highest_sim = compute_iou(t_c_box_translated, q_c_box_translated)
                 best_candidate = candidate
                 break
 
@@ -123,33 +125,34 @@ def find_best_correspondence(args, query_scene, target_scene_name, target_scene,
             t_c_box = t_boxes[candidate]
             t_c_box_translated = translate_obbox(t_c_box, t_translation)
 
+            # rotate the candidate object.
+            t_c_box_translated_rotated = t_c_box_translated.apply_transformation(transformation)
+
             # compute the IoU between the context and candidate objects.
-            iou = compute_iou(t_c_box_translated, q_c_box_translated)
-            if iou > highest_sim:
-                highest_sim = iou
+            iou = compute_iou(t_c_box_translated_rotated, q_c_box_translated)
+            if iou > args.iou_threshold:
                 best_candidate = candidate
+                break
 
         if best_candidate is not None:
             correspondence[best_candidate] = context_object
-            total_sim += highest_sim
 
-    # trimesh.Scene(box_vis_list).show()
     target_subscene = {'scene_name': target_scene_name, 'target': target_node, 'correspondence': correspondence,
-                       'context_match': len(correspondence), 'total_sim': float(total_sim)}
+                       'context_match': len(correspondence), 'theta': theta}
 
     return target_subscene
 
 
-def find_best_target_subscenes(args, query_info, target_scene_names):
+def find_best_target_subscenes(args, query_number, query_info, target_scene_names, theta):
     # load the query info
     query_scene_name = query_info['example']['scene_name']
     query_node = query_info['example']['query']
     context_objects = query_info['example']['context_objects']
-    query_scene = load_from_json(os.path.join(args.scene_dir, query_scene_name))
-    q_boxes = load_boxes(query_scene, [query_node] + context_objects, box_type='obbox')
+    query_scene = load_from_json(os.path.join(args.scene_dir_queries, query_scene_name))
+    q_boxes = load_boxes(query_scene, [query_node] + context_objects, box_type='aabb')
 
     # find the topk target nodes and their corresponding scenes.
-    target_scene_to_nodes = find_topk_target_nodes(args, query_scene_name, target_scene_names, query_node)
+    target_scene_to_nodes = find_topk_target_nodes(args, query_number, query_scene_name, target_scene_names, query_node)
 
     # find the best matching target subscenes.
     target_subscenes = []
@@ -162,12 +165,12 @@ def find_best_target_subscenes(args, query_info, target_scene_names):
         target_scene = load_from_json(os.path.join(args.scene_dir, target_scene_name))
         t_boxes = load_boxes(target_scene, target_scene.keys(), box_type='aabb')
         for target_node in target_scene_to_nodes[target_scene_name]:
-            target_subscene = find_best_correspondence(args, query_scene, target_scene_name, target_scene, query_node,
-                                                       target_node, context_objects, q_boxes, t_boxes)
+            target_subscene = find_best_correspondence(args, query_number, query_scene, target_scene_name, target_scene,
+                                                       query_node, target_node, context_objects, q_boxes, t_boxes, theta)
             target_subscenes.append(target_subscene)
 
     # rank the target object based on the highest number of correspondences and overall IoU.
-    target_subscenes = sorted(target_subscenes, reverse=True, key=lambda x: (x['context_match'], x['total_sim']))
+    target_subscenes = sorted(target_subscenes, reverse=True, key=lambda x: x['context_match'])
 
     return target_subscenes
 
@@ -177,15 +180,20 @@ def get_args():
 
     parser.add_argument('--dataset', default='matterport3d')
     parser.add_argument('--mode', dest='mode', default='test', help='val or test')
-    parser.add_argument('--scene_dir', default='../../results/{}/scenes_top10')
-    parser.add_argument('--pc_dir', default='../../data/{}/pc_regions')
+    parser.add_argument('--with_cat_predictions', action='store_true', default=False,
+                        help='If true predicted categories are used')
+    parser.add_argument('--scene_dir_queries', default='../../results/{}/scenes')
+    parser.add_argument('--scene_dir', default='../../results/{}/scenes')
     parser.add_argument('--query_dir', default='../../queries/{}/')
     parser.add_argument('--query_input_file_name', default='query_dict_top10.json')
     parser.add_argument('--cp_dir', default='../../results/{}')
-    parser.add_argument('--include_iou', action='store_true', default=True)
+    parser.add_argument('--iou_threshold', type=float, default=0)
+    parser.add_argument('--grid_res', type=float, default=45)
     parser.add_argument('--include_cat', action='store_true', default=True)
+    parser.add_argument('--include_iou', action='store_true', default=True)
+    parser.add_argument('--with_rotations', action='store_true', default=True)
     parser.add_argument('--results_folder_name',  default='OracleRank')
-    parser.add_argument('--experiment_name', default='OracleRank')
+    parser.add_argument('--experiment_name', default='OracleRankRot')
 
     return parser
 
@@ -205,7 +213,7 @@ def main():
     adjust_paths(args, exceptions=[])
 
     # make sure to retrieve data from the requested mode
-    args.pc_dir = os.path.join(args.pc_dir, args.mode)
+    args.scene_dir_queries = os.path.join(args.scene_dir_queries, args.mode)
     args.scene_dir = os.path.join(args.scene_dir, args.mode)
     args.query_dir = os.path.join(args.query_dir, args.mode)
 
@@ -225,13 +233,32 @@ def main():
     # find all the potential target scenes.
     target_scene_names = os.listdir(os.path.join(args.scene_dir))
 
+    # find rotation increments if necessary.
+    num_thetas = 1
+    grid_res = 0
+    if args.with_rotations:
+        # prepare the grid search parameters for the best rotation.
+        grid_res = args.grid_res * (np.pi / 180)
+        num_thetas = int(np.round((2 * np.pi) / grid_res))
+
     # apply scene alignment for each query
     t0 = time()
     for i, (query, query_info) in enumerate(query_dict.items()):
         t = time()
         print('Processing query: {}'.format(query))
-        target_subscenes = find_best_target_subscenes(args, query_info, target_scene_names)
-        query_info['target_subscenes'] = target_subscenes
+        np.random.seed(i)
+        np.random.shuffle(target_scene_names)
+
+        # apply rotation module
+        rotated_target_subscenes = []
+        for j in range(num_thetas):
+            curr_theta = j * grid_res
+            target_subscenes = find_best_target_subscenes(args, i, query_info, target_scene_names, curr_theta)
+            rotated_target_subscenes += target_subscenes
+
+        # choose the best among all possible rotations of the scenes.
+        rotated_target_subscenes = sorted(rotated_target_subscenes, reverse=True, key=lambda x: (x['context_match']))
+        query_info['target_subscenes'] = rotated_target_subscenes
         duration = (time() - t) / 60
         print('Processing the query took {} minutes'.format(round(duration, 2)))
         print('*' * 50)

@@ -30,61 +30,27 @@ from transformer_models import PointTransformerSeg
 from projection_models import DINOHead
 
 
-def compute_macro_average(predictions, test_labels, cat_to_idx):
-    # find a mapping from the label indices to the actual category
-    idx_to_cat = {idx: cat for cat, idx in cat_to_idx.items()}
-
-    # compute accuracy per category
-    accuracy_per_cat = {}
-    label_indices = cat_to_idx.values()
-    for idx in label_indices:
-        is_idx = test_labels == idx
-        num_correct = torch.sum(test_labels[is_idx, ...] == predictions[is_idx, ...]).item()
-        num_total = torch.sum(is_idx).item()
-        accuracy_per_cat[idx_to_cat[idx]] = num_correct / num_total * 100
-    print('Accuracy per category: {}'.format(accuracy_per_cat))
-
-    # compute the macro average
-    print('Macro average is {}'.format(np.mean(list(accuracy_per_cat.values()))))
-
-
 def extract_feature_pipeline(args):
     # ============ preparing data ... ============
     if args.crop_normalized:
-        dataset_train = ReturnIndexDatasetNorm(args.pc_dir, args.scene_dir, args.metadata_path,
-                                               max_coord=args.max_coord, num_local_crops=0, num_global_crops=0,
-                                               mode='train', cat_to_idx=args.cat_to_idx, num_points=args.num_point,
-                                               file_name_to_idx=args.file_name_to_idx)
-        dataset_val = ReturnIndexDatasetNorm(args.pc_dir, args.scene_dir, args.metadata_path, max_coord=args.max_coord,
-                                             num_local_crops=0, num_global_crops=0, mode=args.mode,
-                                             cat_to_idx=args.cat_to_idx, num_points=args.num_point,
-                                             file_name_to_idx=args.file_name_to_idx)
+        dataset = ReturnIndexDatasetNorm(args.pc_dir, args.scene_dir, args.metadata_path, max_coord=args.max_coord,
+                                         num_local_crops=0, num_global_crops=0, mode=args.mode,
+                                         cat_to_idx=args.cat_to_idx, num_points=args.num_point,
+                                         file_name_to_idx=args.file_name_to_idx, theta=args.theta)
     else:
-        dataset_train = ReturnIndexDataset(args.pc_dir, args.scene_dir, args.metadata_path, num_local_crops=0,
-                                           num_global_crops=0, mode='train', cat_to_idx=args.cat_to_idx,
-                                           num_points=args.num_point, file_name_to_idx=args.file_name_to_idx)
-        dataset_val = ReturnIndexDataset(args.pc_dir, args.scene_dir, args.metadata_path, num_local_crops=0,
-                                         num_global_crops=0, mode=args.mode, cat_to_idx=args.cat_to_idx,
-                                         num_points=args.num_point, file_name_to_idx=args.file_name_to_idx)
+        dataset = ReturnIndexDataset(args.pc_dir, args.scene_dir, args.metadata_path, num_local_crops=0,
+                                     num_global_crops=0, mode=args.mode, cat_to_idx=args.cat_to_idx,
+                                     num_points=args.num_point, file_name_to_idx=args.file_name_to_idx)
 
-    sampler = torch.utils.data.DistributedSampler(dataset_train, shuffle=False)
-    data_loader_train = torch.utils.data.DataLoader(
-        dataset_train,
-        sampler=sampler,
-        batch_size=args.batch_size_per_gpu,
-        num_workers=args.num_workers,
-        pin_memory=True,
-        drop_last=False,
-    )
-    data_loader_val = torch.utils.data.DataLoader(
-        dataset_val,
+    data_loader = torch.utils.data.DataLoader(
+        dataset,
         batch_size=args.batch_size_per_gpu,
         num_workers=args.num_workers,
         shuffle=False,
         pin_memory=True,
         drop_last=False,
     )
-    print(f"Data loaded with {len(dataset_train)} train and {len(dataset_val)} {args.mode} imgs.")
+    print(f"Data loaded with {len(dataset)} {args.mode} imgs.")
 
     # ============ building network ... ============
     if args.classifier_type == 'supervised':
@@ -105,42 +71,21 @@ def extract_feature_pipeline(args):
         utils.load_pretrained_weights(DINO, pretrained_weights_dir, args.checkpoint_key)
         model = DINO.backbone
     else:
-        raise ValueError('model {} is not recognized'.format(args.classifier_type))
+        raise NotImplementedError('model {} is not recognized'.format(args.classifier_type))
 
     model.eval()
 
     # ============ extract features ... ============
-    if args.load_features_train:
-        train_features = torch.load(os.path.join(args.features_dir, "trainfeat.pth"))
-        train_labels = torch.load(os.path.join(args.features_dir, "trainlabels.pth"))
-        train_file_names = torch.load(os.path.join(args.features_dir, "train_file_names.pth"))
-    else:
-        print("Extracting features for train set...")
-        train_features, train_labels, train_file_names = extract_features(model, data_loader_train, args.use_cuda)
-
-    if args.load_features_test:
-        test_features = torch.load(os.path.join(args.features_dir, "{}feat.pth".format(args.mode)))
-        test_labels = torch.load(os.path.join(args.features_dir, "{}labels.pth".format(args.mode)))
-        test_file_names = torch.load(os.path.join(args.features_dir, "{}_file_names.pth".format(args.mode)))
-    else:
-        print("Extracting features for {} set...".format(args.mode))
-        test_features, test_labels, test_file_names = extract_features(model, data_loader_val, args.use_cuda)
-
+    print(f"Extracting features for {args.mode} set...")
+    features, labels, file_names = extract_features(model, data_loader, args.use_cuda)
     if utils.get_rank() == 0:
-        train_features = nn.functional.normalize(train_features, dim=1, p=2)
-        test_features = nn.functional.normalize(test_features, dim=1, p=2)
+        features = nn.functional.normalize(features, dim=1, p=2)
 
     # save features and labels
     if dist.get_rank() == 0:
-        torch.save(train_features.cpu(), os.path.join(args.features_dir, "trainfeat.pth"))
-        torch.save(train_labels.cpu(), os.path.join(args.features_dir, "trainlabels.pth"))
-        torch.save(train_file_names.cpu(), os.path.join(args.features_dir, "train_file_names.pth"))
-
-        torch.save(test_features.cpu(), os.path.join(args.features_dir, "{}feat.pth".format(args.mode)))
-        torch.save(test_labels.cpu(), os.path.join(args.features_dir, "{}labels.pth".format(args.mode)))
-        torch.save(test_file_names.cpu(), os.path.join(args.features_dir, "{}_file_names.pth".format(args.mode)))
-
-    return train_features, test_features, train_labels, test_labels, train_file_names, test_file_names
+        torch.save(features.cpu(), os.path.join(args.features_dir, f"{args.mode}feat.pth"))
+        torch.save(labels.cpu(), os.path.join(args.features_dir, f"{args.mode}labels.pth"))
+        torch.save(file_names.cpu(), os.path.join(args.features_dir, f"{args.mode}_file_names.pth"))
 
 
 @torch.no_grad()
@@ -226,52 +171,6 @@ def extract_features(model, data_loader, use_cuda=True):
     return features, labels_combined, file_names_combined
 
 
-@torch.no_grad()
-def knn_classifier(train_features, train_labels, test_features, test_labels, k, T, num_classes):
-    top1, total = 0.0, 0
-    train_features = train_features.t()
-    num_test_images, num_chunks = test_labels.shape[0], 100
-    imgs_per_chunk = num_test_images // num_chunks
-    retrieval_one_hot = torch.zeros(k, num_classes).to(train_features.device)
-    all_predictions = []
-    for idx in range(0, num_test_images, imgs_per_chunk):
-        # get the features for test images
-        features = test_features[
-            idx : min((idx + imgs_per_chunk), num_test_images), :
-        ]
-        targets = test_labels[idx : min((idx + imgs_per_chunk), num_test_images)]
-        batch_size = targets.shape[0]
-
-        # calculate the dot product and compute top-k neighbors
-        similarity = torch.mm(features, train_features)
-        distances, indices = similarity.topk(k, largest=True, sorted=True)
-        candidates = train_labels.view(1, -1).expand(batch_size, -1)
-        retrieved_neighbors = torch.gather(candidates, 1, indices)
-
-        retrieval_one_hot.resize_(batch_size * k, num_classes).zero_()
-        retrieval_one_hot.scatter_(1, retrieved_neighbors.view(-1, 1), 1)
-        distances_transform = distances.clone().div_(T).exp_()
-        probs = torch.sum(
-            torch.mul(
-                retrieval_one_hot.view(batch_size, -1, num_classes),
-                distances_transform.view(batch_size, -1, 1),
-            ),
-            1,
-        )
-        _, predictions = probs.sort(1, True)
-        all_predictions.append(predictions[:, 0:1])
-
-        # find the predictions that match the target
-        correct = predictions.eq(targets.data.view(-1, 1))
-        top1 = top1 + correct.narrow(1, 0, 1).sum().item()
-        total += targets.size(0)
-
-    top1 = top1 * 100.0 / total
-    all_predictions = torch.cat(all_predictions, dim=0)
-
-    return top1, all_predictions
-
-
 class ReturnIndexDataset(Region):
     def __getitem__(self, idx):
         data = super(ReturnIndexDataset, self).__getitem__(idx)
@@ -295,45 +194,37 @@ def adjust_paths(args, exceptions):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Evaluation with weighted k-NN on Matterport3D')
     parser.add_argument('--dataset', default='matterport3d')
-    parser.add_argument('--mode', default='val')
-    parser.add_argument('--accepted_cats_path', default='../../data/{}/accepted_cats_top10.json')
-    parser.add_argument('--metadata_path', default='../../data/{}/metadata_non_equal_full_top10.csv')
-    parser.add_argument('--pc_dir', dest='pc_dir', default='../../data/{}/pc_regions')
+    parser.add_argument('--mode', default='test', help='train|val|test')
+    parser.add_argument('--accepted_cats_path', default='../../data/{}/accepted_cats.json')
+    parser.add_argument('--metadata_path', default='../../data/{}/metadata.csv')
+    parser.add_argument('--pc_dir', default='../../data/{}/pc_regions')
     parser.add_argument('--cp_dir', default='../../results/{}/LearningBased/')
     parser.add_argument('--results_folder_name', dest='results_folder_name', default='3D_DINO_regions_non_equal_full_top10_seg')
     parser.add_argument('--scene_dir', default='../../data/{}/scenes')
-    parser.add_argument('--output_file_name', default='predicted_labels_knn.json', type=str)
     parser.add_argument('--features_dir_name', default='features', type=str)
 
     # point transformer arguments
     parser.add_argument('--classifier_type', default='DINO', help='supervised | DINO')
     parser.add_argument('--num_point', default=4096, type=int)
+    parser.add_argument('--theta', default=0, type=int)
     parser.add_argument('--nblocks', default=2, type=int)
     parser.add_argument('--nneighbor', default=16, type=int)
     parser.add_argument('--input_dim', default=3, type=int)
     parser.add_argument('--transformer_dim', default=32, type=int)
     parser.add_argument('--crop_normalized', default=True, type=utils.bool_flag)
-    parser.add_argument('--max_coord', default=3.65, type=float, help='14.30 for MP3D| 5.02 for shapenetsem')
+    parser.add_argument('--max_coord', default=3.65, type=float, help='3.65 for MP3D')
     parser.add_argument('--norm_last_layer', default=True, type=utils.bool_flag)
     parser.add_argument('--use_bn_in_head', default=False, type=utils.bool_flag)
     parser.add_argument('--out_dim', dest='out_dim', default=2000, type=int)
+    parser.add_argument('--num_class', dest='num_class', default=28, type=int)
 
     parser.add_argument('--batch_size_per_gpu', default=8, type=int, help='Per-GPU batch-size')
-    parser.add_argument('--nb_knn', default=[10, 20, 100, 200], nargs='+', type=int,
-        help='Number of NN to use. 20 is usually working the best.')
-    parser.add_argument('--final_nbb', default=20, type=int)
-    parser.add_argument('--temperature', default=0.07, type=float,
-        help='Temperature used in the voting coefficient')
     parser.add_argument('--pretrained_weights_name', default='', type=str, help="Path to pretrained weights to evaluate.")
     parser.add_argument('--use_cuda', default=True, type=utils.bool_flag,
         help="Should we store the features on GPU? We recommend setting this to False if you encounter OOM")
     parser.add_argument("--checkpoint_key", default="teacher", type=str,
         help='Key to use in the checkpoint (example: "teacher")')
-    parser.add_argument('--load_features_train', default=False, type=utils.bool_flag,
-        help="if true train features are loaded")
-    parser.add_argument('--load_features_test', default=False, type=utils.bool_flag,
-        help="if true test features are derived")
-    parser.add_argument('--num_workers', default=10, type=int, help='Number of data loading workers per GPU.')
+    parser.add_argument('--num_workers', default=6, type=int, help='Number of data loading workers per GPU.')
     parser.add_argument("--dist_url", default="env://", type=str, help="""url used to set up
         distributed training; see https://pytorch.org/docs/stable/distributed.html""")
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
@@ -355,13 +246,18 @@ if __name__ == '__main__':
     accepted_cats = load_from_json(args.accepted_cats_path)
     accepted_cats = sorted(accepted_cats)
     cat_to_idx = {cat: i for i, cat in enumerate(accepted_cats)}
-    args.cat_to_idx = cat_to_idx
-    args.num_class = len(cat_to_idx)
+
+    # load the metadata.
+    df = pd.read_csv(args.metadata_path)
+
+    # category based filtering and parameters.
+    args.cat_to_idx = None
+    if 'mpcat40' in df.keys():
+        args.cat_to_idx = cat_to_idx
+        is_accepted = df['mpcat40'].apply(lambda x: x in args.cat_to_idx)
+        df = df.loc[is_accepted]
 
     # find a mapping from the region files to their indices.
-    df = pd.read_csv(args.metadata_path)
-    is_accepted = df['mpcat40'].apply(lambda x: x in args.cat_to_idx)
-    df = df.loc[is_accepted]
     df = df.loc[(df['split'] == 'train') | (df['split'] == args.mode)]
     file_names = df[['room_name', 'objectId']].apply(lambda x: '-'.join([str(x[0]), str(x[1]) + '.npy']), axis=1).tolist()
     file_names = sorted(file_names)
@@ -372,6 +268,8 @@ if __name__ == '__main__':
     args.cp_dir = os.path.join(args.cp_dir, args.results_folder_name)
 
     # create a directory to load or dump the features.
+    if args.theta != 0:
+        args.features_dir_name = args.features_dir_name + '_{}'.format(args.theta)
     args.features_dir = os.path.join(args.cp_dir, args.features_dir_name)
     if not os.path.exists(args.features_dir):
         try:
@@ -379,38 +277,8 @@ if __name__ == '__main__':
         except FileExistsError:
             pass
 
-    # extract or load features and labels
-    train_features, test_features, train_labels, test_labels, train_file_names, test_file_names = \
-        extract_feature_pipeline(args)
-
-    if utils.get_rank() == 0:
-        if args.use_cuda:
-            train_features = train_features.cuda()
-            test_features = test_features.cuda()
-            train_labels = train_labels.cuda()
-            test_labels = test_labels.cuda()
-
-        print("Features are ready!\nStart the k-NN classification.")
-        final_predictions = None
-        for k in args.nb_knn:
-            top1, predictions = knn_classifier(train_features, train_labels, test_features, test_labels, k,
-                                               args.temperature, num_classes=args.num_class)
-            print(f"{k}-NN classifier result: Top1: {top1}")
-            if k == args.final_nbb:
-                final_predictions = predictions
-
-        # compute the macro average
-        compute_macro_average(final_predictions, test_labels, cat_to_idx)
-
-        # save predictions.
-        idx_to_file_name = {idx: file_name for file_name, idx in file_name_to_idx.items()}
-        file_name_to_predictions = {}
-        for i, prediction in enumerate(final_predictions):
-            file_name = idx_to_file_name[test_file_names[i].item()]
-            file_name_to_predictions[file_name] = prediction[0].item()
-        args.output_file_name = args.output_file_name.split('.')[0] + '_{}.json'.format(args.mode)
-        write_to_json(file_name_to_predictions, os.path.join(args.cp_dir, args.features_dir_name,
-                                                             args.output_file_name))
+    # extract features and labels
+    extract_feature_pipeline(args)
 
     dist.barrier()
 

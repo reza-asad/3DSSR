@@ -8,8 +8,7 @@ from PIL import Image
 from torch.utils.data import DataLoader
 
 from region_dataset import Region
-from region_dataset_fixed_crop_normalized import Region as RegionFixedNorm
-from region_dataset_normalized_crop import Region as RegionNorm
+from models.LearningBased.region_dataset_normalized_crop import Region as RegionNorm
 
 from scripts.helper import load_from_json
 from train_3D_DINO_transformer_distributed import collate_fn
@@ -18,7 +17,7 @@ from scripts.renderer import Render
 from scripts.render_scene_functions import render_single_pc
 
 
-def create_img_table(table_dir, region_name_to_cat, html_file_name='img_table.html', ncols=5):
+def create_img_table(table_dir, html_file_name='img_table.html', ncols=5):
     def insert_into_table(file, img_path, caption=None):
         file.write('\n')
         file.write('<td align="center" valign="center">\n')
@@ -46,16 +45,6 @@ def create_img_table(table_dir, region_name_to_cat, html_file_name='img_table.ht
             img_path = os.path.join('pc_region', img_name_scene)
             scene_name = img_name_scene.split('.')[0]
             insert_into_table(f, img_path, 'Region ' + '<br />\n' + scene_name)
-
-            # insert the region with the center obj
-            img_path = os.path.join('region_obj', img_name_scene)
-            insert_into_table(f, img_path, 'Region with Center Object')
-
-            # insert the obj
-            img_path = os.path.join('obj', img_name_scene)
-            scene_name = img_name_scene.split('.')[0]
-            insert_into_table(f, img_path, 'Object: {}'.format(region_name_to_cat[scene_name]))
-            f.write('</tr>\n')
 
             # insert the global and local crops
             for crop_type in ['global', 'local']:
@@ -85,7 +74,7 @@ def create_img_table(table_dir, region_name_to_cat, html_file_name='img_table.ht
 
 def save_rendered_images(results_dir, results_to_render):
     # make a directory for entire scene
-    for img_type in ['pc_region', 'region_obj', 'obj']:
+    for img_type in ['pc_region']:
         os.makedirs(os.path.join(results_dir, img_type))
 
     # make a directory for local and global crops
@@ -99,7 +88,7 @@ def save_rendered_images(results_dir, results_to_render):
     for results_info in results_to_render:
         # add the scene image
         scene_name = results_info['scene_name'].split('.')[0]
-        for img_type in ['pc_region', 'region_obj', 'obj']:
+        for img_type in ['pc_region']:
             scene_img = results_info[img_type]
             img_path = os.path.join(results_dir, img_type, scene_name+'.png')
             scene_img.save(img_path)
@@ -114,20 +103,16 @@ def save_rendered_images(results_dir, results_to_render):
 
 def render_cubical_multicrop(args):
     # create dataset
-    if args.crop_fixed and args.crop_normalized:
-        dataset = RegionFixedNorm(args.pc_dir, args.scene_dir, models_dir=args.models_dir,
-                                  num_local_crops=args.local_crops_number, num_global_crops=args.global_crops_number,
-                                  mode='train', num_points=args.num_point, save_crops=True)
-    elif args.crop_normalized:
-        dataset = RegionNorm(args.pc_dir, args.scene_dir, models_dir=args.models_dir,
+    if args.crop_normalized:
+        dataset = RegionNorm(args.pc_dir, args.scene_dir, args.metadata_path, max_coord=args.max_coord,
                              num_local_crops=args.local_crops_number, num_global_crops=args.global_crops_number,
                              mode='train', num_points=args.num_point, global_crop_bounds=args.global_crop_bounds,
-                             local_crop_bounds=args.local_crop_bounds, save_crops=True)
+                             local_crop_bounds=args.local_crop_bounds, cat_to_idx=args.cat_to_idx, save_crops=True)
     else:
-        dataset = Region(args.pc_dir, args.scene_dir, models_dir=args.models_dir,
-                         num_local_crops=args.local_crops_number, num_global_crops=args.global_crops_number,
-                         mode='train', num_points=args.num_point, global_crop_bounds=args.global_crop_bounds,
-                         local_crop_bounds=args.local_crop_bounds, save_crops=True)
+        dataset = Region(args.pc_dir, args.scene_dir, args.metadata_path, num_local_crops=args.local_crops_number,
+                         num_global_crops=args.global_crops_number, mode='train', num_points=args.num_point,
+                         global_crop_bounds=args.global_crop_bounds, local_crop_bounds=args.local_crop_bounds,
+                         cat_to_idx=args.cat_to_idx, save_crops=True)
 
     # create the dataloader
     data_loader = DataLoader(dataset,
@@ -153,27 +138,13 @@ def render_cubical_multicrop(args):
     results_to_render = []
     for results_info in dataset.results_to_render:
         # populate a dictionary with the rendered images.
-        results_to_render.append({'scene_name': results_info['scene_name'], 'obj': ..., 'pc_region': ...,
-                                  'region_obj': ..., 'crops': {'global': [], 'local': []}})
-
-        # render the object
-        scene = trimesh.Trimesh.scene(results_info['obj'])
-        room_dimension = scene.extents
-        camera_pose, _ = scene.graph[scene.camera.name]
-        camera_pose[0:2, 3] = 0
-        img, _ = r.pyrender_render(scene, resolution=resolution, camera_pose=camera_pose,
-                                   room_dimension=room_dimension)
-        results_to_render[-1]['obj'] = Image.fromarray(img)
+        results_to_render.append({'scene_name': results_info['scene_name'], 'pc_region': ...,
+                                 'crops': {'global': [], 'local': []}})
 
         # render the point cloud region.
         pc = results_info['pc_region']
         img = render_single_pc(pc, resolution, rendering_kwargs, region=True)
         results_to_render[-1]['pc_region'] = Image.fromarray(img)
-
-        # render the point cloud region along with the obbox around the center object.
-        img = render_single_pc(pc, resolution, rendering_kwargs, region=True, with_obbox=True,
-                               obbox=results_info['obbox'])
-        results_to_render[-1]['region_obj'] = Image.fromarray(img)
 
         # render the local and global crops.
         for crop_type in ['local', 'global']:
@@ -195,15 +166,8 @@ def render_cubical_multicrop(args):
     # save the rendered images.
     save_rendered_images(args.results_dir, results_to_render)
 
-    # find a mapping between each object-centric scene name and the category of the center object.
-    region_name_to_cat = {result['scene_name'].split('.')[0]: None for result in results_to_render}
-    for region_name in region_name_to_cat.keys():
-        scene_name, obj = region_name.split('-')
-        scene = load_from_json(os.path.join(args.scene_dir, 'all',  scene_name + '.json'))
-        region_name_to_cat[region_name] = scene[obj]['category'][0]
-
     # create an html table from the collected images.
-    create_img_table(args.results_dir, region_name_to_cat)
+    create_img_table(args.results_dir)
 
 
 def get_args():
@@ -211,25 +175,24 @@ def get_args():
 
     # path parameters
     parser.add_argument('--dataset', default='matterport3d')
-    parser.add_argument('--accepted_cats_path', default='../../data/{}/accepted_cats.json')
-    parser.add_argument('--pc_dir', default='../../data/{}/pc_regions_overlapping')
+    parser.add_argument('--accepted_cats_path', default='../../data/{}/accepted_cats_top4.json')
+    parser.add_argument('--pc_dir', default='../../data/{}/objects_pc')
     parser.add_argument('--scene_dir', default='../../data/{}/scenes')
-    parser.add_argument('--models_dir', default='../../data/{}/models')
-    parser.add_argument('--metadata_path', default='../../data/{}/metadata.csv')
+    parser.add_argument('--metadata_path', default='../../data/{}/metadata_non_equal_full_top4.csv')
     parser.add_argument('--results_dir', default='../../results/{}/multicrop_rendering/')
-    parser.add_argument('--results_folder_name', default='variable_crop_normalized_block_sampling')
+    parser.add_argument('--results_folder_name', default='regions_top4')
 
     # cropping strategy and data type
     parser.add_argument('--data_type', default='3D')
-    parser.add_argument('--num_point', default=1024, type=int)
+    parser.add_argument('--num_point', default=4096, type=int)
     parser.add_argument('--cropping_strategy', default='rectangular')
     parser.add_argument('--local_crops_number', default=5, type=int)
     parser.add_argument('--global_crops_number', default=2, type=int)
     parser.add_argument('--local_crop_bounds', type=float, nargs='+', default=(0.4, 0.4))
-    parser.add_argument('--global_crop_bounds', type=float, nargs='+', default=(0.4, 1.0))
-    parser.add_argument('--crop_fixed', default=False, type=utils.bool_flag)
+    parser.add_argument('--global_crop_bounds', type=float, nargs='+', default=(0.7, 0.7))
     parser.add_argument('--crop_normalized', default=True, type=utils.bool_flag)
     parser.add_argument('--num_files', default=15, type=int)
+    parser.add_argument('--max_coord', default=15.24, type=float, help='15.24 for MP3D| 5.02 for shapenetsem')
 
     return parser
 

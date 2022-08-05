@@ -1,16 +1,3 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import os
 import argparse
 
@@ -23,11 +10,11 @@ import torch.distributed as dist
 import torch.backends.cudnn as cudnn
 
 from scripts.helper import load_from_json, write_to_json
-import utils
-from region_dataset import Region
-from models.LearningBased.region_dataset_normalized_crop import Region as RegionNorm
-from transformer_models import PointTransformerSeg
-from projection_models import DINOHead
+import models.LearningBased.utils as utils
+from subscene_dataset import SubScene
+from models.LearningBased.transformer_models import PointTransformerSeg
+from models.LearningBased.projection_models import DINOHead
+from classifier_subscene import Classifier, Backbone
 
 
 def compute_macro_average(predictions, test_labels, cat_to_idx):
@@ -42,71 +29,93 @@ def compute_macro_average(predictions, test_labels, cat_to_idx):
         num_correct = torch.sum(test_labels[is_idx, ...] == predictions[is_idx, ...]).item()
         num_total = torch.sum(is_idx).item()
         accuracy_per_cat[idx_to_cat[idx]] = num_correct / num_total * 100
-    print('Accuracy per category: {}'.format(accuracy_per_cat))
 
     # compute the macro average
+    print('Accuracy per category: {}'.format(accuracy_per_cat))
     print('Macro average is {}'.format(np.mean(list(accuracy_per_cat.values()))))
+
+
+def load_classifier():
+    # The classifier base model.
+    shape_backbone = PointTransformerSeg(args)
+    head = DINOHead(in_dim=args.transformer_dim, out_dim=args.num_class, use_bn=args.use_bn_in_head,
+                    norm_last_layer=args.norm_last_layer)
+    classifier = utils.DINO(shape_backbone, head, num_local_crops=0, num_global_crops=1, network_type='teacher')
+    classifier = torch.nn.DataParallel(classifier).cuda()
+
+    # supervised model with no scene context.
+    if args.model_type == 'supervised':
+        checkpoint_path = os.path.join(args.cp_dir_pret, args.results_folder_name_pret, args.pre_training_checkpoint)
+        checkpoint = torch.load(checkpoint_path)
+        classifier.load_state_dict(checkpoint['model_state_dict'])
+    elif args.model_type == 'context_supervised':
+        # arguments for the layout matching model.
+        layout_args = argparse.Namespace()
+        exceptions = {'input_dim': 35, 'nblocks': 0}
+        for k, v in vars(args).items():
+            if k in exceptions:
+                vars(layout_args)[k] = exceptions[k]
+            else:
+                vars(layout_args)[k] = v
+
+        # combine the backbones.
+        layout_backbone = PointTransformerSeg(layout_args)
+        backbone = Backbone(shape_backbone=shape_backbone, layout_backbone=layout_backbone, num_point=args.num_point,
+                            num_objects=args.num_objects)
+        head = DINOHead(in_dim=args.transformer_dim, out_dim=args.num_class, use_bn=args.use_bn_in_head,
+                        norm_last_layer=args.norm_last_layer)
+        classifier = Classifier(backbone=backbone, head=head)
+        classifier = torch.nn.DataParallel(classifier).cuda()
+
+        # load pretrained weights.
+        checkpoint_path = os.path.join(args.cp_dir, args.checkpoint)
+        checkpoint = torch.load(checkpoint_path)
+        classifier.load_state_dict(checkpoint['model_state_dict'])
+
+    else:
+        raise NotImplementedError('{} not implemented'.format(args.model_type))
+
+    return classifier
 
 
 def extract_feature_pipeline(args):
     # ============ preparing data ... ============
-    if args.crop_normalized:
-        dataset_train = ReturnIndexDatasetNorm(args.pc_dir, args.scene_dir, args.metadata_path,
-                                               max_coord=args.max_coord, num_local_crops=0, num_global_crops=0,
-                                               mode='train', cat_to_idx=args.cat_to_idx, num_points=args.num_point,
-                                               file_name_to_idx=args.file_name_to_idx)
-        dataset_val = ReturnIndexDatasetNorm(args.pc_dir, args.scene_dir, args.metadata_path, max_coord=args.max_coord,
-                                             num_local_crops=0, num_global_crops=0, mode=args.mode,
-                                             cat_to_idx=args.cat_to_idx, num_points=args.num_point,
-                                             file_name_to_idx=args.file_name_to_idx)
-    else:
-        dataset_train = ReturnIndexDataset(args.pc_dir, args.scene_dir, args.metadata_path, num_local_crops=0,
-                                           num_global_crops=0, mode='train', cat_to_idx=args.cat_to_idx,
-                                           num_points=args.num_point, file_name_to_idx=args.file_name_to_idx)
-        dataset_val = ReturnIndexDataset(args.pc_dir, args.scene_dir, args.metadata_path, num_local_crops=0,
-                                         num_global_crops=0, mode=args.mode, cat_to_idx=args.cat_to_idx,
-                                         num_points=args.num_point, file_name_to_idx=args.file_name_to_idx)
+    dataset_train = ReturnIndexDataset(scene_dir=args.scene_dir, pc_dir=args.pc_dir, metadata_path=args.metadata_path,
+                                       accepted_cats_path=args.accepted_cats_path, max_coord_box=args.max_coord_box,
+                                       max_coord_scene=args.max_coord_scene, num_points=args.num_point,
+                                       num_objects=args.num_objects, mode='train', file_name_to_idx=args.file_name_to_idx,
+                                       with_transform=False, random_subscene=args.random_subscene, batch_one=True,
+                                       global_frame=args.global_frame)
+
+    dataset_val = ReturnIndexDataset(scene_dir=args.scene_dir, pc_dir=args.pc_dir, metadata_path=args.metadata_path,
+                                     accepted_cats_path=args.accepted_cats_path, max_coord_box=args.max_coord_box,
+                                     max_coord_scene=args.max_coord_scene, num_points=args.num_point,
+                                     num_objects=args.num_objects, mode=args.mode, file_name_to_idx=args.file_name_to_idx,
+                                     with_transform=False, random_subscene=args.random_subscene, batch_one=True,
+                                     global_frame=args.global_frame)
 
     sampler = torch.utils.data.DistributedSampler(dataset_train, shuffle=False)
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train,
         sampler=sampler,
-        batch_size=args.batch_size_per_gpu,
+        batch_size=1,
         num_workers=args.num_workers,
         pin_memory=True,
         drop_last=False,
     )
     data_loader_val = torch.utils.data.DataLoader(
         dataset_val,
-        batch_size=args.batch_size_per_gpu,
+        batch_size=1,
         num_workers=args.num_workers,
         shuffle=False,
         pin_memory=True,
         drop_last=False,
     )
-    print(f"Data loaded with {len(dataset_train)} train and {len(dataset_val)} {args.mode} imgs.")
+    print(f"Data loaded with {len(dataset_train)} train and {len(dataset_val)} {args.mode} point clouds.")
 
     # ============ building network ... ============
-    if args.classifier_type == 'supervised':
-        backbone = PointTransformerSeg(args)
-        head = DINOHead(in_dim=args.transformer_dim, out_dim=args.num_class, use_bn=args.use_bn_in_head,
-                        norm_last_layer=args.norm_last_layer)
-        classifier = utils.DINO(backbone, head, num_local_crops=0, num_global_crops=1, network_type='teacher')
-        classifier = torch.nn.DataParallel(classifier).cuda()
-        checkpoint = torch.load(os.path.join(args.cp_dir, args.pretrained_weights_name))
-        classifier.load_state_dict(checkpoint['model_state_dict'])
-        model = classifier.module.backbone
-    elif args.classifier_type == 'DINO':
-        pretrained_weights_dir = os.path.join(args.cp_dir, args.pretrained_weights_name)
-        backbone = PointTransformerSeg(args)
-        head = DINOHead(in_dim=args.transformer_dim, out_dim=args.out_dim, use_bn=args.use_bn_in_head)
-        DINO = utils.DINO(backbone, head, num_local_crops=0, num_global_crops=1, network_type='teacher')
-        DINO.cuda()
-        utils.load_pretrained_weights(DINO, pretrained_weights_dir, args.checkpoint_key)
-        model = DINO.backbone
-    else:
-        raise ValueError('model {} is not recognized'.format(args.classifier_type))
-
+    classifier = load_classifier()
+    model = classifier.module.backbone
     model.eval()
 
     # ============ extract features ... ============
@@ -149,17 +158,34 @@ def extract_features(model, data_loader, use_cuda=True):
     features = None
     labels_combined = None
     file_names_combined = None
+    prev_idx = 0
     for data, index in metric_logger.log_every(data_loader, 10):
-        file_names = data['file_name'].long().cuda()
-        samples = data['crops'][0]
-        samples = samples.cuda(non_blocking=use_cuda)
+        # load data
+        file_names = data['file_name'].squeeze(dim=0).unsqueeze(dim=1).long().cuda()
+        anchor_idx = data['anchor_idx'].squeeze(dim=0)[0]
+        pc = data['pc'].squeeze(dim=0)
+        centroid = data['centroid'].squeeze(dim=0)
+        labels = data['label'].squeeze(dim=0).unsqueeze(dim=1)
+        index = torch.arange(prev_idx, prev_idx + 1, dtype=torch.long)
+        prev_idx += 1
 
-        labels = data['labels'].long().cuda()
-
+        # move data to the right device
+        pc = pc.to(dtype=torch.float32)
+        pc = pc.cuda(non_blocking=use_cuda)
+        centroid = centroid.to(dtype=torch.float32)
+        centroid = centroid.cuda(non_blocking=use_cuda)
+        labels = labels.to(dtype=torch.long).cuda()
         index = index.cuda(non_blocking=use_cuda)
 
-        output = model(samples)
-        feats = output.mean(1)
+        # apply the model
+        labels = labels[anchor_idx:anchor_idx + 1, :]
+        if args.model_type == 'supervised':
+            output = model(pc)
+            feats = output.mean(1)
+        elif args.model_type == 'context_supervised':
+            feats = model(pc, centroid)[anchor_idx:anchor_idx+1, :]
+        else:
+            raise NotImplementedError('{} not implemented'.format(args.model_type))
 
         # init storage feature matrix
         if dist.get_rank() == 0 and features is None:
@@ -272,15 +298,9 @@ def knn_classifier(train_features, train_labels, test_features, test_labels, k, 
     return top1, all_predictions
 
 
-class ReturnIndexDataset(Region):
+class ReturnIndexDataset(SubScene):
     def __getitem__(self, idx):
         data = super(ReturnIndexDataset, self).__getitem__(idx)
-        return data, idx
-
-
-class ReturnIndexDatasetNorm(RegionNorm):
-    def __getitem__(self, idx):
-        data = super(ReturnIndexDatasetNorm, self).__getitem__(idx)
         return data, idx
 
 
@@ -293,52 +313,56 @@ def adjust_paths(args, exceptions):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Evaluation with weighted k-NN on Matterport3D')
+    # Data
+    parser = argparse.ArgumentParser('Evaluation with weighted k-NN')
     parser.add_argument('--dataset', default='matterport3d')
     parser.add_argument('--mode', default='val')
-    parser.add_argument('--accepted_cats_path', default='../../data/{}/accepted_cats_top10.json')
-    parser.add_argument('--metadata_path', default='../../data/{}/metadata_non_equal_full_top10.csv')
+    parser.add_argument('--model_type', default='context_supervised', help='supervised | context_supervised')
+    parser.add_argument('--accepted_cats_path', default='../../data/{}/accepted_cats.json')
+    parser.add_argument('--metadata_path', default='../../data/{}/metadata.csv')
     parser.add_argument('--pc_dir', dest='pc_dir', default='../../data/{}/pc_regions')
-    parser.add_argument('--cp_dir', default='../../results/{}/LearningBased/')
-    parser.add_argument('--results_folder_name', dest='results_folder_name', default='3D_DINO_regions_non_equal_full_top10_seg')
-    parser.add_argument('--scene_dir', default='../../data/{}/scenes')
+    parser.add_argument('--cp_dir', default='../../results/{}/LayoutMatching/')
+    parser.add_argument('--cp_dir_pret', default='../../results/{}/LearningBased/')
+    parser.add_argument('--results_folder_name', default='exp_supervise_pret')
+    parser.add_argument('--results_folder_name_pret', default='region_classification_transformer_full')
+    parser.add_argument('--checkpoint', default='CP_best.pth')
+    parser.add_argument('--scene_dir', default='../../results/{}/scenes')
     parser.add_argument('--output_file_name', default='predicted_labels_knn.json', type=str)
     parser.add_argument('--features_dir_name', default='features', type=str)
 
-    # point transformer arguments
-    parser.add_argument('--classifier_type', default='DINO', help='supervised | DINO')
+    # Model
     parser.add_argument('--num_point', default=4096, type=int)
     parser.add_argument('--nblocks', default=2, type=int)
     parser.add_argument('--nneighbor', default=16, type=int)
     parser.add_argument('--input_dim', default=3, type=int)
     parser.add_argument('--transformer_dim', default=32, type=int)
-    parser.add_argument('--crop_normalized', default=True, type=utils.bool_flag)
-    parser.add_argument('--max_coord', default=3.65, type=float, help='14.30 for MP3D| 5.02 for shapenetsem')
+    parser.add_argument('--max_coord_box', default=3.65, type=float, help='3.65 for MP3D')
+    parser.add_argument('--max_coord_scene', default=13.07, type=float, help='13.07 for MP3D')
     parser.add_argument('--norm_last_layer', default=True, type=utils.bool_flag)
     parser.add_argument('--use_bn_in_head', default=False, type=utils.bool_flag)
-    parser.add_argument('--out_dim', dest='out_dim', default=2000, type=int)
 
-    parser.add_argument('--batch_size_per_gpu', default=8, type=int, help='Per-GPU batch-size')
+    # Optim
+    parser.add_argument('--pre_training_checkpoint', default='CP_best.pth')
+    parser.add_argument('--num_objects', default=5, type=int)
+    parser.add_argument('--random_subscene', default=True, type=utils.bool_flag)
+    parser.add_argument('--global_frame', default=True, type=utils.bool_flag)
     parser.add_argument('--nb_knn', default=[10, 20, 100, 200], nargs='+', type=int,
-        help='Number of NN to use. 20 is usually working the best.')
+                        help='Number of NN to use. 20 is usually working the best.')
     parser.add_argument('--final_nbb', default=20, type=int)
-    parser.add_argument('--temperature', default=0.07, type=float,
-        help='Temperature used in the voting coefficient')
-    parser.add_argument('--pretrained_weights_name', default='', type=str, help="Path to pretrained weights to evaluate.")
-    parser.add_argument('--use_cuda', default=True, type=utils.bool_flag,
-        help="Should we store the features on GPU? We recommend setting this to False if you encounter OOM")
-    parser.add_argument("--checkpoint_key", default="teacher", type=str,
-        help='Key to use in the checkpoint (example: "teacher")')
+    parser.add_argument('--temperature', default=0.07, type=float, help='Temperature used in the voting coefficient')
+    parser.add_argument('--use_cuda', default=True, type=utils.bool_flag)
     parser.add_argument('--load_features_train', default=False, type=utils.bool_flag,
-        help="if true train features are loaded")
+                        help="if true train features are loaded")
     parser.add_argument('--load_features_test', default=False, type=utils.bool_flag,
-        help="if true test features are derived")
-    parser.add_argument('--num_workers', default=10, type=int, help='Number of data loading workers per GPU.')
-    parser.add_argument("--dist_url", default="env://", type=str, help="""url used to set up
-        distributed training; see https://pytorch.org/docs/stable/distributed.html""")
+                        help="if true test features are derived")
+    parser.add_argument('--num_workers', default=4, type=int, help='Number of data loading workers per GPU.')
+    parser.add_argument("--dist_url", default="env://", type=str, help="""url used to set up distributed training; see
+    https://pytorch.org/docs/stable/distributed.html""")
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
     args = parser.parse_args()
     adjust_paths(args, exceptions=['dist_url'])
+    if args.model_type == 'supervised':
+        args.num_objects = 1
 
     # reproducibility
     torch.manual_seed(0)

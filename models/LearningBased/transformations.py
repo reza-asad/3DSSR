@@ -45,13 +45,58 @@ class PointcloudScale(object):
         return points
 
 
+class PointCloudFlip(object):
+    def __init__(self, prob=0.5):
+        self.prob = prob
+
+    def __call__(self, points):
+        if np.random.uniform(0, 1) > self.prob:
+            return points
+
+        Rz = angle_axis(np.pi, np.array([0.0, 0.0, 1.0]))
+
+        normals = points.size(1) > 3
+        if not normals:
+            return torch.matmul(points, Rz.t())
+        else:
+            pc_xyz = points[:, 0:3]
+            pc_normals = points[:, 3:]
+            points[:, 0:3] = torch.matmul(pc_xyz, Rz.t())
+            points[:, 3:] = torch.matmul(pc_normals, Rz.t())
+
+            return points
+
+
+class PointCloudRotateZ(object):
+    def __init__(self, prob=0.5):
+        self.prob = prob
+
+    def __call__(self, points):
+        if np.random.uniform(0, 1) > self.prob:
+            return points
+
+        angle = np.random.uniform(0, 2*np.pi)
+        Rz = angle_axis(angle, np.array([0.0, 0.0, 1.0]))
+
+        normals = points.size(1) > 3
+        if not normals:
+            return torch.matmul(points, Rz.t())
+        else:
+            pc_xyz = points[:, 0:3]
+            pc_normals = points[:, 3:]
+            points[:, 0:3] = torch.matmul(pc_xyz, Rz.t())
+            points[:, 3:] = torch.matmul(pc_normals, Rz.t())
+
+            return points
+
+
 class PointcloudRotatePerturbation(object):
     def __init__(self, angle_sigma=0.06, angle_clip=0.18):
         self.angle_sigma, self.angle_clip = angle_sigma, angle_clip
 
     def _get_angles(self):
         angles = np.clip(
-            self.angle_sigma * np.random.randn(3), -self.angle_clip, self.angle_clip
+            self.angle_sigma * np.random.randn(2), -self.angle_clip, self.angle_clip
         )
 
         return angles
@@ -60,9 +105,8 @@ class PointcloudRotatePerturbation(object):
         angles = self._get_angles()
         Rx = angle_axis(angles[0], np.array([1.0, 0.0, 0.0]))
         Ry = angle_axis(angles[1], np.array([0.0, 1.0, 0.0]))
-        Rz = angle_axis(angles[2], np.array([0.0, 0.0, 1.0]))
 
-        rotation_matrix = torch.matmul(torch.matmul(Rz, Ry), Rx)
+        rotation_matrix = torch.matmul(Ry, Rx)
 
         normals = points.size(1) > 3
         if not normals:

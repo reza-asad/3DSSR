@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-from pointnet_util import PointNetFeaturePropagation, PointNetSetAbstraction, index_points, square_distance
+from models.LearningBased.pointnet_util import PointNetFeaturePropagation, PointNetSetAbstraction, index_points, square_distance
 
 
 class TransitionDown(nn.Module):
@@ -110,7 +110,6 @@ class TransformerBlock(nn.Module):
         q, k, v = self.w_qs(x), index_points(self.w_ks(x), knn_idx), index_points(self.w_vs(x), knn_idx)
 
         pos_enc = self.fc_delta(xyz[:, :, None] - knn_xyz)  # b x n x k x f
-
         attn = self.fc_gamma(q[:, :, None] - k + pos_enc)
         attn = F.softmax(attn / np.sqrt(k.size(-1)), dim=-2)  # b x n x k x f
 
@@ -140,3 +139,36 @@ class PointTransformerCls(nn.Module):
         return res
 
 
+class PointTransformerSeg(nn.Module):
+    def __init__(self, args):
+        super().__init__()
+        self.backbone = Backbone(args)
+        npoints, nblocks, nneighbor, n_c, d_points = args.num_point, args.nblocks, args.nneighbor, args.num_class, \
+                                                     args.input_dim
+        self.fc2 = nn.Sequential(
+            nn.Linear(32 * 2 ** nblocks, 128),
+            nn.ReLU(),
+            nn.Linear(128, 128),
+            nn.ReLU(),
+            nn.Linear(128, 32 * 2 ** nblocks)
+        )
+        self.transformer2 = TransformerBlock(32 * 2 ** nblocks, args.transformer_dim, nneighbor)
+        self.nblocks = nblocks
+        self.transition_ups = nn.ModuleList()
+        self.transformers = nn.ModuleList()
+        for i in reversed(range(nblocks)):
+            channel = 32 * 2 ** i
+            self.transition_ups.append(TransitionUp(channel * 2, channel, channel))
+            self.transformers.append(TransformerBlock(channel, args.transformer_dim, nneighbor))
+
+    def forward(self, x):
+        points, xyz_and_feats = self.backbone(x)
+        xyz = xyz_and_feats[-1][0]
+        points = self.transformer2(xyz, self.fc2(points))[0]
+
+        for i in range(self.nblocks):
+            points = self.transition_ups[i](xyz, points, xyz_and_feats[- i - 2][0], xyz_and_feats[- i - 2][1])
+            xyz = xyz_and_feats[- i - 2][0]
+            points = self.transformers[i](xyz, points)[0]
+
+        return points

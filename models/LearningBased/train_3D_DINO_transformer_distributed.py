@@ -4,7 +4,6 @@ import argparse
 import time
 import datetime
 
-import pandas as pd
 import torch
 import torch.nn as nn
 import torch.distributed as dist
@@ -16,30 +15,34 @@ from torch.utils.data import DataLoader
 import math
 import json
 import numpy as np
+import pandas as pd
 from pathlib import Path
 
 from region_dataset import Region
-from region_dataset_fixed_crop_normalized import Region as RegionFixedNorm
-from region_dataset_normalized_crop import Region as RegionNorm
+from models.LearningBased.region_dataset_normalized_crop import Region as RegionNorm
 
-from transformations import PointcloudScale, PointcloudTranslate, PointcloudRotatePerturbation, PointcloudJitter
+from transformations import PointcloudScale, PointcloudTranslate, PointcloudRotatePerturbation, PointcloudJitter, \
+    PointCloudRotateZ, PointCloudFlip
 import utils
-from eval_knn_transformer import extract_features, vanilla_knn_classifier, compute_mean_accuracy_stats
-from train_linear_classifier import compute_accuracy
-from transformer_models import Backbone
+from transformer_models import PointTransformerSeg
 from projection_models import DINOHead
-from scripts.helper import load_from_json, write_to_json
+from scripts.helper import load_from_json
+from eval_knn_transformer import extract_feature_pipeline, knn_classifier
 
 
-def train_net(cat_to_idx, accepted_regions, args):
+def train_net(cat_to_idx, args):
     utils.init_distributed_mode(args)
     utils.fix_random_seeds(args.seed)
     cudnn.benchmark = True
 
     # create a list of transformations to be applied to the point cloud.
     transformations = []
+    if args.aug_flip:
+        transformations.append(PointCloudFlip(prob=0.5))
     if args.aug_rotation:
         transformations.append(PointcloudRotatePerturbation(angle_sigma=0.06, angle_clip=0.18))
+    if args.aug_rotation_z:
+        transformations.append(PointCloudRotateZ(prob=0.5))
     if args.aug_scale:
         transformations.append(PointcloudScale())
     if args.aug_translation:
@@ -55,29 +58,19 @@ def train_net(cat_to_idx, accepted_regions, args):
     # create the dataset for dino and training and val dataset for evaluation
     # TODO: make sure you run things on train and val and remove the various choices once you're done with the
     #  experiments.
-    if args.crop_fixed and args.crop_normalized:
-        dataset = RegionFixedNorm(args.pc_dir, args.scene_dir, accepted_regions=accepted_regions,
-                                  num_local_crops=args.local_crops_number, num_global_crops=args.global_crops_number,
-                                  mode='train', transforms=transformations, cat_to_idx=cat_to_idx,
-                                  num_points=args.num_point, centralize=args.centralize)
-    elif args.crop_normalized:
-        dataset = RegionNorm(args.pc_dir, args.scene_dir, accepted_regions=accepted_regions,
+    if args.crop_normalized:
+        dataset = RegionNorm(args.pc_dir, args.scene_dir, args.metadata_path, max_coord=args.max_coord,
                              num_local_crops=args.local_crops_number, num_global_crops=args.global_crops_number,
                              mode='train', transforms=transformations, cat_to_idx=cat_to_idx, num_points=args.num_point,
-                             global_crop_bounds=args.global_crop_bounds, local_crop_bounds=args.local_crop_bounds)
+                             global_crop_bounds=args.global_crop_bounds, local_crop_bounds=args.local_crop_bounds,
+                             file_name_to_idx=args.file_name_to_idx)
     else:
-        dataset = Region(args.pc_dir, args.scene_dir, accepted_regions=accepted_regions,
-                         num_local_crops=args.local_crops_number, num_global_crops=args.global_crops_number,
-                         mode='train', transforms=transformations, cat_to_idx=cat_to_idx, num_points=args.num_point,
-                         global_crop_bounds=args.global_crop_bounds, local_crop_bounds=args.local_crop_bounds)
+        dataset = Region(args.pc_dir, args.scene_dir, args.metadata_path, num_local_crops=args.local_crops_number,
+                         num_global_crops=args.global_crops_number, mode='train', transforms=transformations,
+                         cat_to_idx=cat_to_idx, num_points=args.num_point, global_crop_bounds=args.global_crop_bounds,
+                         local_crop_bounds=args.local_crop_bounds, file_name_to_idx=args.file_name_to_idx)
 
-    train_dataset = Region(args.pc_dir, args.scene_dir, num_local_crops=0, num_global_crops=0, mode='train',
-                           cat_to_idx=cat_to_idx, num_points=args.num_point)
-    val_dataset = Region(args.pc_dir, args.scene_dir, num_local_crops=0, num_global_crops=0, mode='val',
-                         cat_to_idx=cat_to_idx, num_points=args.num_point)
     sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
-    tr_sampler = torch.utils.data.DistributedSampler(train_dataset, shuffle=True)
-    val_sampler = torch.utils.data.DistributedSampler(val_dataset, shuffle=True)
 
     # create the dataloaders
     data_loader = DataLoader(dataset,
@@ -87,23 +80,9 @@ def train_net(cat_to_idx, accepted_regions, args):
                              pin_memory=True,
                              drop_last=True,
                              collate_fn=collate_fn)
-    train_loader = DataLoader(train_dataset,
-                              sampler=tr_sampler,
-                              batch_size=args.batch_size_per_gpu_eval,
-                              num_workers=args.num_workers,
-                              pin_memory=True,
-                              drop_last=False,
-                              collate_fn=collate_fn)
-    val_loader = DataLoader(val_dataset,
-                            sampler=val_sampler,
-                            batch_size=args.batch_size_per_gpu_eval,
-                            num_workers=args.num_workers,
-                            pin_memory=True,
-                            drop_last=False,
-                            collate_fn=collate_fn)
 
     # load a transformer encoder and create teacher and student
-    teacher_backbone = Backbone(args)
+    teacher_backbone = PointTransformerSeg(args)
 
     # decide how much pre-training is going to be used for the student.
     if args.pretrain_mode == 'full':
@@ -118,15 +97,15 @@ def train_net(cat_to_idx, accepted_regions, args):
         student_backbone.train()
     else:
         # train from scratch
-        student_backbone = Backbone(args)
+        student_backbone = PointTransformerSeg(args)
         student_backbone.train()
 
     # build the heads and combine them with the backbones. The student head need gradients but not the teacher.
-    in_dim = 2**(args.nblocks-1) * 64
-    student_head = DINOHead(in_dim=in_dim, out_dim=args.out_dim, use_bn=args.use_bn_in_head,
+    # in_dim = 2**(args.nblocks-1) * 64
+    student_head = DINOHead(in_dim=args.transformer_dim, out_dim=args.out_dim, use_bn=args.use_bn_in_head,
                             norm_last_layer=args.norm_last_layer)
     student_head.train()
-    teacher_head = DINOHead(in_dim=in_dim, out_dim=args.out_dim, use_bn=args.use_bn_in_head)
+    teacher_head = DINOHead(in_dim=args.transformer_dim, out_dim=args.out_dim, use_bn=args.use_bn_in_head)
     student = utils.DINO(student_backbone, student_head, num_local_crops=args.local_crops_number,
                          num_global_crops=args.global_crops_number, network_type='student')
     teacher = utils.DINO(teacher_backbone, teacher_head, num_local_crops=args.local_crops_number,
@@ -213,28 +192,28 @@ def train_net(cat_to_idx, accepted_regions, args):
         fp16_scaler=fp16_scaler,
         dino_loss=dino_loss,
     )
+    # # save epoch 0 with a randomly initialized point transformer.
+    # save_dict = {
+    #     'student': student.state_dict(),
+    #     'teacher': teacher.state_dict(),
+    #     'optimizer': optimizer.state_dict(),
+    #     'epoch': 0,
+    #     'dino_loss': dino_loss.state_dict(),
+    # }
+    # # see if you should save the checkpoint.
+    # if args.saveckp_freq:
+    #     utils.save_on_master(save_dict, os.path.join(args.cp_dir, f'checkpoint{0:04}.pth'))
+
     start_epoch = to_restore["epoch"]
-    # read the existing topk, macro and micro accuracies
-    if (start_epoch != 0) and (os.path.exists(args.accuracies_path)):
-        accuracies = load_from_json(args.accuracies_path)
-        metrics = load_from_json(args.metrics_path)
-    else:
-        accuracies = []
-        metrics = []
-
     start_time = time.time()
-    # read the metadata for training
-    df_metadata = pd.read_csv(args.metadata_path)
-
     print("Starting DINO training !")
     for epoch in range(start_epoch, args.epochs):
         data_loader.sampler.set_epoch(epoch)
 
         # train one epoch of DINO
-        epoch_metrics = {'num_unique_classes': 0, 'num_data_skipped': 0}
         train_stats = train_one_epoch(student, teacher, teacher_without_ddp, dino_loss,
                                       data_loader, optimizer, lr_schedule, wd_schedule, momentum_schedule,
-                                      epoch, fp16_scaler, epoch_metrics, args)
+                                      epoch, fp16_scaler, args)
 
         save_dict = {
             'student': student.state_dict(),
@@ -244,23 +223,16 @@ def train_net(cat_to_idx, accepted_regions, args):
             'dino_loss': dino_loss.state_dict(),
         }
 
-        # evaluate a knn on the validation dataset
-        if epoch not in accuracies:
-            print("Evaluating KNN on the embeddings")
-            epoch_acc = eval_dino(args, df_metadata, cat_to_idx, teacher, train_loader, val_loader, epoch)
-            accuracies.append(epoch_acc)
-            metrics.append(epoch_metrics)
-            # update the accuracies after applying knn at the end of the epoch on the validation dataset.
-            write_to_json(accuracies, args.accuracies_path)
-            write_to_json(metrics, args.metrics_path)
-
         if fp16_scaler is not None:
             save_dict['fp16_scaler'] = fp16_scaler.state_dict()
         utils.save_on_master(save_dict, os.path.join(args.cp_dir, 'checkpoint.pth'))
 
         # see if you should save the checkpoint.
         if args.saveckp_freq and ((epoch + 1) % args.saveckp_freq) == 0:
-            utils.save_on_master(save_dict, os.path.join(args.cp_dir, f'checkpoint{epoch+1:04}.pth'))
+            checkpoint_name = f'checkpoint{epoch+1:04}.pth'
+            utils.save_on_master(save_dict, os.path.join(args.cp_dir, checkpoint_name))
+            # evaluate the trained model.
+            # eval_net(args, checkpoint_name)
 
         # save the logs for the epoch.
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
@@ -274,13 +246,38 @@ def train_net(cat_to_idx, accepted_regions, args):
     print('Training time {}'.format(total_time_str))
 
 
+# def eval_net(args, checkpoint_name):
+#     # prepare the arguments for evaluation.
+#     args.mode = 'val'
+#     args.checkpoint_key = 'teacher'
+#     args.use_cuda = True
+#     args.pretrained_weights_name = os.path.join(args.cp_dir, checkpoint_name)
+#     args.dump_features = os.path.join(args.cp_dir, 'features_{}'.format(checkpoint_name))
+#     if not os.path.exists(args.dump_features):
+#         try:
+#             os.makedirs(args.dump_features)
+#         except FileExistsError:
+#             pass
+#
+#     train_features, test_features, train_labels, test_labels = extract_feature_pipeline(args)
+#     if utils.get_rank() == 0:
+#         train_features = train_features.cuda()
+#         test_features = test_features.cuda()
+#         train_labels = train_labels.cuda()
+#         test_labels = test_labels.cuda()
+#
+#         print("Features are ready!\nStart the k-NN classification.")
+#         for k in args.nb_knn:
+#             top1 = knn_classifier(train_features, train_labels, test_features, test_labels, k, args.temperature,
+#                                   num_classes=args.num_class)
+#             print(f"{k}-NN classifier result: Top1: {top1}")
+
+
 def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loader,
                     optimizer, lr_schedule, wd_schedule, momentum_schedule,epoch,
-                    fp16_scaler, epoch_metrics, args):
+                    fp16_scaler, args):
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Epoch: [{}/{}]'.format(epoch, args.epochs)
-    unique_classes = set()
-    num_data_skipped = 0
     for it, data in enumerate(metric_logger.log_every(data_loader, 10, header)):
         # update weight decay and learning rate according to their schedule
         it = len(data_loader) * epoch + it  # global training iteration
@@ -299,10 +296,6 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
 
         _, predictions = torch.max(torch.softmax(teacher_output, dim=1), dim=1)
         print('teachefr predictions: ', predictions)
-        for prediction in predictions:
-            unique_classes.add(prediction.item())
-        num_data_skipped = num_data_skipped + args.local_crops_number + args.global_crops_number - crops[0].shape[0]
-
         _, predictions = torch.max(torch.softmax(student_output, dim=1), dim=1)
         print('student predictions: ', predictions)
         print('*' * 50)
@@ -346,48 +339,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
 
     metric_logger.synchronize_between_processes()
     print("Averaged Stats:", metric_logger)
-    epoch_metrics['num_unique_classes'] += len(unique_classes)
-    epoch_metrics['num_data_skipped'] += num_data_skipped
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
-
-
-def eval_dino(args, df_metadata, cat_to_idx, teacher, train_loader, val_loader, epoch):
-    # extract features and labels
-    teacher.eval()
-    train_features, train_labels = extract_features(teacher.module.backbone, train_loader)
-    val_features, val_labels = extract_features(teacher.module.backbone, val_loader)
-
-    # convert to cpu and numpy
-    train_features = train_features.cpu().detach().numpy()
-    train_labels = train_labels.cpu().detach().numpy()
-    val_features = val_features.cpu().detach().numpy()
-    val_labels = val_labels.cpu().detach().numpy()
-
-    # apply knn and find all predictions.
-    epoch_acc = {epoch: {k: {'TopK Avg': 0, 'Macro Avg': 0, 'Micro Avg': 0} for k in args.nb_knn}}
-    for k in args.nb_knn:
-        predictions = vanilla_knn_classifier(train_features, train_labels, val_features, k)
-        print(np.unique(predictions))
-
-        # find per class accuracy.
-        per_class_accuracy = {cat: (0, 0) for cat in cat_to_idx.keys()}
-        compute_accuracy(per_class_accuracy, predictions, val_labels, cat_to_idx)
-        per_class_accuracy_final = {cat: 0 for cat in cat_to_idx.keys()}
-        for c, (num_correct, num_total) in per_class_accuracy.items():
-            if num_total != 0:
-                per_class_accuracy_final[c] = float(num_correct) / num_total
-
-        # compute stats on the mean accuracy and the mean accuracy on topk most frequent categories.
-        cat_to_freq = load_from_json(args.cat_to_freq_path)
-        topk_avg, macro_avg, micro_avg = compute_mean_accuracy_stats(df_metadata, 'val', per_class_accuracy_final,
-                                                                     cat_to_freq, k)
-        # record the accuracies for k
-        epoch_acc[epoch][k]['TopK Avg'] = topk_avg
-        epoch_acc[epoch][k]['Macro Avg'] = macro_avg
-        epoch_acc[epoch][k]['Micro Avg'] = micro_avg
-        print('*' * 50)
-
-    return epoch_acc
 
 
 class DINOLoss(nn.Module):
@@ -437,6 +389,7 @@ class DINOLoss(nn.Module):
                 n_loss_terms += 1
         total_loss /= n_loss_terms
         self.update_center(teacher_output)
+
         return total_loss
 
     @torch.no_grad()
@@ -448,7 +401,7 @@ class DINOLoss(nn.Module):
         # batch norm
         if self.norm_type == 'batch':
             batch_center = torch.sum(teacher_output, dim=0, keepdim=True)
-            # dist.all_reduce(batch_center)
+            dist.all_reduce(batch_center)
             if self.account_world_size:
                 batch_center = batch_center / (len(teacher_output) * dist.get_world_size())
             else:
@@ -479,16 +432,12 @@ def get_args():
 
     # path parameters
     parser.add_argument('--dataset', default='matterport3d')
-    parser.add_argument('--accepted_cats_path', default='../../data/{}/accepted_cats.json')
-    parser.add_argument('--accepted_regions_path', default='../../data/{}/accepted_regions.json')
-    parser.add_argument('--metadata_path', dest='metadata_path', default='../../data/{}/metadata.csv')
-    parser.add_argument('--cat_to_freq_path', dest='cat_to_freq_path',
-                        default='../../data/{}/accepted_cats_to_frequency.json')
+    parser.add_argument('--accepted_cats_path', default='../../data/{}/accepted_cats_top10.json')
+    parser.add_argument('--metadata_path', dest='metadata_path', default='../../data/{}/metadata_non_equal_full_top10.csv')
     parser.add_argument('--pc_dir', default='../../data/{}/pc_regions')
     parser.add_argument('--scene_dir', default='../../data/{}/scenes')
     parser.add_argument('--cp_dir', default='../../results/{}/LearningBased/')
-    parser.add_argument('--results_folder_name', dest='results_folder_name',
-                        default='3D_DINO_exact_regions_transformer_test')
+    parser.add_argument('--results_folder_name', dest='results_folder_name', default='test')
     parser.add_argument('--best_transformer_dir', dest='best_transformer_dir',
                         default='../../results/{}/LearningBased/region_classification_transformer_4_64_1024/'
                                 'CP_best.pth')
@@ -500,7 +449,6 @@ def get_args():
     parser.add_argument('--input_dim', default=3, type=int)
     parser.add_argument('--transformer_dim', default=512, type=int)
     parser.add_argument('--pretrain_mode', default='full', type=str, help='full|start|')
-    # parser.add_argument('--projection_head_dim', default=512, type=int)
 
     # knn parameters
     parser.add_argument('--nb_knn', default=[10, 20, 100, 200], nargs='+', type=int,
@@ -528,7 +476,6 @@ def get_args():
     parser.add_argument('--weight_decay_end', default=0.4, type=float)
     parser.add_argument('--clip_grad', dest='clip_grad', default=3.0, type=float)
     parser.add_argument('--batch_size_per_gpu', default=1, type=int)
-    parser.add_argument('--batch_size_per_gpu_eval', default=1, type=int)
     parser.add_argument('--epochs', default=100, type=int)
     parser.add_argument('--freeze_last_layer', default=1, type=int)
     parser.add_argument('--lr', default=0.0005, type=float)
@@ -543,12 +490,13 @@ def get_args():
     parser.add_argument('--global_crops_number', default=2, type=int)
     parser.add_argument('--local_crop_bounds', type=float, nargs='+', default=(0.05, 0.4))
     parser.add_argument('--global_crop_bounds', type=float, nargs='+', default=(0.4, 1.))
-    parser.add_argument('--crop_fixed', default=False, type=utils.bool_flag)
     parser.add_argument('--crop_normalized', default=False, type=utils.bool_flag)
-    parser.add_argument('--centralize', default=False, type=utils.bool_flag)
+    parser.add_argument('--max_coord', default=14.30, type=float, help='14.30 for MP3D| 5.02 for shapenetsem')
 
     # augmentations
     parser.add_argument('--aug_rotation', action='store_true', dest='aug_rotation', default=False)
+    parser.add_argument('--aug_rotation_z', action='store_true', dest='aug_rotation_z', default=False)
+    parser.add_argument('--aug_flip', action='store_true', dest='aug_flip', default=False)
     parser.add_argument('--aug_translation', action='store_true', dest='aug_translation', default=False)
     parser.add_argument('--aug_scale', action='store_true', dest='aug_scale', default=False)
     parser.add_argument('--aug_jitter', action='store_true', dest='aug_jitter', default=False)
@@ -590,21 +538,25 @@ def main():
         except FileExistsError:
             pass
 
-    # set the path for recorded knn accuracies on the validation dataset.
-    args.accuracies_path = os.path.join(args.cp_dir, 'knn_accuracies.json')
-    args.metrics_path = os.path.join(args.cp_dir, 'metrics.json')
-
     # prepare the accepted categories for training.
     accepted_cats = load_from_json(args.accepted_cats_path)
     accepted_cats = sorted(accepted_cats)
     cat_to_idx = {cat: i for i, cat in enumerate(accepted_cats)}
-    args.num_class = len(cat_to_idx)
+    args.cat_to_idx = cat_to_idx
+    args.num_class = len(args.cat_to_idx)
 
-    # load the accepted regions for training
-    accepted_regions = set(load_from_json(args.accepted_regions_path))
+    # find a mapping from the region files to their indices.
+    df = pd.read_csv(args.metadata_path)
+    is_accepted = df['mpcat40'].apply(lambda x: x in args.cat_to_idx)
+    df = df.loc[is_accepted]
+    df = df.loc[(df['split'] == 'train')]
+    file_names = df[['room_name', 'objectId']].apply(lambda x: '-'.join([str(x[0]), str(x[1]) + '.npy']), axis=1).tolist()
+    file_names = sorted(file_names)
+    file_name_to_idx = {file_name: i for i, file_name in enumerate(file_names)}
+    args.file_name_to_idx = file_name_to_idx
 
     # time the training
-    train_net(cat_to_idx, accepted_regions, args)
+    train_net(cat_to_idx, args)
 
 
 def collate_fn(batch):

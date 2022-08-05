@@ -45,11 +45,11 @@ def apply_gk(query_dict, queries, voxel_dir, scene_graph_dir, nth_closest_dict, 
 def main(num_chunks, chunk_idx, action='extract_target_subscenes'):
     if action == 'extract_target_subscenes':
         # define the parameters for running gk type models
-        query_dict_input_path = '../../queries/matterport3d/query_dict_{}.json'.format(mode)
-        query_dict_output_path = '../../results/matterport3d/GKRank/query_dict_{}_{}.json'.format(mode, chunk_idx)
-        voxel_dir = '../../data/matterport3d/voxels'
+        query_dict_input_path = '../../queries/matterport3d/{}/query_dict_objects_top10.json'.format(mode)
+        query_dict_output_path = '../../results/matterport3d/GKRank/query_dict_objects_{}_{}.json'.format(mode, chunk_idx)
+        voxel_dir = '../../results/matterport3d/GKRank/voxels'
         scene_graph_dir = '../../results/matterport3d/GKRank/scene_graphs'
-        nth_closest_dict = load_from_json('../../data/matterport3d/nth_closest_obj.json')
+        nth_closest_dict = load_from_json('../../results/matterport3d/GKRank/nth_closest_obj.json')
         walk_length = 3
 
         # load the input query dict
@@ -58,7 +58,6 @@ def main(num_chunks, chunk_idx, action='extract_target_subscenes'):
         # run GKRank on the queries in parallel
         chunk_size = int(np.ceil(len(query_dict.keys()) / num_chunks))
         queries = sorted(query_dict.keys())
-        # queries = ['lighting-9']
         query_results = apply_gk(query_dict, queries[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size], voxel_dir,
                                  scene_graph_dir, nth_closest_dict, walk_length, mode)
 
@@ -71,13 +70,14 @@ def main(num_chunks, chunk_idx, action='extract_target_subscenes'):
         file_names = os.listdir(gk_dir)
         for file_name in file_names:
             # make sure the file name is a chunk of the original query dict
-            if ('query_dict' in file_name) and (mode in file_name) and len(file_name.split('_')) == 4:
+            # TODO: change the split to 5 if object queries, otherwise to 4.
+            if ('query_dict' in file_name) and (mode in file_name) and len(file_name.split('_')) == 5:
                 curr_query_results = load_from_json(os.path.join(gk_dir, file_name))
                 for q, q_info in curr_query_results.items():
                     query_results[q] = q_info
 
         # save the combined query results
-        write_to_json(query_results, os.path.join(gk_dir, 'query_dict_{}_{}.json'.format(mode, experiment_name)))
+        write_to_json(query_results, os.path.join(gk_dir, 'query_dict_objects_top10_{}_{}.json'.format(mode, experiment_name)))
 
 
 if __name__ == '__main__':

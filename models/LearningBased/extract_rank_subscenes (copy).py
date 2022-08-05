@@ -3,7 +3,6 @@ import os
 from time import time
 import numpy as np
 import torch
-from torch import nn
 import pandas as pd
 
 from scripts.helper import load_from_json, write_to_json
@@ -148,7 +147,7 @@ def find_topk_target_nodes(args, query_scene_name, target_scene_names, query_nod
 
 def find_best_correspondence(args, query_scene_name, target_scene_name, target_scene, query_node, target_node,
                              context_objects, features, features_queries, labels, predicted_labels, predicted_clusters,
-                             file_name_to_idx, file_name_to_idx_queries, q_boxes, t_boxes, theta):
+                             file_name_to_idx, file_name_to_idx_queries, q_boxes, t_boxes):
     # read the box for the query object and find the translation that brings it to the origin.
     q_box = q_boxes[query_node]
     q_translation = -q_box.translation
@@ -158,28 +157,20 @@ def find_best_correspondence(args, query_scene_name, target_scene_name, target_s
     query_idx = file_name_to_idx_queries[query_file_name]
     query_feature = features_queries[query_idx, :]
 
-    # read the box for the target object and find the translation that brings it to the origin.
-    t_box = t_boxes[target_node]
-    t_translation = -t_box.translation
-
     # read the embedding of the target object.
     target_file_name = '{}-{}.npy'.format(target_scene_name.split('.')[0], target_node)
     target_idx = file_name_to_idx[target_file_name]
     target_feature = features[target_idx, :]
 
-    # compute the rotation matrix.
-    transformation = np.eye(4)
-    rotation = np.asarray([[np.cos(theta), -np.sin(theta), 0],
-                           [np.sin(theta), np.cos(theta), 0],
-                           [0, 0, 1]])
-    transformation[:3, :3] = rotation
+    # read the box for the target object and find the translation that brings it to the origin.
+    t_box = t_boxes[target_node]
+    t_translation = -t_box.translation
 
     # for each context object find the best candidate in the target object.
     correspondence = {}
     total_sim = 0
     if args.include_embedding_sim:
         total_sim = torch.dot(query_feature, target_feature)
-
     for context_object in context_objects:
         highest_sim = 0
         best_candidate = None
@@ -213,12 +204,9 @@ def find_best_correspondence(args, query_scene_name, target_scene_name, target_s
             t_c_box = t_boxes[candidate]
             t_c_box_translated = translate_obbox(t_c_box, t_translation)
 
-            # rotate the candidate object.
-            t_c_box_translated_rotated = t_c_box_translated.apply_transformation(transformation)
-
             # compute the IoU between the context and candidate objects.
             try:
-                iou = IoU(t_c_box_translated_rotated, q_c_box_translated).iou()
+                iou = IoU(t_c_box_translated, q_c_box_translated).iou()
             except Exception:
                 # this could happen if the obbox is too thin.
                 iou = 0
@@ -240,13 +228,13 @@ def find_best_correspondence(args, query_scene_name, target_scene_name, target_s
             total_sim += highest_sim
 
     target_subscene = {'scene_name': target_scene_name, 'target': target_node, 'correspondence': correspondence,
-                       'context_match': len(correspondence), 'total_sim': float(total_sim), 'theta': theta}
+                       'context_match': len(correspondence), 'total_sim': float(total_sim)}
 
     return target_subscene
 
 
 def find_best_target_subscenes(args, query_info, target_scene_names, features, features_queries, labels,
-                               predicted_labels, predicted_clusters, file_name_to_idx, file_name_to_idx_queries, theta):
+                               predicted_labels, predicted_clusters, file_name_to_idx, file_name_to_idx_queries):
     # load the query info
     query_scene_name = query_info['example']['scene_name']
     query_node = query_info['example']['query']
@@ -269,6 +257,8 @@ def find_best_target_subscenes(args, query_info, target_scene_names, features, f
         if target_scene_name == query_scene_name:
             continue
 
+        # TODO: rotate the target scene to best align with the query subscene
+        if args.with_rotations:
         # for each query object find the best corresponding object in the query scene.
         target_scene = load_from_json(os.path.join(args.scene_dir, target_scene_name))
         t_boxes = load_boxes(target_scene, target_scene.keys(), box_type='aabb')
@@ -276,8 +266,7 @@ def find_best_target_subscenes(args, query_info, target_scene_names, features, f
             target_subscene = find_best_correspondence(args, query_scene_name, target_scene_name, target_scene,
                                                        query_node, target_node, context_objects, features,
                                                        features_queries, labels, predicted_labels, predicted_clusters,
-                                                       file_name_to_idx, file_name_to_idx_queries, q_boxes, t_boxes,
-                                                       theta)
+                                                       file_name_to_idx, file_name_to_idx_queries, q_boxes, t_boxes)
             target_subscenes.append(target_subscene)
 
     # rank the target object based on the highest number of correspondences and overall IoU.
@@ -334,41 +323,15 @@ def apply_3dssr(args):
                                                          args.predicted_clusters_file_name))
         print('Loaded predicted clusters for {} files'.format(len(predicted_clusters)))
 
-    # find rotation increments if necessary.
-    num_thetas = 1
-    grid_res = 0
-    if args.with_rotations:
-        # prepare the grid search parameters for the best rotation.
-        grid_res = args.grid_res * (np.pi / 180)
-        num_thetas = int(np.round((2 * np.pi) / grid_res))
-
     # apply scene alignment for each query
     t0 = time()
     for i, (query, query_info) in enumerate(query_dict.items()):
         t = time()
         print('Processing query: {}'.format(query))
-        # apply rotation module
-        rotated_target_subscenes = []
-        for j in range(num_thetas):
-            curr_theta = j * grid_res
-            # load the correct target features
-            if curr_theta == 0:
-                features_dir = os.path.join(args.cp_dir, args.results_folder_name, args.features_dir_name)
-                print('Loaded features of shape {}'.format(features.shape))
-            else:
-                curr_theta_degree = int(curr_theta * 180 / np.pi)
-                features_dir = os.path.join(args.cp_dir, args.results_folder_name, args.features_dir_name+'_{}'
-                                            .format(curr_theta_degree))
-            features = torch.load(os.path.join(features_dir, "{}feat.pth".format(args.mode)))
-
-            target_subscenes = find_best_target_subscenes(args, query_info, target_scene_names, features,
-                                                          features_queries, labels, predicted_labels, predicted_clusters,
-                                                          file_name_to_idx, file_name_to_idx_queries, curr_theta)
-            rotated_target_subscenes += target_subscenes
-
-        # choose the best among all possible rotations of the scenes.
-        rotated_target_subscenes = sorted(rotated_target_subscenes, reverse=True, key=lambda x: (x['context_match'], x['total_sim']))[:args.topk]
-        query_info['target_subscenes'] = rotated_target_subscenes
+        target_subscenes = find_best_target_subscenes(args, query_info, target_scene_names, features, features_queries,
+                                                      labels, predicted_labels, predicted_clusters, file_name_to_idx,
+                                                      file_name_to_idx_queries)
+        query_info['target_subscenes'] = target_subscenes
         duration = (time() - t) / 60
         print('Processing the query took {} minutes'.format(round(duration, 2)))
         print('*' * 50)
