@@ -9,11 +9,11 @@ import trimesh
 
 def get_args():
     parser = argparse.ArgumentParser('Extract Regions', add_help=False)
-    parser.add_argument('--dataset', default='matterport3d')
+    parser.add_argument('--dataset', default='scannet')
     parser.add_argument('--metadata_path', dest='metadata_path', default='../data/{}/metadata.csv')
     parser.add_argument('--accepted_cats_path', default='../data/{}/accepted_cats.json')
-    parser.add_argument('--mesh_dir', default='/media/reza/Large/matterport3d/rooms')
-    parser.add_argument('--box_type', default='scene', help='scene | object')
+    parser.add_argument('--pc_dir', default='../data/{}/pc_regions')
+    parser.add_argument('--box_type', default='object', help='scene | object')
 
     return parser
 
@@ -36,15 +36,15 @@ def compute_max_obj_box_size():
     is_accepted = df_metadata['mpcat40'].apply(lambda x: x in accepted_cats)
     df_metadata = df_metadata.loc[is_accepted]
     df_metadata['key'] = df_metadata[['room_name', 'objectId']].apply(lambda x: '-'.join([str(x[0]), str(x[1]) +
-                                                                                          '.ply']), axis=1)
+                                                                                          '.npy']), axis=1)
 
     # find mean box size.
     max_dims = []
-    args.mesh_region_dir = os.path.join(args.mesh_region_dir, 'train')
+    args.pc_dir = os.path.join(args.pc_dir, 'train')
     for region_name in df_metadata['key'].values:
         # load the region and compute the extent
-        mesh = trimesh.load(os.path.join(args.mesh_region_dir, region_name))
-        curr_max_dim = np.max(mesh.extents)
+        pc = trimesh.points.PointCloud(np.load(os.path.join(args.pc_dir, region_name)))
+        curr_max_dim = np.max(pc.extents)
         max_dims.append(curr_max_dim)
 
     max_dims = np.asarray(sorted(max_dims, reverse=True))
