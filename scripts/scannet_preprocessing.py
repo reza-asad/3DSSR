@@ -200,16 +200,16 @@ def main(num_chunks, chunk_idx, action='extract_mesh'):
 if __name__ == '__main__':
     # define paths
     data_dir = '../data/scannet'
-    models_dir = '/media/reza/Large/ScanNet/models'#os.path.join(data_dir, 'models')
+    models_dir = os.path.join(data_dir, 'models')
     if not os.path.exists(models_dir):
         try:
             os.mkdir(models_dir)
         except FileExistsError:
             pass
 
-    train_split_path = '../data/scannet/scenes_train.txt'
-    val_split_path = '../data/scannet/scenes_val.txt'
-    test_split_path = '../data/scannet/scenes_test.txt'
+    train_split_path = '../data/scannet/meta_data/scannetv2_train.txt'
+    val_split_path = '../data/scannet/meta_data/scannetv2_val.txt'
+    test_split_path = '../data/scannet/meta_data/scannetv2_test.txt'
 
     visited = set()
     if len(sys.argv) == 1:
