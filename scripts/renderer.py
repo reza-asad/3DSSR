@@ -11,9 +11,8 @@ class Render:
         self.animation = animation
         self.scene = None
 
-    def pyrender_render(self, scene, resolution, camera_pose, room_dimension, points=False, with_obbox=False,
-                        obbox=None, colors=(255, 0, 0), adjust_camera_height=True, point_size=1.0,
-                        with_height_offset=True):
+    def pyrender_render(self, scene, resolution, camera_pose, room_dimension, points=False, with_box=False, box=None,
+                        colors=(255, 0, 0), adjust_camera_height=True, point_size=1.0, with_height_offset=True):
         length, width, height = room_dimension
 
         # convert trimesh scene to pyrender scene
@@ -23,8 +22,8 @@ class Render:
             pc = pyrender.Mesh.from_points(scene, colors=colors)
             scene = pyrender.Scene()
             scene.add(pc)
-            if with_obbox:
-                scene.add(pyrender.Mesh.from_trimesh(obbox))
+            if with_box:
+                scene.add(pyrender.Mesh.from_trimesh(box))
 
         # create and adjust one point light source and one directional one.
         light_directional = pyrender.DirectionalLight(color=[255.0, 255.0, 255.0],

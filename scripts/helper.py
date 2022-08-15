@@ -420,3 +420,27 @@ def visualize_pc(pc):
     radii = np.linalg.norm(pc, axis=1)
     colors = trimesh.visual.interpolate(radii, color_map='viridis')
     trimesh.points.PointCloud(pc, colors=colors).show()
+
+
+def render_single_pc(pc, resolution, rendering_kwargs, region=False, with_box=False, box=None):
+    # initialize the renderer.
+    r = Render(rendering_kwargs)
+
+    radii = np.linalg.norm(pc, axis=1)
+    colors = trimesh.visual.interpolate(radii, color_map='viridis')
+
+    # build the scene object for rendering
+    pc_scene = trimesh.Trimesh.scene(trimesh.points.PointCloud(pc, colors=colors))
+
+    # setup the camera pose and extract the dimensions of the room
+    room_dimension = pc_scene.extents
+    camera_pose, _ = pc_scene.graph[pc_scene.camera.name]
+    if region:
+        camera_pose[0:2, 3] = 0
+
+    # render the pc
+    img, _ = r.pyrender_render(pc, resolution=resolution, camera_pose=camera_pose, room_dimension=room_dimension,
+                               points=True, colors=colors, with_box=with_box, box=box, adjust_camera_height=False,
+                               point_size=1.5, with_height_offset=False)
+
+    return img
