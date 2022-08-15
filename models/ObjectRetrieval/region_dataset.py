@@ -36,11 +36,6 @@ class Region(Dataset):
         # read the metadata
         df = pd.read_csv(self.metadata_path)
 
-        # filter the metadata by the accepted cats
-        if 'mpcat40' in df.keys():
-            is_accepted = df['mpcat40'].apply(lambda x: x in self.cat_to_idx)
-            df = df.loc[is_accepted]
-
         # filter the metadata by the mode
         df = df.loc[df['split'] == self.mode]
 
@@ -126,12 +121,14 @@ class Region(Dataset):
 
             # record the crop
             crops_pc[i, :] = subpc
+            # self.build_colored_pc(subpc).show()
 
         return crops_pc
 
     def __getitem__(self, idx):
         # load the point cloud region.
         pc_region = np.load(os.path.join(self.pc_dir, self.mode, self.file_names[idx]))
+        # self.build_colored_pc(pc_region).show()
 
         # normalize the mesh region.
         pc_region /= self.max_coord

@@ -26,7 +26,7 @@ from projection_models import DINOHead
 from scripts.helper import load_from_json
 
 
-def train_net(cat_to_idx, args):
+def train_net(args):
     utils.init_distributed_mode(args)
     utils.fix_random_seeds(args.seed)
     cudnn.benchmark = True
@@ -34,9 +34,8 @@ def train_net(cat_to_idx, args):
     # create the dataset for dino and training and val dataset for evaluation
     dataset = Region(args.pc_dir, args.scene_dir, args.metadata_path, max_coord=args.max_coord,
                      num_local_crops=args.local_crops_number, num_global_crops=args.global_crops_number,
-                     mode='train', cat_to_idx=cat_to_idx, num_points=args.num_point,
-                     global_crop_bounds=args.global_crop_bounds, local_crop_bounds=args.local_crop_bounds,
-                     file_name_to_idx=args.file_name_to_idx)
+                     mode='train', num_points=args.num_point, global_crop_bounds=args.global_crop_bounds,
+                     local_crop_bounds=args.local_crop_bounds, file_name_to_idx=args.file_name_to_idx)
 
     sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
 
@@ -313,7 +312,6 @@ def get_args():
 
     # path parameters
     parser.add_argument('--dataset', default='matterport3d')
-    parser.add_argument('--accepted_cats_path', default='../../data/{}/accepted_cats.json')
     parser.add_argument('--metadata_path', dest='metadata_path', default='../../data/{}/metadata.csv')
     parser.add_argument('--pc_dir', default='../../data/{}/pc_regions')
     parser.add_argument('--scene_dir', default='../../data/{}/scenes')
@@ -326,6 +324,7 @@ def get_args():
     parser.add_argument('--nneighbor', default=16, type=int)
     parser.add_argument('--input_dim', default=3, type=int)
     parser.add_argument('--transformer_dim', default=32, type=int)
+    parser.add_argument('--num_class', default=18, type=int)
 
     # projection parameters
     parser.add_argument('--out_dim', dest='out_dim', default=2000, type=int)
@@ -394,17 +393,8 @@ def main():
         except FileExistsError:
             pass
 
-    # prepare the accepted categories for training.
-    accepted_cats = load_from_json(args.accepted_cats_path)
-    accepted_cats = sorted(accepted_cats)
-    cat_to_idx = {cat: i for i, cat in enumerate(accepted_cats)}
-    args.cat_to_idx = cat_to_idx
-    args.num_class = len(args.cat_to_idx)
-
     # find a mapping from the region files to their indices.
     df = pd.read_csv(args.metadata_path)
-    is_accepted = df['mpcat40'].apply(lambda x: x in args.cat_to_idx)
-    df = df.loc[is_accepted]
     df = df.loc[(df['split'] == 'train')]
     file_names = df[['room_name', 'objectId']].apply(lambda x: '-'.join([str(x[0]), str(x[1]) + '.npy']), axis=1).tolist()
     file_names = sorted(file_names)
@@ -412,7 +402,7 @@ def main():
     args.file_name_to_idx = file_name_to_idx
 
     # time the training
-    train_net(cat_to_idx, args)
+    train_net(args)
 
 
 def collate_fn(batch):
