@@ -356,7 +356,7 @@ def get_args():
     parser.add_argument('--global_crops_number', default=2, type=int)
     parser.add_argument('--local_crop_bounds', type=float, nargs='+', default=(0.4, 0.4))
     parser.add_argument('--global_crop_bounds', type=float, nargs='+', default=(0.7, 0.7))
-    parser.add_argument('--max_coord', default=3.65, type=float, help='3.65 for MP3D and scannet')
+    parser.add_argument('--max_coord', default=3.31, type=float, help='3.65 for MP3D and scannet')
 
     # remaining params
     parser.add_argument('--saveckp_freq', default=20, type=int)
