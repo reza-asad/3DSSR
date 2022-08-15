@@ -7,34 +7,10 @@ from scripts.helper import load_from_json
 import trimesh
 
 
-def get_args():
-    parser = argparse.ArgumentParser('Extract Regions', add_help=False)
-    parser.add_argument('--dataset', default='scannet')
-    parser.add_argument('--metadata_path', dest='metadata_path', default='../data/{}/metadata.csv')
-    parser.add_argument('--accepted_cats_path', default='../data/{}/accepted_cats.json')
-    parser.add_argument('--pc_dir', default='../data/{}/pc_regions')
-    parser.add_argument('--box_type', default='object', help='scene | object')
-
-    return parser
-
-
-def adjust_paths(args, exceptions):
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    for k, v in vars(args).items():
-        if (type(v) is str) and ('/' in v) and k not in exceptions:
-            v = v.format(args.dataset)
-            vars(args)[k] = os.path.join(base_dir, v)
-
-
 def compute_max_obj_box_size():
-    # load accepted cats.
-    accepted_cats = load_from_json(os.path.join(args.accepted_cats_path))
-
     # filter metadata and create keys.
     df_metadata = pd.read_csv(args.metadata_path)
     df_metadata = df_metadata.loc[df_metadata['split'] == 'train']
-    is_accepted = df_metadata['mpcat40'].apply(lambda x: x in accepted_cats)
-    df_metadata = df_metadata.loc[is_accepted]
     df_metadata['key'] = df_metadata[['room_name', 'objectId']].apply(lambda x: '-'.join([str(x[0]), str(x[1]) +
                                                                                           '.npy']), axis=1)
 
@@ -65,6 +41,24 @@ def compute_max_scene_box_size():
 
     max_dims = np.asarray(sorted(max_dims, reverse=True))
     print('Max scale is" {}'.format(np.quantile(max_dims / np.max(max_dims), 0.95) * np.max(max_dims)))
+
+
+def adjust_paths(args, exceptions):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    for k, v in vars(args).items():
+        if (type(v) is str) and ('/' in v) and k not in exceptions:
+            v = v.format(args.dataset)
+            vars(args)[k] = os.path.join(base_dir, v)
+
+
+def get_args():
+    parser = argparse.ArgumentParser('Extract Regions', add_help=False)
+    parser.add_argument('--dataset', default='scannet')
+    parser.add_argument('--metadata_path', dest='metadata_path', default='../data/{}/metadata.csv')
+    parser.add_argument('--pc_dir', default='../data/{}/pc_regions')
+    parser.add_argument('--box_type', default='object', help='scene | object')
+
+    return parser
 
 
 def main():
