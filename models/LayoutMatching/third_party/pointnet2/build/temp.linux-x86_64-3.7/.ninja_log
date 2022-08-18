@@ -1,0 +1,24 @@
+# ninja log v5
+2	23230	0	/project/6049211/rasad/3dssr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/interpolate_gpu.o	fe3b02e0fe4faeb5
+4	23540	0	/project/6049211/rasad/3dssr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/group_points_gpu.o	664b4f8cb875ca16
+6	23579	0	/project/6049211/rasad/3dssr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/ball_query_gpu.o	af95fc66e45f453b
+7	24049	0	/project/6049211/rasad/3dssr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/sampling_gpu.o	c70972f0435e600e
+2	45666	0	/project/6049211/rasad/3dssr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/interpolate.o	79dff0d271156b9d
+3	48190	0	/project/6049211/rasad/3dssr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/sampling.o	9e8992e1b843f9ac
+4	48342	0	/project/6049211/rasad/3dssr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/group_points.o	90bad3a36776744a
+3	48465	0	/project/6049211/rasad/3dssr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/ball_query.o	bfe8dbaf2a24e858
+4	51686	0	/project/6049211/rasad/3dssr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/bindings.o	7f382194fbbc56
+1	26701	1660612841029114232	/home/reza/Documents/research/3DSSR/models/LayoutMatching/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/group_points.o	2821372fae4a507d
+0	26709	1660612841041114389	/home/reza/Documents/research/3DSSR/models/LayoutMatching/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/interpolate.o	4ef4a434faad2cf2
+1	26723	1660612841057114599	/home/reza/Documents/research/3DSSR/models/LayoutMatching/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/sampling.o	bfb3b4009287dce7
+1	26757	1660612841089115018	/home/reza/Documents/research/3DSSR/models/LayoutMatching/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/ball_query.o	f218e0eef5e9b92
+1	28489	1660612842821137677	/home/reza/Documents/research/3DSSR/models/LayoutMatching/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/bindings.o	493dd27bb82efe2c
+1	5951	1660613081935660303	/home/reza/Documents/research/3DSSR/models/LayoutMatching/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/ball_query.o	47695290c0f25b6
+2	5957	1660613081939660338	/home/reza/Documents/research/3DSSR/models/LayoutMatching/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/group_points.o	a01761d8a6d4c8ae
+1	5964	1660613081951660438	/home/reza/Documents/research/3DSSR/models/LayoutMatching/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/sampling.o	783a9028d993e946
+1	6071	1660613082059661346	/home/reza/Documents/research/3DSSR/models/LayoutMatching/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/interpolate.o	de6418cc47f68300
+1	7430	1660613083415672717	/home/reza/Documents/research/3DSSR/models/LayoutMatching/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/bindings.o	fceb3c36ac0c3aa5
+1	6753	1660613188204472236	/home/reza/Documents/research/3DSSR/models/LayoutMatching/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/ball_query_gpu.o	c81e06fe387d8c44
+1	6757	1660613188208472265	/home/reza/Documents/research/3DSSR/models/LayoutMatching/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/group_points_gpu.o	cedd097d52ac697e
+1	6771	1660613188224472376	/home/reza/Documents/research/3DSSR/models/LayoutMatching/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/interpolate_gpu.o	ff72e5a3bc4e5012
+1	6888	1660613188328473096	/home/reza/Documents/research/3DSSR/models/LayoutMatching/third_party/pointnet2/build/temp.linux-x86_64-3.7/_ext_src/src/sampling_gpu.o	11f50057476693c4
