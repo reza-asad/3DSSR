@@ -275,8 +275,6 @@ class ScannetDetectionDataset(Dataset):
         box_indices = np.arange(num_boxes)
         np.random.shuffle(box_indices)
         instance_bboxes = instance_bboxes[box_indices, ...]
-        if scan_name in ['scene0000_02', 'scene0015_00']:
-            print(scan_name, box_indices)
 
         if not self.use_color:
             point_cloud = mesh_vertices[:, 0:3]  # do not use color for now
