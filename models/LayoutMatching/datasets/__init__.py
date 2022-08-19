@@ -20,6 +20,7 @@ def build_dataset(args):
             root_dir=args.dataset_root_dir, 
             meta_data_dir=args.meta_data_dir, 
             use_color=args.use_color,
+            aggressive_rot=args.aggressive_rot,
             augment=True
         ),
         "test": dataset_builder(

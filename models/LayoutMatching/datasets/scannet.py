@@ -23,16 +23,14 @@ IGNORE_LABEL = -100
 MEAN_COLOR_RGB = np.array([109.8, 97.2, 83.8])
 DATASET_ROOT_DIR = "/home/reza/Documents/research/3DSSR/data/scannet/scannet_train_detection_data"
 DATASET_METADATA_DIR = "/home/reza/Documents/research/3DSSR/data/scannet/meta_data"
-DATASET_PC_REGIONS_DIR = "/home/reza/Documents/research/3DSSR/data/scannet/pc_regions"
 
 
 class ScannetDatasetConfig(object):
     def __init__(self):
         self.num_semcls = 18
         self.num_angle_bin = 1
-        # TODO: changed from 64 to 5. Added expansion factor to account the context around each object within a box.
+        # TODO: changed from 64 to 5.
         self.max_num_obj = 5
-        self.expansion_factor = 1.5
 
         self.type2class = {
             "cabinet": 0,
@@ -175,6 +173,7 @@ class ScannetDetectionDataset(Dataset):
         use_height=False,
         augment=False,
         use_random_cuboid=True,
+        aggressive_rot=False,
         random_cuboid_min_points=30000,
     ):
 
@@ -217,43 +216,37 @@ class ScannetDetectionDataset(Dataset):
         self.augment = augment
         self.use_random_cuboid = use_random_cuboid
         self.random_cuboid_augmentor = RandomCuboid(min_points=random_cuboid_min_points)
+        self.aggressive_rot = aggressive_rot
         self.center_normalizing_range = [
             np.zeros((1, 3), dtype=np.float32),
             np.ones((1, 3), dtype=np.float32),
         ]
-        # TODO: add data dir for pc_regions.
+        # TODO: add split set for adding randomness for train subscene queries only.
         self.split_set = split_set
-        self.pc_regions_dir = os.path.join(DATASET_PC_REGIONS_DIR, self.split_set)
 
     def __len__(self):
         return len(self.scan_names)
 
-    #  TODO: deriving the point cloud inside the query subscene.
-    def derive_sub_pc(self, scan_name, box_indices, bboxes, num_points=20000):
-        sub_pc = []
-        for i, idx in enumerate(box_indices):
-            # load the pc.
-            pc_file_name = '{}-{}.npy'.format(scan_name, idx)
-            pc_region = np.load(os.path.join(self.pc_regions_dir, pc_file_name))
+    #  TODO: add binary mask to the point cloud where 1 represents a point that belongs to the subscene.
+    def add_subscene_mask(self, point_cloud, instance_bboxes):
+        # determine the dimension for which you add the binary mask.
+        mask_axis = 3
+        if self.use_color:
+            mask_axis = 6
+        N = len(point_cloud)
+        masked_point_cloud = np.zeros((N, mask_axis + 1), dtype=np.float32)
+        masked_point_cloud[:, :mask_axis] = point_cloud
 
-            # translate the pc_region to its location in the scene.
-            transformation = np.eye(4, dtype=np.float32)
-            transformation[:3, 3] = bboxes[i, :3]
-            pc_region_trans = np.ones((4, len(pc_region)), dtype=np.float32)
-            pc_region_trans[:3, :] = pc_region.T
-            pc_region_trans = np.matmul(transformation, pc_region_trans).T
-            pc_region_trans = pc_region_trans[:, :3]
-            sub_pc.append(pc_region_trans)
+        for box in instance_bboxes:
+            # find the points corresponding to the box
+            centroid, scale = box[:3], box[3:6]
+            is_in_box = np.abs(point_cloud[:, :3] - centroid) < (scale / 2.0)
+            is_in_box = np.sum(is_in_box, axis=1) == 3
 
-        if len(sub_pc) == 0:
-            return None
-        sub_pc = np.concatenate(sub_pc, axis=0)
+            # add the mask for the object.
+            masked_point_cloud[is_in_box, mask_axis] = 1.0
 
-        # sample randomly from the dense sub_pc.
-        sampled_indices = np.random.choice(range(len(sub_pc)), num_points, replace=False)
-        sub_pc = sub_pc[sampled_indices, :]
-
-        return sub_pc
+        return masked_point_cloud
 
     def __getitem__(self, idx):
         scan_name = self.scan_names[idx]
@@ -267,14 +260,6 @@ class ScannetDetectionDataset(Dataset):
             os.path.join(self.data_path, scan_name) + "_sem_label.npy"
         )
         instance_bboxes = np.load(os.path.join(self.data_path, scan_name) + "_bbox.npy")
-
-        # TODO: randomly shuffle the instance bboxes.
-        if self.split_set != 'train':
-            np.random.seed(0)
-        num_boxes = len(instance_bboxes)
-        box_indices = np.arange(num_boxes)
-        np.random.shuffle(box_indices)
-        instance_bboxes = instance_bboxes[box_indices, ...]
 
         if not self.use_color:
             point_cloud = mesh_vertices[:, 0:3]  # do not use color for now
@@ -302,21 +287,21 @@ class ScannetDetectionDataset(Dataset):
             (
                 point_cloud,
                 instance_bboxes,
-                per_point_labels,
-                keep_boxes
+                per_point_labels
             ) = self.random_cuboid_augmentor(
                 point_cloud, instance_bboxes, [instance_labels, semantic_labels]
             )
             instance_labels = per_point_labels[0]
             semantic_labels = per_point_labels[1]
 
-            # TODO: determine the id for kept boxes after augmentation.
-            if keep_boxes is not None:
-                box_indices = box_indices[keep_boxes]
-            box_indices = box_indices[: MAX_NUM_OBJ]
-        else:
-            # TODO: filter the bboxes even if no augmentation.
-            box_indices = box_indices[: MAX_NUM_OBJ]
+        # TODO: randomly take MAX_NUM_OBJ many boxes among the instance_bboxes.
+        if self.split_set != 'train':
+            np.random.seed(0)
+        num_boxes = len(instance_bboxes)
+        box_indices = np.arange(num_boxes)
+        np.random.shuffle(box_indices)
+        instance_bboxes = instance_bboxes[box_indices, ...]
+        instance_bboxes = instance_bboxes[: MAX_NUM_OBJ, ...]
 
         point_cloud, choices = pc_util.random_sampling(
             point_cloud, self.num_points, return_choices=True
@@ -333,18 +318,14 @@ class ScannetDetectionDataset(Dataset):
 
         pcl_color = pcl_color[choices]
 
-        target_bboxes_mask[0 : instance_bboxes.shape[0]] = 1
-        # TODO: added MAX_NUM_OBJ as a filter to the right side.
-        target_bboxes[0 : instance_bboxes.shape[0], :] = instance_bboxes[:MAX_NUM_OBJ, 0:6]
+        target_bboxes_mask[0: instance_bboxes.shape[0]] = 1
+        target_bboxes[0: instance_bboxes.shape[0], :] = instance_bboxes[:, 0:6]
 
-        # TODO: find the subscene enclosed by the target bboxes and randomly rotate it.
-        sub_point_cloud = self.derive_sub_pc(scan_name, box_indices, target_bboxes)
-        if sub_point_cloud is None:
-            return None
-        # trimesh.points.PointCloud(sub_point_cloud).show()
-        sub_rot_angle = np.random.uniform(0, 2*np.pi)
-        sub_rot_mat = pc_util.rotz(sub_rot_angle)
-        sub_point_cloud = np.dot(sub_point_cloud, np.transpose(sub_rot_mat))
+        # TODO: add a binary mask to the point cloud with 1 representing point belonging to the subscene.
+        point_cloud = self.add_subscene_mask(point_cloud, instance_bboxes)
+        # trimesh.points.PointCloud(point_cloud[:, :3]).show()
+        # subscene = point_cloud[point_cloud[:, 3] == 1, :3]
+        # trimesh.points.PointCloud(subscene).show()
 
         # ------------------------------- DATA AUGMENTATION ------------------------------
         if self.augment:
@@ -359,8 +340,12 @@ class ScannetDetectionDataset(Dataset):
             #     point_cloud[:, 1] = -1 * point_cloud[:, 1]
             #     target_bboxes[:, 1] = -1 * target_bboxes[:, 1]
 
+            # TODO: allow for more aggressive rotation
             # Rotation along up-axis/Z-axis
-            rot_angle = (np.random.random() * np.pi / 18) - np.pi / 36  # -5 ~ +5 degree
+            if self.aggressive_rot:
+                rot_angle = np.random.uniform(0, 2*np.pi)
+            else:
+                rot_angle = (np.random.random() * np.pi / 18) - np.pi / 36  # -5 ~ +5 degree
             rot_mat = pc_util.rotz(rot_angle)
             point_cloud[:, 0:3] = np.dot(point_cloud[:, 0:3], np.transpose(rot_mat))
             target_bboxes = self.dataset_config.rotate_aligned_boxes(
@@ -398,9 +383,6 @@ class ScannetDetectionDataset(Dataset):
 
         ret_dict = {}
         ret_dict["point_clouds"] = point_cloud.astype(np.float32)
-        # TODO: recording the subscene point cloud and the rotation applied to it's original form.
-        ret_dict["sub_point_cloud"] = sub_point_cloud.astype(np.float32)
-        ret_dict["sub_rot_angle"] = sub_rot_angle
         ret_dict["gt_box_corners"] = box_corners.astype(np.float32)
         ret_dict["gt_box_centers"] = box_centers.astype(np.float32)
         ret_dict["gt_box_centers_normalized"] = box_centers_normalized.astype(
@@ -409,10 +391,9 @@ class ScannetDetectionDataset(Dataset):
         ret_dict["gt_angle_class_label"] = angle_classes.astype(np.int64)
         ret_dict["gt_angle_residual_label"] = angle_residuals.astype(np.float32)
         target_bboxes_semcls = np.zeros((MAX_NUM_OBJ))
-        # TODO: filtered to MAX_NUM_OBJ on the right side.
         target_bboxes_semcls[0 : instance_bboxes.shape[0]] = [
             self.dataset_config.nyu40id2class[int(x)]
-            for x in instance_bboxes[:, -1][0 : MAX_NUM_OBJ]
+            for x in instance_bboxes[:, -1][0 : instance_bboxes.shape[0]]
         ]
         ret_dict["gt_box_sem_cls_label"] = target_bboxes_semcls.astype(np.int64)
         ret_dict["gt_box_present"] = target_bboxes_mask.astype(np.float32)
