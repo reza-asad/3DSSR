@@ -79,18 +79,12 @@ def train_one_epoch(
 
         # Forward pass
         optimizer.zero_grad()
-        # TODO: add the subscene point cloud.
         inputs = {
             "point_clouds": batch_data_label["point_clouds"],
-            "sub_point_cloud": batch_data_label["sub_point_cloud"],
             "point_cloud_dims_min": batch_data_label["point_cloud_dims_min"],
             "point_cloud_dims_max": batch_data_label["point_cloud_dims_max"],
         }
-
-        # TODO: encode the subscene.
-        _, enc_features_sub = model(inputs, None, encoder_only=True, sub_pc=True)
-        enc_features_sub = torch.sum(enc_features_sub, dim=1).unsqueeze(dim=0)
-        outputs = model(inputs, enc_features_sub)
+        outputs = model(inputs)
 
         # Compute loss
         loss, loss_dict = criterion(outputs, batch_data_label)
@@ -177,17 +171,12 @@ def evaluate(
         for key in batch_data_label:
             batch_data_label[key] = batch_data_label[key].to(net_device)
 
-        # TODO: add the subscene point cloud.
         inputs = {
             "point_clouds": batch_data_label["point_clouds"],
-            "sub_point_cloud": batch_data_label["sub_point_cloud"],
             "point_cloud_dims_min": batch_data_label["point_cloud_dims_min"],
             "point_cloud_dims_max": batch_data_label["point_cloud_dims_max"],
         }
-        # TODO: encode the subscene.
-        _, enc_features_sub = model(inputs, None, encoder_only=True, sub_pc=True)
-        enc_features_sub = torch.sum(enc_features_sub, dim=1).unsqueeze(dim=0)
-        outputs = model(inputs, enc_features_sub)
+        outputs = model(inputs)
 
         # Compute loss
         loss_str = ""
