@@ -303,12 +303,8 @@ class Model3DETR(nn.Module):
             "aux_outputs": aux_outputs,  # output from intermediate layers of decoder
         }
 
-    def forward(self, inputs, enc_features_sub, encoder_only=False, sub_pc=False):
-        # TODO: allow for encoding sub_pc too.
-        if sub_pc:
-            point_clouds = inputs["sub_point_cloud"]
-        else:
-            point_clouds = inputs["point_clouds"]
+    def forward(self, inputs, encoder_only=False):
+        point_clouds = inputs["point_clouds"]
 
         enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds)
         enc_features = self.encoder_to_decoder_projection(
@@ -320,12 +316,7 @@ class Model3DETR(nn.Module):
         if encoder_only:
             # return: batch x npoints x channels
             return enc_xyz, enc_features.transpose(0, 1)
-        else:
-            # TODO: Multiply the encoder features for the scene and subscene.
-            # print(enc_features.shape, enc_features_sub.shape)
-            enc_features = enc_features * enc_features_sub
-            # print(enc_features.shape)
-            # t=y
+
         point_cloud_dims = [
             inputs["point_cloud_dims_min"],
             inputs["point_cloud_dims_max"],
@@ -348,7 +339,8 @@ class Model3DETR(nn.Module):
 
 
 def build_preencoder(args):
-    mlp_dims = [3 * int(args.use_color), 64, 128, args.enc_dim]
+    # TODO: adding number of mask features for first MLP layer.
+    mlp_dims = [3 * int(args.use_color) + args.num_mask_feats, 64, 128, args.enc_dim]
     preencoder = PointnetSAModuleVotes(
         radius=0.2,
         nsample=64,
