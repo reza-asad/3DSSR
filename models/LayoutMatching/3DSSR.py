@@ -50,6 +50,7 @@ def make_args_parser():
         "--enc_type", default="vanilla", choices=["masked", "maskedv2", "vanilla"]
     )
     # Below options are only valid for vanilla encoder
+    parser.add_argument("--num_mask_feats", default=1, type=int)
     parser.add_argument("--enc_nlayers", default=3, type=int)
     parser.add_argument("--enc_dim", default=256, type=int)
     parser.add_argument("--enc_ffn_dim", default=128, type=int)
@@ -81,6 +82,7 @@ def make_args_parser():
     )
     parser.add_argument("--nqueries", default=256, type=int)
     parser.add_argument("--use_color", default=False, action="store_true")
+    parser.add_argument("--aggressive_rot", default=False, action="store_true")
 
     ##### Set Loss #####
     ### Matcher
