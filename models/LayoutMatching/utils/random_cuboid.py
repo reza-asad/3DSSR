@@ -27,7 +27,7 @@ class RandomCuboid(object):
         aspect=0.8,
         min_crop=0.5,
         max_crop=1.0,
-        box_filter_policy="center"
+        box_filter_policy="center",
     ):
         self.aspect = aspect
         self.min_crop = min_crop
@@ -40,7 +40,6 @@ class RandomCuboid(object):
             point_cloud[:, 0:3], axis=0
         )
 
-        keep_boxes = None
         for _ in range(100):
             crop_range = self.min_crop + np.random.rand(3) * (
                 self.max_crop - self.min_crop
@@ -93,7 +92,7 @@ class RandomCuboid(object):
                 else:
                     new_per_point_labels = None
                 # if we are here, all conditions are met. return boxes
-                return new_point_cloud, new_boxes, new_per_point_labels, keep_boxes
+                return new_point_cloud, new_boxes, new_per_point_labels
 
         # fallback
-        return point_cloud, target_boxes, per_point_labels, None
+        return point_cloud, target_boxes, per_point_labels
