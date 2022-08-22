@@ -322,11 +322,15 @@ class ScannetDetectionDataset(Dataset):
         target_bboxes[0: instance_bboxes.shape[0], :] = instance_bboxes[:, 0:6]
 
         # TODO: add a binary mask to the point cloud with 1 representing point belonging to the subscene.
-        point_cloud = self.add_subscene_mask(point_cloud, instance_bboxes)
+        point_cloud_with_mask = self.add_subscene_mask(point_cloud, instance_bboxes)
+        # TODO: the original point cloud with have a mask with value 0 across all points while the query subscene has a
+        #  proper binary mask representing the query points.
+        point_cloud = point_cloud_with_mask.copy()
+        point_cloud[..., -1] = 0.0
         # trimesh.points.PointCloud(point_cloud[:, :3]).show()
-        # subscene = point_cloud[point_cloud[:, 3] == 1, :3]
+        # subscene = point_cloud_with_mask[point_cloud_with_mask[:, 3] == 1, :3]
         # trimesh.points.PointCloud(subscene).show()
-
+        # t=y
         # ------------------------------- DATA AUGMENTATION ------------------------------
         if self.augment:
             # TODO: skip fliping as it does not make sense for 3DSSR.
@@ -383,6 +387,8 @@ class ScannetDetectionDataset(Dataset):
 
         ret_dict = {}
         ret_dict["point_clouds"] = point_cloud.astype(np.float32)
+        # TODO: add point cloud with mask representing the subscene.
+        ret_dict["point_clouds_with_mask"] = point_cloud_with_mask.astype(np.float32)
         ret_dict["gt_box_corners"] = box_corners.astype(np.float32)
         ret_dict["gt_box_centers"] = box_centers.astype(np.float32)
         ret_dict["gt_box_centers_normalized"] = box_centers_normalized.astype(
