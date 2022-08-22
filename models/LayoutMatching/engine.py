@@ -79,12 +79,21 @@ def train_one_epoch(
 
         # Forward pass
         optimizer.zero_grad()
+
+        # TODO: encode the point cloud with mask first.
+        masked_inputs = {"point_clouds": batch_data_label["point_clouds_with_mask"]}
+        enc_xyz, enc_features = model(masked_inputs, encoder_only=True)
+        subscene_inputs = {
+            "enc_xyz": enc_xyz,
+            "enc_features": enc_features
+        }
         inputs = {
             "point_clouds": batch_data_label["point_clouds"],
             "point_cloud_dims_min": batch_data_label["point_cloud_dims_min"],
             "point_cloud_dims_max": batch_data_label["point_cloud_dims_max"],
         }
-        outputs = model(inputs)
+        # TODO: the decoding is conditioned on the subscene inputs.
+        outputs = model(inputs, subscene_inputs)
 
         # Compute loss
         loss, loss_dict = criterion(outputs, batch_data_label)
@@ -171,12 +180,20 @@ def evaluate(
         for key in batch_data_label:
             batch_data_label[key] = batch_data_label[key].to(net_device)
 
+        # TODO: encode the point cloud with mask first.
+        masked_inputs = {"point_clouds": batch_data_label["point_clouds_with_mask"]}
+        enc_xyz, enc_features = model(masked_inputs, encoder_only=True)
+        subscene_inputs = {
+            "enc_xyz": enc_xyz,
+            "enc_features": enc_features
+        }
         inputs = {
             "point_clouds": batch_data_label["point_clouds"],
             "point_cloud_dims_min": batch_data_label["point_cloud_dims_min"],
             "point_cloud_dims_max": batch_data_label["point_cloud_dims_max"],
         }
-        outputs = model(inputs)
+        # TODO: the decoding is conditioned on the subscene inputs.
+        outputs = model(inputs, subscene_inputs)
 
         # Compute loss
         loss_str = ""
