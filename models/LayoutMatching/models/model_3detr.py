@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from third_party.pointnet2.pointnet2_modules import PointnetSAModuleVotes
-from third_party.pointnet2.pointnet2_utils import furthest_point_sample
+from third_party.pointnet2.pointnet2_utils import furthest_point_sample, QueryAndGroup
 from utils.pc_util import scale_points, shift_scale_points
 
 from models.helpers import GenericMLP
@@ -97,6 +97,8 @@ class Model3DETR(nn.Module):
         position_embedding="fourier",
         mlp_dropout=0.3,
         num_queries=256,
+        query_and_group=None
+
     ):
         super().__init__()
         self.pre_encoder = pre_encoder
@@ -131,6 +133,8 @@ class Model3DETR(nn.Module):
         self.build_mlp_heads(dataset_config, decoder_dim, mlp_dropout)
 
         self.num_queries = num_queries
+        # TODO: add the query and group function.
+        self.query_and_group = query_and_group
         self.box_processor = BoxProcessor(dataset_config)
 
     def build_mlp_heads(self, dataset_config, decoder_dim, mlp_dropout):
@@ -303,7 +307,7 @@ class Model3DETR(nn.Module):
             "aux_outputs": aux_outputs,  # output from intermediate layers of decoder
         }
 
-    def forward(self, inputs, encoder_only=False):
+    def forward(self, inputs, subscene_inputs=None, encoder_only=False):
         point_clouds = inputs["point_clouds"]
 
         enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds)
@@ -328,7 +332,10 @@ class Model3DETR(nn.Module):
         enc_pos = self.pos_embedding(enc_xyz, input_range=point_cloud_dims)
         enc_pos = enc_pos.permute(2, 0, 1)
         query_embed = query_embed.permute(2, 0, 1)
-        tgt = torch.zeros_like(query_embed)
+
+        # TODO: aggregate subscene features around each query point to build target.
+        # tgt = torch.zeros_like(query_embed)
+        tgt = agg_subscene_feats(self.query_and_group, query_xyz, subscene_inputs)
         box_features = self.decoder(
             tgt, enc_features, query_pos=query_embed, pos=enc_pos
         )[0]
@@ -336,6 +343,27 @@ class Model3DETR(nn.Module):
             query_xyz, point_cloud_dims, box_features
         )
         return box_predictions
+
+
+# TODO: add function to aggregate features around each query point.
+def agg_subscene_feats(query_and_group, query_xyz, subscene_inputs):
+    # prepare the input for pointnet2 utils.
+    enc_xyz, enc_features = subscene_inputs['enc_xyz'], subscene_inputs['enc_features']
+    enc_features = enc_features.permute(0, 2, 1)
+    query_xyz = query_xyz.contiguous()
+
+    # aggregate the features around each query xyz point.
+    new_features = query_and_group(xyz=enc_xyz, new_xyz=query_xyz, features=enc_features)
+    # batch x (3 + channel) x npoints x nsample
+
+    # skip the xyz and sum the features across nsample.
+    new_features = new_features[:, 3:, :, :]
+    new_features = torch.sum(new_features, dim=3)
+
+    # reshape to match the tgt: npoints x batch x channel
+    new_features = new_features.permute(2, 0, 1)
+
+    return new_features
 
 
 def build_preencoder(args):
@@ -408,6 +436,9 @@ def build_3detr(args, dataset_config):
     pre_encoder = build_preencoder(args)
     encoder = build_encoder(args)
     decoder = build_decoder(args)
+    # TODO: add a query and group to aggregate features for each query point.
+    query_and_group = QueryAndGroup(radius=0.2, nsample=64)
+
     model = Model3DETR(
         pre_encoder,
         encoder,
@@ -417,6 +448,7 @@ def build_3detr(args, dataset_config):
         decoder_dim=args.dec_dim,
         mlp_dropout=args.mlp_dropout,
         num_queries=args.nqueries,
+        query_and_group=query_and_group
     )
     output_processor = BoxProcessor(dataset_config)
     return model, output_processor
