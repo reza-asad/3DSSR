@@ -13,7 +13,7 @@ from models.helpers import GenericMLP
 from models.position_embedding import PositionEmbeddingCoordsSine
 from models.transformer import (MaskedTransformerEncoder, TransformerDecoder,
                                 TransformerDecoderLayer, TransformerEncoder,
-                                TransformerEncoderLayer)
+                                TransformerEncoderLayer, QueryEmbedding)
 
 
 class BoxProcessor(object):
@@ -97,7 +97,7 @@ class Model3DETR(nn.Module):
         position_embedding="fourier",
         mlp_dropout=0.3,
         num_queries=256,
-        query_and_group=None
+        query_embedding=None
 
     ):
         super().__init__()
@@ -134,7 +134,7 @@ class Model3DETR(nn.Module):
 
         self.num_queries = num_queries
         # TODO: add the query and group function.
-        self.query_and_group = query_and_group
+        self.query_embedding = query_embedding
         self.box_processor = BoxProcessor(dataset_config)
 
     def build_mlp_heads(self, dataset_config, decoder_dim, mlp_dropout):
@@ -333,9 +333,13 @@ class Model3DETR(nn.Module):
         enc_pos = enc_pos.permute(2, 0, 1)
         query_embed = query_embed.permute(2, 0, 1)
 
+        # TODO: compute the positional encoding for the query scene.
+        enc_pos_q = self.pos_embedding(subscene_inputs['enc_xyz'], input_range=point_cloud_dims)
+        subscene_inputs['enc_pos'] = enc_pos_q.permute(2, 0, 1)
+
         # TODO: aggregate subscene features around each query point to build target.
-        # tgt = torch.zeros_like(query_embed)
-        tgt = agg_subscene_feats(self.query_and_group, query_xyz, subscene_inputs)
+        tgt = torch.zeros_like(query_embed)
+        tgt = agg_subscene_feats(tgt, query_embed, subscene_inputs, self.query_embedding)
         box_features = self.decoder(
             tgt, enc_features, query_pos=query_embed, pos=enc_pos
         )[0]
@@ -346,24 +350,15 @@ class Model3DETR(nn.Module):
 
 
 # TODO: add function to aggregate features around each query point.
-def agg_subscene_feats(query_and_group, query_xyz, subscene_inputs):
+def agg_subscene_feats(tgt, query_embed, subscene_inputs, query_embedding):
     # prepare the input for pointnet2 utils.
-    enc_xyz, enc_features = subscene_inputs['enc_xyz'], subscene_inputs['enc_features']
-    enc_features = enc_features.permute(0, 2, 1)
-    query_xyz = query_xyz.contiguous()
+    enc_pos, enc_features = subscene_inputs['enc_pos'], subscene_inputs['enc_features']
 
     # aggregate the features around each query xyz point.
-    new_features = query_and_group(xyz=enc_xyz, new_xyz=query_xyz, features=enc_features)
-    # batch x (3 + channel) x npoints x nsample
+    tgt, attn = query_embedding(tgt=tgt, query_pos=query_embed, memory=enc_features, pos=enc_pos)
+    # npoints x batch x channel
 
-    # skip the xyz and sum the features across nsample.
-    new_features = new_features[:, 3:, :, :]
-    new_features = torch.sum(new_features, dim=3)
-
-    # reshape to match the tgt: npoints x batch x channel
-    new_features = new_features.permute(2, 0, 1)
-
-    return new_features
+    return tgt
 
 
 def build_preencoder(args):
@@ -436,8 +431,8 @@ def build_3detr(args, dataset_config):
     pre_encoder = build_preencoder(args)
     encoder = build_encoder(args)
     decoder = build_decoder(args)
-    # TODO: add a query and group to aggregate features for each query point.
-    query_and_group = QueryAndGroup(radius=0.2, nsample=64)
+    # TODO: find embedding for query points in the target scene by attending to points in the query scene.
+    query_embedding = QueryEmbedding(args.dec_dim)
 
     model = Model3DETR(
         pre_encoder,
@@ -448,7 +443,7 @@ def build_3detr(args, dataset_config):
         decoder_dim=args.dec_dim,
         mlp_dropout=args.mlp_dropout,
         num_queries=args.nqueries,
-        query_and_group=query_and_group
+        query_embedding=query_embedding
     )
     output_processor = BoxProcessor(dataset_config)
     return model, output_processor
