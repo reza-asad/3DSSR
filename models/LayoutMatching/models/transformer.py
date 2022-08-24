@@ -391,3 +391,46 @@ class TransformerDecoderLayer(nn.Module):
                                     tgt_key_padding_mask, memory_key_padding_mask, pos, query_pos, return_attn_weights)
         return self.forward_post(tgt, memory, tgt_mask, memory_mask,
                                  tgt_key_padding_mask, memory_key_padding_mask, pos, query_pos, return_attn_weights)
+
+
+class QueryEmbedding(nn.Module):
+
+    def __init__(self, d_model, nhead=4, dropout=0.1, activation="relu", norm_fn_name="ln", dim_feedforward=256):
+        super().__init__()
+        self.multihead_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
+
+        self.norm1 = NORM_DICT[norm_fn_name](d_model)
+        self.norm2 = NORM_DICT[norm_fn_name](d_model)
+
+        self.dropout1 = nn.Dropout(dropout, inplace=True)
+        self.dropout2 = nn.Dropout(dropout, inplace=True)
+
+        self.activation = ACTIVATION_DICT[activation]()
+
+        # Implementation of Feedforward model
+        self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.dropout = nn.Dropout(dropout, inplace=True)
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
+
+    def with_pos_embed(self, tensor, pos: Optional[Tensor]):
+        return tensor if pos is None else tensor + pos
+
+    def forward(self, tgt, memory,
+                memory_mask: Optional[Tensor] = None,
+                memory_key_padding_mask: Optional[Tensor] = None,
+                pos: Optional[Tensor] = None,
+                query_pos: Optional[Tensor] = None,
+                return_attn_weights: Optional [bool] = False):
+        tgt2 = self.norm1(tgt)
+        tgt2, attn = self.multihead_attn(query=self.with_pos_embed(tgt2, query_pos),
+                                         key=self.with_pos_embed(memory, pos),
+                                         value=memory, attn_mask=memory_mask,
+                                         key_padding_mask=memory_key_padding_mask)
+        tgt = tgt + self.dropout1(tgt2)
+        tgt2 = self.norm2(tgt)
+        tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt2))))
+        tgt = tgt + self.dropout2(tgt2)
+
+        if return_attn_weights:
+            return tgt, attn
+        return tgt, None
