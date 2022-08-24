@@ -85,7 +85,7 @@ def train_one_epoch(
         enc_xyz, enc_features = model(masked_inputs, encoder_only=True)
         subscene_inputs = {
             "enc_xyz": enc_xyz,
-            "enc_features": enc_features
+            "enc_features": enc_features.transpose(1, 0)
         }
         inputs = {
             "point_clouds": batch_data_label["point_clouds"],
@@ -185,7 +185,7 @@ def evaluate(
         enc_xyz, enc_features = model(masked_inputs, encoder_only=True)
         subscene_inputs = {
             "enc_xyz": enc_xyz,
-            "enc_features": enc_features
+            "enc_features": enc_features.transpose(1, 0)
         }
         inputs = {
             "point_clouds": batch_data_label["point_clouds"],
