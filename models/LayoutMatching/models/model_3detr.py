@@ -5,15 +5,15 @@ from functools import partial
 import numpy as np
 import torch
 import torch.nn as nn
-from third_party.pointnet2.pointnet2_modules import PointnetSAModuleVotes
+from third_party.pointnet2.pointnet2_modules import PointnetSAModuleVotes, KPE2ModuleVotes, upsample_eqv_point_features
 from third_party.pointnet2.pointnet2_utils import furthest_point_sample, QueryAndGroup
 from utils.pc_util import scale_points, shift_scale_points
 
 from models.helpers import GenericMLP
 from models.position_embedding import PositionEmbeddingCoordsSine
 from models.transformer import (MaskedTransformerEncoder, TransformerDecoder,
-                                TransformerDecoderLayer, TransformerEncoder,
-                                TransformerEncoderLayer, QueryEmbedding)
+                                TransformerDecoderLayer, TransformerEncoderEquiv,
+                                TransformerEncoderLayerEquiv, QueryEmbedding)
 
 
 class BoxProcessor(object):
@@ -97,8 +97,8 @@ class Model3DETR(nn.Module):
         position_embedding="fourier",
         mlp_dropout=0.3,
         num_queries=256,
-        query_embedding=None
-
+        query_embedding=None,
+        n_rot=4
     ):
         super().__init__()
         self.pre_encoder = pre_encoder
@@ -136,6 +136,7 @@ class Model3DETR(nn.Module):
         # TODO: add the query and group function.
         self.query_embedding = query_embedding
         self.box_processor = BoxProcessor(dataset_config)
+        self.n_rot = n_rot
 
     def build_mlp_heads(self, dataset_config, decoder_dim, mlp_dropout):
         mlp_func = partial(
@@ -191,12 +192,18 @@ class Model3DETR(nn.Module):
 
     def run_encoder(self, point_clouds):
         xyz, features = self._break_up_pc(point_clouds)
-        pre_enc_xyz, pre_enc_features, pre_enc_inds = self.pre_encoder(xyz, features)
+        # TODO: apply the equivariant pre_encoder.
+        pre_enc_xyz, pre_enc_features, pre_enc_inds, pre_enc_bq_inds = apply_pre_encoder(xyz,
+                                                                                         features,
+                                                                                         self.pre_encoder,
+                                                                                         n_rot=self.n_rot)
         # xyz: batch x npoints x 3
-        # features: batch x channel x npoints
+        # features: batch x channel x Nr x npoints
         # inds: batch x npoints
 
+        # TODO: modify the transformer layers to handle equivariant features.
         # nn.MultiHeadAttention in encoder expects npoints x batch x channel features
+        pre_enc_features = pre_enc_features.flatten(1, 2)
         pre_enc_features = pre_enc_features.permute(2, 0, 1)
 
         # xyz points are in batch x npointx channel order
@@ -351,7 +358,7 @@ class Model3DETR(nn.Module):
 
 # TODO: add function to aggregate features around each query point.
 def agg_subscene_feats(tgt, query_embed, subscene_inputs, query_embedding):
-    # prepare the input for pointnet2 utils.
+    # prepare the input.
     enc_pos, enc_features = subscene_inputs['enc_pos'], subscene_inputs['enc_features']
 
     # aggregate the features around each query xyz point.
@@ -362,30 +369,72 @@ def agg_subscene_feats(tgt, query_embed, subscene_inputs, query_embedding):
 
 
 def build_preencoder(args):
-    # TODO: adding number of mask features for first MLP layer.
-    mlp_dims = [3 * int(args.use_color) + args.num_mask_feats, 64, 128, args.enc_dim]
-    preencoder = PointnetSAModuleVotes(
+    # TODO: replace the regular set aggregator from PointNet with an equivariant version.
+    sa1 = KPE2ModuleVotes(
+        npoint=2048,
         radius=0.2,
         nsample=64,
-        npoint=args.preenc_npoints,
-        mlp=mlp_dims,
-        normalize_xyz=True,
+        in_dim=1,
+        out_dim=32,
+        n_rot=args.n_rot,
+        norm_2d=args.norm_2d,
+        is_first_layer=True
     )
+    sa2 = KPE2ModuleVotes(
+        npoint=2048,
+        radius=0.2,
+        nsample=64,
+        in_dim=32,
+        out_dim=32,
+        n_rot=args.n_rot,
+        norm_2d=args.norm_2d
+    )
+    sa3 = KPE2ModuleVotes(
+        npoint=1024,
+        radius=0.4,
+        nsample=32,
+        in_dim=32,
+        out_dim=64,
+        n_rot=args.n_rot,
+        norm_2d=args.norm_2d
+    )
+    fp1 = KPE2ModuleVotes(
+        npoint=2048,
+        radius=0.2,
+        nsample=64,
+        in_dim=(32 + 64),
+        out_dim=32,
+        n_rot=args.n_rot,
+        norm_2d=args.norm_2d
+    )
+    preencoder = torch.nn.ModuleList([sa1, sa2, sa3, fp1])
     return preencoder
 
 
 def build_encoder(args):
+    # TODO: build an equivariant version of the vanilla architecture.
     if args.enc_type == "vanilla":
-        encoder_layer = TransformerEncoderLayer(
+        encoder_layer = TransformerEncoderLayerEquiv(
             d_model=args.enc_dim,
             nhead=args.enc_nhead,
             dim_feedforward=args.enc_ffn_dim,
             dropout=args.enc_dropout,
             activation=args.enc_activation,
         )
-        encoder = TransformerEncoder(
+        encoder = TransformerEncoderEquiv(
             encoder_layer=encoder_layer, num_layers=args.enc_nlayers
         )
+    # if args.enc_type == "vanilla":
+    #     encoder_layer = TransformerEncoderLayer(
+    #         d_model=args.enc_dim,
+    #         nhead=args.enc_nhead,
+    #         dim_feedforward=args.enc_ffn_dim,
+    #         dropout=args.enc_dropout,
+    #         activation=args.enc_activation,
+    #     )
+    #     encoder = TransformerEncoder(
+    #         encoder_layer=encoder_layer, num_layers=args.enc_nlayers
+    #     )
     elif args.enc_type in ["masked"]:
         encoder_layer = TransformerEncoderLayer(
             d_model=args.enc_dim,
@@ -443,7 +492,56 @@ def build_3detr(args, dataset_config):
         decoder_dim=args.dec_dim,
         mlp_dropout=args.mlp_dropout,
         num_queries=args.nqueries,
-        query_embedding=query_embedding
+        query_embedding=query_embedding,
+        n_rot=args.n_rot
     )
     output_processor = BoxProcessor(dataset_config)
     return model, output_processor
+
+
+# TODO: expanding features to account for the group SO2
+def construct_feature_orbit(features, Nr):
+    """
+    Args:
+        features:
+            if (B, C, Nr, Np), return itself without modification.
+            if (B, C, Np),  expand it to (B, C, Nr, Np)
+        Nr:
+    """
+    if len(features.shape) == 4: return features
+    expanded_features = features[:, :, None, :].expand(-1, -1, Nr, -1)
+    return expanded_features
+
+
+def apply_pre_encoder(xyz, features, pre_encoder, n_rot):
+    # load the networks.
+    sa1, sa2, sa3, fp1 = pre_encoder
+
+    # apply equivariant pre_encoder.
+    end_points = {}
+    xyz, features, fps_inds, bq_idx = sa1(xyz, features)
+    end_points['sa1_inds'] = fps_inds
+    end_points['sa1_xyz'] = xyz
+    end_points['sa1_features'] = features
+
+    xyz, features, fps_inds, bq_idx = sa2(xyz, features)
+    end_points['sa2_inds'] = fps_inds
+    end_points['sa2_xyz'] = xyz
+    end_points['sa2_features'] = features
+
+    xyz, features, fps_inds, bq_idx = sa3(xyz, features)
+    end_points['sa3_inds'] = fps_inds
+    end_points['sa3_xyz'] = xyz
+    end_points['sa3_features'] = features
+
+    # apply feature propagation.
+    skipped_feature = end_points['sa2_features']
+    forward_feature = end_points['sa3_features']
+    skipped_xyz = end_points['sa2_xyz']
+    forward_feature = construct_feature_orbit(forward_feature, n_rot)
+    skipped_feature = construct_feature_orbit(skipped_feature, n_rot)
+    interpolated_feats = upsample_eqv_point_features(skipped_xyz, end_points['sa3_xyz'], forward_feature)
+    cat_feats = torch.cat([interpolated_feats, skipped_feature], dim=1)
+    xyz, features, fps_inds, bq_idx = fp1(skipped_xyz, cat_feats)
+
+    return xyz, features, fps_inds, bq_idx
