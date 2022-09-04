@@ -9,6 +9,8 @@ Extended with the following:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn import Parameter
+from torch.nn.init import kaiming_uniform_
 
 import os
 import sys
@@ -17,7 +19,12 @@ sys.path.append(BASE_DIR)
 
 import pointnet2_utils
 import pytorch_utils as pt_utils
+from kernel_points import load_kernels
 from typing import List
+import numpy as np
+import math
+from pytorch3d import ops as pt3d_ops
+pi = torch.tensor(np.pi)
 
 
 class _PointnetSAModuleBase(nn.Module):
@@ -492,6 +499,233 @@ class PointnetLFPModuleMSG(nn.Module):
         return torch.cat(new_features_list, dim=1).squeeze(-1)
 
 
+# TODO: add all the equivariant moduels here.
+class KPE2ModuleVotes(nn.Module):
+    """ Modified based on _PointnetSAModuleBase and PointnetSAModuleMSG
+    with extra support for returning point indices for getting their GT votes """
+
+    def __init__(
+            self,
+            *,
+            npoint: int = None,
+            radius: float = None,
+            nsample: int = None,
+            use_xyz: bool = True,
+            in_dim=1,
+            out_dim=128,
+            n_rot=24,
+            norm_2d=False,  # if True, normalize over both C and Nr; otherwise, normalize over C
+            no_downsample=False,  # if no downsample, do conv on every point.
+            is_first_layer=False
+    ):
+        super().__init__()
+
+        self.is_first_layer = is_first_layer
+        self.npoint = npoint
+        self.radius = radius
+        self.nsample = nsample
+        self.use_xyz = use_xyz
+        self.in_dim = in_dim + 3 if use_xyz else in_dim
+        self.n_rot = n_rot
+        self.norm_2d = norm_2d
+        self.no_downsample = no_downsample
+
+        self.grouper = pointnet2_utils.QueryAndGroupEquiv(radius, nsample, use_xyz=use_xyz)
+        self.kpconv = KPConvEquivSO2(15, 3, self.in_dim, out_dim, radius / 2.5, radius, compensate_xyz_feat=use_xyz,
+                                     n_rot=self.n_rot)
+        self.leaky_relu = nn.LeakyReLU(0.1)
+        self.batch_norm = nn.BatchNorm1d(out_dim * n_rot) if norm_2d else nn.BatchNorm2d(out_dim)
+        self.group_conv = GroupConvSO2(n_ch=out_dim)
+
+    def forward(self, xyz: torch.Tensor,
+                features: torch.Tensor = None,):
+        r"""
+        Parameters
+        ----------
+        xyz : torch.Tensor
+            (B, N, 3) tensor of the xyz coordinates of the features
+        features : torch.Tensor
+            (B, C, Nr, N) or (B, C, N) which is first layer
+        Returns
+        -------
+        new_xyz : torch.Tensor
+            (B, npoint, 3) tensor of the new features' xyz
+        new_features : torch.Tensor
+            (B, D_out, N_rot, npoint) tensor of the new_features descriptors
+        inds:
+            [B, Np], ranging [0,...,N]
+        bq_idx:
+            [B, Np, Nnb], ranging [0,...,N]
+        """
+        if len(features.shape) == 3:  # first layer; augment it
+            features = features[:, :, None, :].expand([-1, -1, self.n_rot, -1])  # [B,C,Nr,N]
+
+        if self.no_downsample:
+            inds = None
+            new_xyz = xyz
+        else:
+            if self.is_first_layer:
+                inds = pointnet2_utils.furthest_point_sample(xyz, self.npoint).long()  # [B, Np]
+            else:
+                B, Np = xyz.shape[0], self.npoint
+                inds = torch.arange(Np)[None, :].expand([B, -1]).cuda()
+            inds_ = inds[..., None].expand([-1, -1, 3]).clone()  # [B, Np, 3]
+            new_xyz = xyz.gather(1, inds_)
+
+        grouped_features, grouped_xyz, bq_idx = self.grouper(
+            xyz, new_xyz, features
+        )  # (B, 3+C, Nr, Np, Nnb), (B,3,Np,Nnb), [B, Np, Nnb]
+        # now non-unique xyz has been shadowed (>1e6),
+        # non-unique features (including the xyz in the first 3 dim) has been 0
+        new_features = self.kpconv(grouped_features, grouped_xyz)  # (B, D_out, Nr, Np)
+        if self.norm_2d:
+            B, Dout, Nr, Np = new_features.shape
+            new_features = new_features.flatten(1, 2)
+            new_features = self.leaky_relu(self.batch_norm(new_features))
+            new_features = new_features.view([B, Dout, Nr, Np])
+        else:
+            new_features = self.leaky_relu(self.batch_norm(new_features))
+        new_features = self.group_conv(new_features)
+
+        return new_xyz, new_features, inds, bq_idx
+
+
+class KPConvEquivSO2(nn.Module):
+
+    def __init__(self, kernel_size, p_dim, in_channels, out_channels, KP_extent, radius, compensate_xyz_feat=False,
+                 fixed_kernel_points='center', aggregation_mode='sum', n_rot=24):
+        """
+        Initialize parameters for KPConvDeformable.
+        :param kernel_size: Number of kernel points.
+        :param p_dim: dimension of the point space.
+        :param in_channels: dimension of input features.
+        :param out_channels: dimension of output features.
+        :param KP_extent: influence radius of each kernel point.
+        :param radius: radius used for kernel point init. Even for deformable, use the config.conv_radius
+        :param compensate_xyz_feat: if True, rotate the first 3 feature dim of all input points because they are xyz
+        :param fixed_kernel_points: fix position of certain kernel points ('none', 'center' or 'verticals').
+        :param aggregation_mode: choose to sum influences, or only keep the closest ('closest', 'sum').
+        :param n_rot: number of bins to uniformally slice 2pi
+        """
+        super(KPConvEquivSO2, self).__init__()
+
+        # Save parameters
+        self.K = kernel_size
+        self.p_dim = p_dim
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.radius = radius
+        self.KP_extent = KP_extent
+        self.fixed_kernel_points = fixed_kernel_points
+        self.aggregation_mode = aggregation_mode
+        self.n_rot = n_rot
+        self.compensate_xyz_feat = compensate_xyz_feat
+        # Initialize weights
+        self.kernels = Parameter(torch.zeros((self.K, in_channels, out_channels), dtype=torch.float32),
+                                 requires_grad=True)
+
+        # Reset parameters
+        self.reset_parameters()
+
+        # Initialize kernel points
+        self.kernel_pos, self.inv_rot_mat = self.init_KP()  # [Nr, K, 3], [Nr, 3,3]
+
+        return
+
+    def reset_parameters(self):
+        kaiming_uniform_(self.kernels, a=math.sqrt(5))
+        return
+
+    def init_KP(self):
+        """
+        Initialize the kernel point positions in a sphere
+        :return: the tensor of kernel points
+        """
+
+        # Create one kernel disposition (as numpy array). Choose the KP distance to center thanks to the KP extent
+        K_points_numpy = load_kernels(self.radius,
+                                      self.K,
+                                      dimension=self.p_dim,
+                                      fixed=self.fixed_kernel_points)  # [K, 3]
+        rot_mats = []
+        for r in torch.arange(self.n_rot):
+            rot_angle = r.float() / self.n_rot * 2 * pi
+            rot_mat_2d = torch.tensor([[torch.cos(rot_angle), - torch.sin(rot_angle)],
+                                       [torch.sin(rot_angle), torch.cos(rot_angle)]])
+            rot_mat_3d = torch.eye(3)
+            rot_mat_3d[:2, :2] = rot_mat_2d
+            rot_mats.append(rot_mat_3d)
+        rot_mats = torch.stack(rot_mats, dim=0)  # [Nr, 3, 3]
+
+        kernel_pts = torch.tensor(K_points_numpy, dtype=torch.float32)[..., None]  # [K, 3, 1]
+        group_kernel_pts = torch.matmul(rot_mats[:, None, ...], kernel_pts)  # [Nr, K, 3, 1]
+        grp_knl_pts = Parameter(group_kernel_pts.squeeze(), requires_grad=False)  # [Nr, K, 3]
+
+        # inverse-diretional rotate matrices for compensating first 3 feature dim
+        inv_rot_mats = torch.inverse(rot_mats)
+        inv_rot_mats = Parameter(inv_rot_mats, requires_grad=False)  # [Nr,3,3]
+
+        return grp_knl_pts, inv_rot_mats
+
+    def forward(self, grouped_features, grouped_xyz):
+        """
+        Args:
+            grouped_features: (B, D_in, Nr, Np, Nnb), already shadowed, but not xyz-feat-compensated
+            grouped_xyz: (B,3,Np,Nnb), already shadowed
+        Returns:
+            new_features, (B, D_out, Nr, Np)
+        """
+        # compensate xyz feature, if the first 3 dim is xyz feature
+        if self.compensate_xyz_feat:
+            xyz_feats = grouped_features[:, :3, ...]  # (B, 3, Nr, Np, Nnb)
+            xyz_feats_ = xyz_feats.permute([0, 3, 4, 2, 1])[..., None]  # (B, Np, Nnb, Nr, 3, 1)
+            xyz_feats_comp = torch.matmul(self.inv_rot_mat, xyz_feats_)  # (B, Np, Nnb, Nr, 3, 1)
+            xyz_feats_comp = xyz_feats_comp.squeeze(-1)  # (B, Np, Nnb, Nr, 3)
+            xyz_feats_comp = xyz_feats_comp.permute([0, 4, 3, 1, 2])  # (B, 3, Nr, Np, Nnb)
+            grouped_features = torch.cat([xyz_feats_comp, grouped_features[:, 3:, ...]],
+                                         dim=1)  # (B, D_in, Nr, Np, Nnb)
+
+        # grouped_xyz (B,3,Np,Nnb) x kernel_pos (Nr,K,3) -> dists (Nr,K,B,Np,Nnb)
+        grouped_xyz_ = grouped_xyz.permute([0, 2, 3, 1]).contiguous()[None]  # (1,B,Np,Nnb,3)
+        kernel_pos = self.kernel_pos[..., None, None, None, :]  # (Nr,K,1,1,1,3)
+        dists = (kernel_pos - grouped_xyz_).pow(2).sum(dim=-1).sqrt()
+
+        # dists -> weights (Nr,K,B,Np,Nnb)
+        weights = torch.clamp(1 - dists / self.KP_extent, min=0.0)
+
+        # weights (Nr,K,B,Np,Nnb) x grouped_feat (B, Din, Nr, Np, Nnb) x kernels (K,Din,Dout) -> new_feat (B,Dout,Nr,Np)
+        new_features = torch.einsum('rkbnm,bdrnm,kdf->bfrn', weights, grouped_features, self.kernels)
+
+        return new_features
+
+    def __repr__(self):
+        return 'KPConv(radius: {:.2f}, in_feat: {:d}, out_feat: {:d})'.format(self.radius,
+                                                                              self.in_channels,
+                                                                              self.out_channels)
+
+class GroupConvSO2(nn.Module):
+    def __init__(self, n_ch):
+        super(GroupConvSO2, self).__init__()
+        block = [nn.Conv1d(n_ch, n_ch, 3, padding=1, padding_mode='circular'),]
+        block.append(nn.BatchNorm1d(n_ch))
+        block.append(nn.LeakyReLU(0.1))
+        self.net = nn.Sequential(*block)
+
+    def forward(self, x):
+        """
+        Args:
+            x: [B, C, Nr, Np] from point conv
+        Returns:
+            [B, C, Nr, Np]
+        """
+        B, C, Nr, Np = x.shape
+        permuted = x.permute([0, 3, 1, 2])  # [B, Np, C, Nr]
+        stacked = permuted.flatten(0, 1)  # [B*Np, C, Nr]
+        conved = self.net(stacked)  # [B*Np, C, Nr]
+        out = conved.view([B, Np, C, Nr]).permute([0, 2, 3, 1])
+        return out
+
+
 if __name__ == "__main__":
     from torch.autograd import Variable
     torch.manual_seed(1)
@@ -512,3 +746,37 @@ if __name__ == "__main__":
         )
         print(new_features)
         print(xyz.grad)
+
+
+def upsample_eqv_point_features(target_position, source_position, source_feats):
+    """
+    interpolate m points to n>m points, and then concat the skip-linked points, and then MLP
+    Parameters
+    ----------
+    target_position : torch.Tensor
+        (B, n, 3) tensor of the xyz positions of the unknown features
+    source_position : torch.Tensor
+        (B, m, 3) tensor of the xyz positions of the known features
+    source_feats : torch.Tensor
+        (B, C, Nr, m) tensor of features to be propigated, m<n
+    Returns
+    -------
+    interpolated_feats : torch.Tensor
+        (B, C, Nr, n)
+    """
+    n = target_position.shape[1]
+    B, C, Nr, m = source_feats.shape
+
+    dist2, idx, _ = pt3d_ops.knn_points(target_position, source_position, K=3, return_sorted=False, return_nn=False)
+    # [B, n, K=3], [B, n, K=3]
+    dist_recip = 1.0 / (torch.sqrt(dist2) + 1e-8)
+    norm = torch.sum(dist_recip, dim=2, keepdim=True)
+    weight = dist_recip / norm  # [B, n, K=3],
+
+    source_feats = source_feats.flatten(1, 2).permute([0, 2, 1])  # [B, C*Nr, m] -> [B, m, C*Nr]
+    nn_features = pt3d_ops.knn_gather(source_feats, idx)  # [B, n, K=3, C*Nr],
+    interpolated_feats = (weight[..., None] * nn_features).sum(dim=2)  # [B, n, C*Nr]
+    interpolated_feats = interpolated_feats.permute([0, 2, 1])
+    interpolated_feats = interpolated_feats.view([B, C, Nr, n])
+
+    return interpolated_feats
