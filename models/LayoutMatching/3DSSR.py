@@ -77,6 +77,8 @@ def make_args_parser():
 
     ### Other model params
     parser.add_argument("--preenc_npoints", default=2048, type=int)
+    parser.add_argument("--n_rot", default=4, type=int)
+    parser.add_argument("--norm_2d", default=False, action="store_true")
     parser.add_argument(
         "--pos_embed", default="fourier", type=str, choices=["fourier", "sine"]
     )
