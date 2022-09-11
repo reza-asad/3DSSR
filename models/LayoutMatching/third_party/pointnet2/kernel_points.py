@@ -229,7 +229,10 @@ def load_kernels(radius, num_kpoints, dimension, fixed, lloyd=False):
     # Kernel directory
     kernel_dir = 'kernels/dispositions'
     if not exists(kernel_dir):
-        makedirs(kernel_dir)
+        try:
+            makedirs(kernel_dir)
+        except FileExistsError:
+            pass
 
     # To many points switch to Lloyds
     if num_kpoints > 30:
