@@ -279,6 +279,7 @@ class APCalculator(object):
         class2type_map=None,
         exact_eval=True,
         ap_config_dict=None,
+        per_class_proposal=True
     ):
         """
         Args:
@@ -289,7 +290,7 @@ class APCalculator(object):
         self.ap_iou_thresh = ap_iou_thresh
         if ap_config_dict is None:
             ap_config_dict = get_ap_config_dict(
-                dataset_config=dataset_config, remove_empty_box=exact_eval
+                dataset_config=dataset_config, remove_empty_box=exact_eval, per_class_proposal=per_class_proposal
             )
         self.ap_config_dict = ap_config_dict
         self.class2type_map = class2type_map
