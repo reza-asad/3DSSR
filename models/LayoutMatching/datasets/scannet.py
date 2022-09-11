@@ -170,7 +170,7 @@ class ScannetDetectionDataset(Dataset):
         meta_data_dir=None,
         num_points=40000,
         use_color=False,
-        use_height=False,
+        use_height=True,
         augment=False,
         use_random_cuboid=True,
         aggressive_rot=False,
@@ -235,7 +235,7 @@ class ScannetDetectionDataset(Dataset):
             mask_axis = 6
         N = len(point_cloud)
         masked_point_cloud = np.zeros((N, mask_axis + 1), dtype=np.float32)
-        masked_point_cloud[:, :mask_axis] = point_cloud
+        masked_point_cloud[:, :mask_axis] = point_cloud[:, :mask_axis]
 
         for box in instance_bboxes:
             # find the points corresponding to the box
@@ -269,6 +269,7 @@ class ScannetDetectionDataset(Dataset):
             point_cloud[:, 3:] = (point_cloud[:, 3:] - MEAN_COLOR_RGB) / 256.0
             pcl_color = point_cloud[:, 3:]
 
+        # TODO: set the default to True. The EquivConv need at least 1 dim for feature.
         if self.use_height:
             floor_height = np.percentile(point_cloud[:, 2], 0.99)
             height = point_cloud[:, 2] - floor_height
@@ -323,10 +324,6 @@ class ScannetDetectionDataset(Dataset):
 
         # TODO: add a binary mask to the point cloud with 1 representing point belonging to the subscene.
         point_cloud_with_mask = self.add_subscene_mask(point_cloud, instance_bboxes)
-        # TODO: the original point cloud with have a mask with value 0 across all points while the query subscene has a
-        #  proper binary mask representing the query points.
-        point_cloud = point_cloud_with_mask.copy()
-        point_cloud[..., -1] = 0.0
         # trimesh.points.PointCloud(point_cloud[:, :3]).show()
         # subscene = point_cloud_with_mask[point_cloud_with_mask[:, 3] == 1, :3]
         # trimesh.points.PointCloud(subscene).show()
