@@ -88,6 +88,8 @@ class Model3DETR(nn.Module):
 
     def __init__(
         self,
+        pre_encoder_sub,
+        encoder_sub,
         pre_encoder,
         encoder,
         decoder,
@@ -101,6 +103,8 @@ class Model3DETR(nn.Module):
         n_rot=4
     ):
         super().__init__()
+        self.pre_encoder_sub = pre_encoder_sub
+        self.encoder_sub = encoder_sub
         self.pre_encoder = pre_encoder
         self.encoder = encoder
         if hasattr(self.encoder, "masking_radius"):
@@ -190,13 +194,19 @@ class Model3DETR(nn.Module):
         features = pc[..., 3:].transpose(1, 2).contiguous() if pc.size(-1) > 3 else None
         return xyz, features
 
-    def run_encoder(self, point_clouds):
+    def run_encoder(self, point_clouds, is_subscene):
         xyz, features = self._break_up_pc(point_clouds)
         # TODO: apply the equivariant pre_encoder.
-        pre_enc_xyz, pre_enc_features, pre_enc_inds, pre_enc_bq_inds = apply_pre_encoder(xyz,
-                                                                                         features,
-                                                                                         self.pre_encoder,
-                                                                                         n_rot=self.n_rot)
+        if is_subscene:
+            pre_enc_xyz, pre_enc_features, pre_enc_inds, pre_enc_bq_inds = apply_pre_encoder(xyz,
+                                                                                             features,
+                                                                                             self.pre_encoder_sub,
+                                                                                             n_rot=self.n_rot)
+        else:
+            pre_enc_xyz, pre_enc_features, pre_enc_inds, pre_enc_bq_inds = apply_pre_encoder(xyz,
+                                                                                             features,
+                                                                                             self.pre_encoder,
+                                                                                             n_rot=self.n_rot)
         # xyz: batch x npoints x 3
         # features: batch x channel x Nr x npoints
         # inds: batch x npoints
@@ -206,10 +216,16 @@ class Model3DETR(nn.Module):
         pre_enc_features = pre_enc_features.flatten(1, 2)
         pre_enc_features = pre_enc_features.permute(2, 0, 1)
 
-        # xyz points are in batch x npointx channel order
-        enc_xyz, enc_features, enc_inds = self.encoder(
-            pre_enc_features, xyz=pre_enc_xyz
-        )
+        # xyz points are in batch x npointx channel
+        if is_subscene:
+            enc_xyz, enc_features, enc_inds = self.encoder_sub(
+                pre_enc_features, xyz=pre_enc_xyz
+            )
+        else:
+            enc_xyz, enc_features, enc_inds = self.encoder(
+                pre_enc_features, xyz=pre_enc_xyz
+            )
+
         if enc_inds is None:
             # encoder does not perform any downsampling
             enc_inds = pre_enc_inds
@@ -317,7 +333,7 @@ class Model3DETR(nn.Module):
     def forward(self, inputs, subscene_inputs=None, encoder_only=False):
         point_clouds = inputs["point_clouds"]
 
-        enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds)
+        enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds, is_subscene=subscene_inputs is None)
         enc_features = self.encoder_to_decoder_projection(
             enc_features.permute(1, 2, 0)
         ).permute(2, 0, 1)
@@ -477,6 +493,11 @@ def build_decoder(args):
 
 
 def build_3detr(args, dataset_config):
+    # TODO:
+    # build pre_encoder and encoder for the subscene.
+    pre_encoder_sub = build_preencoder(args)
+    encoder_sub = build_encoder(args)
+
     pre_encoder = build_preencoder(args)
     encoder = build_encoder(args)
     decoder = build_decoder(args)
@@ -484,6 +505,8 @@ def build_3detr(args, dataset_config):
     query_embedding = QueryEmbedding(args.dec_dim)
 
     model = Model3DETR(
+        pre_encoder_sub,
+        encoder_sub,
         pre_encoder,
         encoder,
         decoder,
