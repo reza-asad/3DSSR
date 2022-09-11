@@ -75,7 +75,8 @@ def train_one_epoch(
         curr_time = time.time()
         curr_lr = adjust_learning_rate(args, optimizer, curr_iter / max_iters)
         for key in batch_data_label:
-            batch_data_label[key] = batch_data_label[key].to(net_device)
+            if key != 'scan_name':
+                batch_data_label[key] = batch_data_label[key].to(net_device)
 
         # Forward pass
         optimizer.zero_grad()
@@ -155,6 +156,7 @@ def evaluate(
     dataset_loader,
     logger,
     curr_train_iter,
+    per_class_proposal=True
 ):
 
     # ap calculator is exact for evaluation. This is slower than the ap calculator used during training.
@@ -163,6 +165,7 @@ def evaluate(
         ap_iou_thresh=[0.25, 0.5],
         class2type_map=dataset_config.class2type,
         exact_eval=True,
+        per_class_proposal=per_class_proposal
     )
 
     curr_iter = 0
@@ -178,7 +181,8 @@ def evaluate(
     for batch_idx, batch_data_label in enumerate(dataset_loader):
         curr_time = time.time()
         for key in batch_data_label:
-            batch_data_label[key] = batch_data_label[key].to(net_device)
+            if key != 'scan_name':
+                batch_data_label[key] = batch_data_label[key].to(net_device)
 
         # TODO: encode the point cloud with mask first.
         masked_inputs = {"point_clouds": batch_data_label["point_clouds_with_mask"]}
