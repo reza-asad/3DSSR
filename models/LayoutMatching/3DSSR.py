@@ -84,7 +84,6 @@ def make_args_parser():
     )
     parser.add_argument("--nqueries", default=256, type=int)
     parser.add_argument("--use_color", default=False, action="store_true")
-    parser.add_argument("--aggressive_rot", default=False, action="store_true")
 
     ##### Set Loss #####
     ### Matcher
@@ -125,6 +124,8 @@ def make_args_parser():
     )
     parser.add_argument("--dataset_num_workers", default=4, type=int)
     parser.add_argument("--batchsize_per_gpu", default=8, type=int)
+    parser.add_argument("--aggressive_rot", default=False, action="store_true")
+    parser.add_argument("--augment_eval", default=False, action="store_true")
 
     ##### Training #####
     parser.add_argument("--start_epoch", default=-1, type=int)

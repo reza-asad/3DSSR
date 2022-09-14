@@ -344,6 +344,8 @@ class ScannetDetectionDataset(Dataset):
 
             # TODO: allow for more aggressive rotation
             # Rotation along up-axis/Z-axis
+            if self.split_set != 'train':
+                np.random.seed(0)
             if self.aggressive_rot:
                 rot_angle = np.random.uniform(0, 2*np.pi)
             else:

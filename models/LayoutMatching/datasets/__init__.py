@@ -28,7 +28,8 @@ def build_dataset(args):
             split_set="val", 
             root_dir=args.dataset_root_dir, 
             use_color=args.use_color,
-            augment=False
+            augment=args.augment_eval,
+            use_random_cuboid=False
         ),
     }
     return dataset_dict, dataset_config
