@@ -101,7 +101,7 @@ class Model3DETR(nn.Module):
         num_queries=256,
         query_embedding=None,
         n_rot=4,
-        preenc_npoints=2048
+        rot_predictor=None
     ):
         super().__init__()
         self.pre_encoder_sub = pre_encoder_sub
@@ -144,18 +144,7 @@ class Model3DETR(nn.Module):
         self.n_rot = n_rot
 
         # TODO: add MLP for finding the rotation angle between target and query scenes.
-        self.rot_predictor = GenericMLP(
-            input_dim=preenc_npoints,
-            hidden_dims=hidden_dims,
-            output_dim=1,
-            norm_fn_name="bn1d",
-            activation="relu",
-            output_activation='sigmoid',
-            use_conv=False,
-            output_use_activation=True,
-            output_use_norm=False,
-            output_use_bias=False,
-        )
+        self.rot_predictor = rot_predictor
 
     def build_mlp_heads(self, dataset_config, decoder_dim, mlp_dropout):
         mlp_func = partial(
@@ -540,6 +529,23 @@ def build_3detr(args, dataset_config):
     # TODO: find embedding for query points in the target scene by attending to points in the query scene.
     query_embedding = QueryEmbedding(args.dec_dim)
 
+    # TODO: add rotation predictor if alignment is needed.
+    rot_predictor = None
+    if args.aggressive_rot:
+        hidden_dims = [args.enc_dim, args.enc_dim]
+        rot_predictor = GenericMLP(
+            input_dim=args.preenc_npoints,
+            hidden_dims=hidden_dims,
+            output_dim=1,
+            norm_fn_name="bn1d",
+            activation="relu",
+            output_activation='sigmoid',
+            use_conv=False,
+            output_use_activation=True,
+            output_use_norm=False,
+            output_use_bias=False,
+        )
+
     model = Model3DETR(
         pre_encoder_sub,
         encoder_sub,
@@ -553,7 +559,7 @@ def build_3detr(args, dataset_config):
         num_queries=args.nqueries,
         query_embedding=query_embedding,
         n_rot=args.n_rot,
-        preenc_npoints=args.preenc_npoints
+        rot_predictor=rot_predictor
     )
     output_processor = BoxProcessor(dataset_config)
     return model, output_processor

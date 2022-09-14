@@ -229,7 +229,7 @@ def evaluate(
             B, _, _ = enc_features_q.shape
             for i in range(B):
                 masked_inputs['point_clouds'][i, :, 0:3] = torch.mm(masked_inputs['point_clouds'][i, :, 0:3],
-                                                                    batch_data_label['rot_mat'].permute(0, 2, 1)[i, ...])
+                                                                    pred_rot_mat.permute(0, 2, 1)[i, ...])
 
             # encode the aligned query scene.
             enc_xyz_q, enc_features_q = model(masked_inputs, encoder_only=True)
