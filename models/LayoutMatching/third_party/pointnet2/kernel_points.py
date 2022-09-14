@@ -262,7 +262,7 @@ def load_kernels(radius, num_kpoints, dimension, fixed, lloyd=False):
             # Save points
             kernel_points = kernel_points[best_k, :, :]
 
-        write_ply(kernel_file, kernel_points, ['x', 'y', 'z'])
+        # write_ply(kernel_file, kernel_points, ['x', 'y', 'z'])
 
     else:
         data = read_ply(kernel_file)
