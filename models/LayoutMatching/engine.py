@@ -220,7 +220,7 @@ def evaluate(
         }
         # TODO: 1) encode the target scene. 2) find the rotation between target and query. 3) rotate the target scene
         #  and compute features. 3) decode the aligned target conditioned on the query.
-        if args.aggressive_rot:
+        if args.aggressive_rot and args.augment_eval:
             # predict the rotation that best aligns target and query.
             pred_rot_mat = model(inputs, subscene_feats=enc_features_q, predict_rotation=True)
             pred_rot_mat = pred_rot_mat.to(device=enc_features_q.device)
@@ -240,7 +240,7 @@ def evaluate(
 
         # TODO: the decoding is conditioned on the query scene.
         outputs = model(inputs, subscene_inputs)
-        if args.aggressive_rot:
+        if args.aggressive_rot and args.augment_eval:
             outputs['outputs']['pred_rot_mat'] = pred_rot_mat
 
         # Compute loss
@@ -256,7 +256,7 @@ def evaluate(
         # Memory intensive as it gathers point cloud GT tensor across all ranks
         outputs["outputs"] = all_gather_dict(outputs["outputs"])
         batch_data_label = all_gather_dict(batch_data_label)
-        ap_calculator.step_meter(outputs, batch_data_label, with_rot_mat=True)
+        ap_calculator.step_meter(outputs, batch_data_label, with_rot_mat=args.aggressive_rot and args.augment_eval)
         time_delta.update(time.time() - curr_time)
         if is_primary() and curr_iter % args.log_every == 0:
             mem_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)
