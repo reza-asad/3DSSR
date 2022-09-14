@@ -256,7 +256,7 @@ def evaluate(
         # Memory intensive as it gathers point cloud GT tensor across all ranks
         outputs["outputs"] = all_gather_dict(outputs["outputs"])
         batch_data_label = all_gather_dict(batch_data_label)
-        ap_calculator.step_meter(outputs, batch_data_label)
+        ap_calculator.step_meter(outputs, batch_data_label, with_rot_mat=True)
         time_delta.update(time.time() - curr_time)
         if is_primary() and curr_iter % args.log_every == 0:
             mem_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)

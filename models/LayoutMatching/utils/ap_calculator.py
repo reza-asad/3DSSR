@@ -309,14 +309,17 @@ class APCalculator(object):
             )
         return batch_gt_map_cls
 
-    def step_meter(self, outputs, targets):
+    def step_meter(self, outputs, targets, with_rot_mat=False):
         if "outputs" in outputs:
             outputs = outputs["outputs"]
+        pred_rot_mat = None
+        if with_rot_mat:
+            pred_rot_mat = outputs["pred_rot_mat"]
         self.step(
             predicted_box_corners=outputs["box_corners"],
             sem_cls_probs=outputs["sem_cls_prob"],
             objectness_probs=outputs["objectness_prob"],
-            batch_pred_rot_mats=outputs["pred_rot_mat"],
+            batch_pred_rot_mats=pred_rot_mat,
             point_cloud=targets["point_clouds"],
             gt_box_corners=targets["gt_box_corners"],
             gt_box_sem_cls_labels=targets["gt_box_sem_cls_label"],
@@ -368,7 +371,8 @@ class APCalculator(object):
         for i in range(bsize):
             self.gt_map_cls[self.scan_cnt] = batch_gt_map_cls[i]
             self.pred_map_cls[self.scan_cnt] = batch_pred_map_cls[i]
-            self.pred_rot_mats[self.scan_cnt] = batch_pred_rot_mats[i]
+            if batch_pred_rot_mats is not None:
+                self.pred_rot_mats[self.scan_cnt] = batch_pred_rot_mats[i]
             self.scan_cnt += 1
 
     def compute_metrics(self):
