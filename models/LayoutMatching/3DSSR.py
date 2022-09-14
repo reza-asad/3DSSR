@@ -380,7 +380,7 @@ def main(local_rank, args):
         else:
             shuffle = False
         if is_distributed():
-            sampler = DistributedSampler(datasets[split], shuffle=shuffle)
+            sampler = DistributedSampler(datasets[split], shuffle=shuffle, drop_last=True)
         elif shuffle:
             sampler = torch.utils.data.RandomSampler(datasets[split])
         else:
