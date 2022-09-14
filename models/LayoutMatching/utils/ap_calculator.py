@@ -316,6 +316,7 @@ class APCalculator(object):
             predicted_box_corners=outputs["box_corners"],
             sem_cls_probs=outputs["sem_cls_prob"],
             objectness_probs=outputs["objectness_prob"],
+            batch_pred_rot_mats=outputs["pred_rot_mat"],
             point_cloud=targets["point_clouds"],
             gt_box_corners=targets["gt_box_corners"],
             gt_box_sem_cls_labels=targets["gt_box_sem_cls_label"],
@@ -327,6 +328,7 @@ class APCalculator(object):
         predicted_box_corners,
         sem_cls_probs,
         objectness_probs,
+        batch_pred_rot_mats,
         point_cloud,
         gt_box_corners,
         gt_box_sem_cls_labels,
@@ -351,9 +353,9 @@ class APCalculator(object):
             self.ap_config_dict,
         )
 
-        self.accumulate(batch_pred_map_cls, batch_gt_map_cls)
+        self.accumulate(batch_pred_map_cls, batch_gt_map_cls, batch_pred_rot_mats)
 
-    def accumulate(self, batch_pred_map_cls, batch_gt_map_cls):
+    def accumulate(self, batch_pred_map_cls, batch_gt_map_cls, batch_pred_rot_mats):
         """Accumulate one batch of prediction and groundtruth.
 
         Args:
@@ -366,6 +368,7 @@ class APCalculator(object):
         for i in range(bsize):
             self.gt_map_cls[self.scan_cnt] = batch_gt_map_cls[i]
             self.pred_map_cls[self.scan_cnt] = batch_pred_map_cls[i]
+            self.pred_rot_mats[self.scan_cnt] = batch_pred_rot_mats[i]
             self.scan_cnt += 1
 
     def compute_metrics(self):
@@ -448,4 +451,5 @@ class APCalculator(object):
     def reset(self):
         self.gt_map_cls = {}  # {scan_id: [(classname, bbox)]}
         self.pred_map_cls = {}  # {scan_id: [(classname, bbox, score)]}
+        self.pred_rot_mats ={}
         self.scan_cnt = 0

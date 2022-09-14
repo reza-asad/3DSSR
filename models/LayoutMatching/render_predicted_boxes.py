@@ -203,7 +203,7 @@ def write_bbox(corners, color, output_file):
     write_ply(verts, colors, indices, output_file)
 
 
-def prepare_scene_for_rendering(args, objects_info, scene_name, query):
+def prepare_scene_for_rendering(args, objects_info, scene_name, rot_mat):
     # load the mesh corresponding to the scene.
     scene_mesh_path = os.path.join(args.scan_dir, scene_name, '{}_vh_clean_2.ply'.format(scene_name))
     scene_mesh = trimesh.load(scene_mesh_path)
@@ -211,6 +211,11 @@ def prepare_scene_for_rendering(args, objects_info, scene_name, query):
     # canonicalize the orientation of the mesh.
     meta_file = os.path.join(args.scan_dir, scene_name, scene_name + '.txt')
     scene_mesh = align_scan(meta_file, scene_mesh)
+
+    # rotate the scene according to the gt/predicted rot mat
+    transformation = np.eye(4)
+    transformation[:3, :3] = rot_mat
+    scene_mesh.apply_transform(transformation)
 
     # load the boxes and add them to the scene mesh.
     scene_with_boxes = [scene_mesh]
@@ -255,9 +260,9 @@ def get_args():
     parser.add_argument('--dataset', default='scannet')
     parser.add_argument('--scan_dir', default='/media/reza/Large/scannet/scans')
     parser.add_argument('--results_dir', default='../../results/{}/LayoutMatching/rendered_results')
-    parser.add_argument("--experiment_name", default='two_scenes_mask_rot_att_query_equiv', type=str)
+    parser.add_argument("--experiment_name", default='two_scenes_mask_rot_att_query_equiv_two_enc_align', type=str)
     parser.add_argument('--color_map_path', default='../../data/{}/color_map.json')
-    parser.add_argument('--num_queries', default=20)
+    parser.add_argument('--num_queries', default=50)
 
     return parser
 
@@ -283,15 +288,25 @@ def main():
     # randomly take num_query results from query predictions.
     np.random.seed(0)
     n = len(query_predictions['query'])
-    indices = np.random.choice(range(n), args.num_queries)
+    indices = np.random.choice(range(n), args.num_queries, replace=False)
 
     # render query and target scenes.
     imgs_captions = []
     for idx in indices:
+        # find the scene name
         scene_name = query_predictions['scene_names'][idx]
 
+        # determine the gt and rpedicted rot mats.
+        if 'rot_mats' not in query_predictions:
+            rot_mat = np.eye(3)
+            pred_rot_mat = np.eye(3)
+        else:
+            rot_mat = np.asarray(query_predictions['rot_mats'][idx])
+            pred_rot_mat = np.asarray(query_predictions['pred_rot_mats'][idx])
+
         # render the scene with gt boxes.
-        scene_with_boxes, num_objects = prepare_scene_for_rendering(args, query_predictions['query'][idx], scene_name, query=True)
+        scene_with_boxes, num_objects = prepare_scene_for_rendering(args, query_predictions['query'][idx], scene_name,
+                                                                    rot_mat=rot_mat)
         img = render_scene(scene_with_boxes)
         img_name = 'gt-{}.png'.format(scene_name)
         output_path = os.path.join(output_dir, img_name)
@@ -302,7 +317,7 @@ def main():
 
         # render the scene with predicted boxes.
         scene_with_boxes, num_objects = prepare_scene_for_rendering(args, query_predictions['predictions'][idx],
-                                                                    scene_name, query=False)
+                                                                    scene_name, rot_mat=pred_rot_mat)
         img = render_scene(scene_with_boxes)
         img_name = 'predicted-{}.png'.format(scene_name)
         output_path = os.path.join(output_dir, img_name)

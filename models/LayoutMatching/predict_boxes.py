@@ -68,7 +68,6 @@ def make_args_parser():
     )
     parser.add_argument("--nqueries", default=256, type=int)
     parser.add_argument("--use_color", default=False, action="store_true")
-    parser.add_argument("--aggressive_rot", default=False, action="store_true")
 
     ##### Dataset #####
     parser.add_argument(
@@ -90,6 +89,8 @@ def make_args_parser():
     )
     parser.add_argument("--dataset_num_workers", default=4, type=int)
     parser.add_argument("--batchsize_per_gpu", default=8, type=int)
+    parser.add_argument("--aggressive_rot", default=False, action="store_true")
+    parser.add_argument("--augment_eval", default=False, action="store_true")
 
     ##### Testing #####
     parser.add_argument("--seed", default=0, type=int)
@@ -134,20 +135,29 @@ def test_model(args, model, model_no_ddp, dataset_config, dataloaders):
     print("==" * 10)
 
     # load all the scan names
-    scan_names = []
+    scan_names, rot_mats = [], []
     for batch_idx, batch_data_label in enumerate(dataloaders["test"]):
         scan_name_batch = batch_data_label['scan_name']
         scan_names += scan_name_batch
+        rot_mat_batch = batch_data_label['rot_mat']
+        rot_mats += rot_mat_batch
 
     # load the predicted and gt boxes.
     predictions = ap_calculator.pred_map_cls
     gt = ap_calculator.gt_map_cls
-
+    pred_rot_mats = ap_calculator.pred_rot_mats
+    print(len(pred_rot_mats))
+    print(pred_rot_mats[0])
+    print(rot_mats[0])
     # iterate through each scan name and record the ground truth and predictions.
-    query_predictions = {'query': [], 'predictions': [], 'scene_names': []}
+    query_predictions = {'query': [], 'predictions': [], 'scene_names': [], 'rot_mats': [], 'pred_rot_mats': []}
     for idx, scan_name in enumerate(scan_names):
         # add scene name
         query_predictions['scene_names'].append(scan_name)
+
+        # add rotation matrix
+        query_predictions['rot_mats'].append(rot_mats[idx].cpu().detach().numpy().tolist())
+        query_predictions['pred_rot_mats'].append(pred_rot_mats[idx].cpu().detach().numpy().tolist())
 
         # add gt query.
         gt_scene = gt[idx]
