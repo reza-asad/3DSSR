@@ -23,6 +23,8 @@ IGNORE_LABEL = -100
 MEAN_COLOR_RGB = np.array([109.8, 97.2, 83.8])
 DATASET_ROOT_DIR = "/home/reza/Documents/research/3DSSR/data/scannet/scannet_train_detection_data"
 DATASET_METADATA_DIR = "/home/reza/Documents/research/3DSSR/data/scannet/meta_data"
+# DATASET_ROOT_DIR = "/home/rasad/scratch/3dssr/data/scannet/scannet_train_detection_data"
+# DATASET_METADATA_DIR = "/home/rasad/scratch/3dssr/data/scannet/meta_data"
 
 
 class ScannetDatasetConfig(object):
