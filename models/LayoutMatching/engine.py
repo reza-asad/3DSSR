@@ -97,16 +97,12 @@ def train_one_epoch(
         # TODO: 1) encode the target scene. 2) find the rotation between target and query. 3) rotate the target scene
         #  and compute features. 3) decode the aligned target conditioned on the query.
         if args.aggressive_rot:
-            # combine encoder features for query and target.
-            enc_xyz_t, enc_features_t = model(inputs, encoder_only=True)
-            enc_features_q_t = torch.sum(enc_features_t * enc_features_q, dim=2)
-
-            # feed the combined features to an MLP
-            pred_rot_mat = model.predict_rot_mat(enc_features_q_t)
-            pred_rot_mat = pred_rot_mat.to(device=enc_features_t.device)
+            # predict the rotation that best aligns target and query.
+            pred_rot_mat = model(inputs, subscene_feats=enc_features_q, predict_rotation=True)
+            pred_rot_mat = pred_rot_mat.to(device=enc_features_q.device)
 
             # rotate the query point cloud to align with target using gt
-            B, _, _ = enc_features_t.shape
+            B, _, _ = enc_features_q.shape
             for i in range(B):
                 masked_inputs['point_clouds'][i, :, 0:3] = torch.mm(masked_inputs['point_clouds'][i, :, 0:3],
                                                                     batch_data_label['rot_mat'].permute(0, 2, 1)[i, ...])

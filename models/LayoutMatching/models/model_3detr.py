@@ -361,7 +361,7 @@ class Model3DETR(nn.Module):
 
         return pred_rot_mat
 
-    def forward(self, inputs, subscene_inputs=None, encoder_only=False):
+    def forward(self, inputs, subscene_inputs=None, subscene_feats=None, encoder_only=False, predict_rotation=False):
         point_clouds = inputs["point_clouds"]
 
         enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds, is_subscene=subscene_inputs is None)
@@ -370,6 +370,11 @@ class Model3DETR(nn.Module):
         ).permute(2, 0, 1)
         # encoder features: npoints x batch x channel
         # encoder xyz: npoints x batch x 3
+
+        # TODO: return predicted rotation matrix
+        if predict_rotation:
+            enc_features_q_t = torch.sum(enc_features.permute(1, 0, 2) * subscene_feats, dim=2)
+            return self.predict_rot_mat(enc_features_q_t)
 
         if encoder_only:
             # return: batch x npoints x channels
