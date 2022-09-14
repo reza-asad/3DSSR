@@ -35,6 +35,7 @@ ACTIVATION_DICT = {
     "relu": nn.ReLU,
     "gelu": nn.GELU,
     "leakyrelu": partial(nn.LeakyReLU, negative_slope=0.1),
+    "sigmoid": nn.Sigmoid
 }
 
 WEIGHT_INIT_DICT = {
@@ -50,6 +51,7 @@ class GenericMLP(nn.Module):
         output_dim,
         norm_fn_name=None,
         activation="relu",
+        output_activation=None,
         use_conv=False,
         dropout=None,
         hidden_use_bias=False,
@@ -94,8 +96,11 @@ class GenericMLP(nn.Module):
             layers.append(norm(output_dim))
 
         if output_use_activation:
-            layers.append(activation())
-
+            # TODO: allow for a different activation in the output layer.
+            if output_activation is None:
+                layers.append(activation())
+            else:
+                layers.append(ACTIVATION_DICT[output_activation]())
         self.layers = nn.Sequential(*layers)
 
         if weight_init_name is not None:

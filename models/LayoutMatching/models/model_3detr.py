@@ -100,7 +100,8 @@ class Model3DETR(nn.Module):
         mlp_dropout=0.3,
         num_queries=256,
         query_embedding=None,
-        n_rot=4
+        n_rot=4,
+        preenc_npoints=2048
     ):
         super().__init__()
         self.pre_encoder_sub = pre_encoder_sub
@@ -141,6 +142,20 @@ class Model3DETR(nn.Module):
         self.query_embedding = query_embedding
         self.box_processor = BoxProcessor(dataset_config)
         self.n_rot = n_rot
+
+        # TODO: add MLP for finding the rotation angle between target and query scenes.
+        self.rot_predictor = GenericMLP(
+            input_dim=preenc_npoints,
+            hidden_dims=hidden_dims,
+            output_dim=1,
+            norm_fn_name="bn1d",
+            activation="relu",
+            output_activation='sigmoid',
+            use_conv=False,
+            output_use_activation=True,
+            output_use_norm=False,
+            output_use_bias=False,
+        )
 
     def build_mlp_heads(self, dataset_config, decoder_dim, mlp_dropout):
         mlp_func = partial(
@@ -330,6 +345,22 @@ class Model3DETR(nn.Module):
             "aux_outputs": aux_outputs,  # output from intermediate layers of decoder
         }
 
+    # TODO: add function to convert predicted rotation angle around z-axis to matrix.
+    def predict_rot_mat(self, enc_features_q_t):
+        B, _ = enc_features_q_t.shape
+        pred_rot_mat = torch.zeros((B, 3, 3), dtype=torch.float32)
+        pred_rot_angle = self.rot_predictor(enc_features_q_t) * 2 * np.pi
+        for i in range(B):
+            c = torch.cos(pred_rot_angle[i])
+            s = torch.sin(pred_rot_angle[i])
+            pred_rot_mat[i, 0, 0] = c
+            pred_rot_mat[i, 0, 1] = -s
+            pred_rot_mat[i, 1, 0] = s
+            pred_rot_mat[i, 1, 1] = c
+            pred_rot_mat[i, 2, 2] = 1
+
+        return pred_rot_mat
+
     def forward(self, inputs, subscene_inputs=None, encoder_only=False):
         point_clouds = inputs["point_clouds"]
 
@@ -387,7 +418,7 @@ def agg_subscene_feats(tgt, query_embed, subscene_inputs, query_embedding):
 def build_preencoder(args):
     # TODO: replace the regular set aggregator from PointNet with an equivariant version.
     sa1 = KPE2ModuleVotes(
-        npoint=2048,
+        npoint=args.preenc_npoints,
         radius=0.2,
         nsample=64,
         in_dim=1,
@@ -397,7 +428,7 @@ def build_preencoder(args):
         is_first_layer=True
     )
     sa2 = KPE2ModuleVotes(
-        npoint=2048,
+        npoint=args.preenc_npoints,
         radius=0.2,
         nsample=64,
         in_dim=32,
@@ -406,7 +437,7 @@ def build_preencoder(args):
         norm_2d=args.norm_2d
     )
     sa3 = KPE2ModuleVotes(
-        npoint=1024,
+        npoint=args.preenc_npoints//2,
         radius=0.4,
         nsample=32,
         in_dim=32,
@@ -415,7 +446,7 @@ def build_preencoder(args):
         norm_2d=args.norm_2d
     )
     fp1 = KPE2ModuleVotes(
-        npoint=2048,
+        npoint=args.preenc_npoints,
         radius=0.2,
         nsample=64,
         in_dim=(32 + 64),
@@ -516,7 +547,8 @@ def build_3detr(args, dataset_config):
         mlp_dropout=args.mlp_dropout,
         num_queries=args.nqueries,
         query_embedding=query_embedding,
-        n_rot=args.n_rot
+        n_rot=args.n_rot,
+        preenc_npoints=args.preenc_npoints
     )
     output_processor = BoxProcessor(dataset_config)
     return model, output_processor

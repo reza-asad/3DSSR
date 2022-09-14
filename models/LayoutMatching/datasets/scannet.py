@@ -329,6 +329,7 @@ class ScannetDetectionDataset(Dataset):
         # trimesh.points.PointCloud(subscene).show()
         # t=y
         # ------------------------------- DATA AUGMENTATION ------------------------------
+        rot_mat = np.eye(3)
         if self.augment:
             # TODO: skip fliping as it does not make sense for 3DSSR.
             # if np.random.random() > 0.5:
@@ -401,8 +402,9 @@ class ScannetDetectionDataset(Dataset):
         ret_dict["gt_box_sem_cls_label"] = target_bboxes_semcls.astype(np.int64)
         ret_dict["gt_box_present"] = target_bboxes_mask.astype(np.float32)
         ret_dict["scan_idx"] = np.array(idx).astype(np.int64)
-        # TODO: take the scan name
+        # TODO: take the scan name and rotation angle between query and target.
         ret_dict["scan_name"] = scan_name
+        ret_dict["rot_mat"] = rot_mat.astype(np.float32)
         ret_dict["pcl_color"] = pcl_color
         ret_dict["gt_box_sizes"] = raw_sizes.astype(np.float32)
         ret_dict["gt_box_sizes_normalized"] = box_sizes_normalized.astype(np.float32)

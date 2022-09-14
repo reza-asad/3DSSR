@@ -4,7 +4,7 @@ import trimesh
 import numpy as np
 from PIL import Image
 
-from scripts.helper import load_from_json
+from scripts.helper import load_from_json, create_img_table
 from scripts.renderer import Render
 
 class2type = {
@@ -214,8 +214,6 @@ def prepare_scene_for_rendering(args, objects_info, scene_name, query):
 
     # load the boxes and add them to the scene mesh.
     scene_with_boxes = [scene_mesh]
-    print(len(objects_info))
-    # t=y
     for object_info in objects_info:
         # load the class id and map it to a category.
         category = class2type[object_info['class_id']]
@@ -233,7 +231,7 @@ def prepare_scene_for_rendering(args, objects_info, scene_name, query):
         box = trimesh.load('test.ply')
         scene_with_boxes.append(box)
 
-    return trimesh.Scene(scene_with_boxes)
+    return trimesh.Scene(scene_with_boxes), len(objects_info)
 
 
 def render_scene(scene_with_boxes):
@@ -259,7 +257,7 @@ def get_args():
     parser.add_argument('--results_dir', default='../../results/{}/LayoutMatching/rendered_results')
     parser.add_argument("--experiment_name", default='two_scenes_mask_rot_att_query_equiv', type=str)
     parser.add_argument('--color_map_path', default='../../data/{}/color_map.json')
-    parser.add_argument('--num_queries', default=1)
+    parser.add_argument('--num_queries', default=20)
 
     return parser
 
@@ -275,6 +273,9 @@ def adjust_paths(args):
 def main():
     # create a directory for results
     boxes_path = os.path.join(args.results_dir, args.experiment_name, 'query_predictions.json')
+    output_dir = os.path.join(args.results_dir, args.experiment_name, 'imgs')
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
 
     # load the query and predicted boxes.
     query_predictions = load_from_json(boxes_path)
@@ -285,18 +286,35 @@ def main():
     indices = np.random.choice(range(n), args.num_queries)
 
     # render query and target scenes.
+    imgs_captions = []
     for idx in indices:
         scene_name = query_predictions['scene_names'][idx]
 
         # render the scene with gt boxes.
-        # scene_with_boxes = prepare_scene_for_rendering(args, query_predictions['query'][idx], scene_name, query=True)
-        # img = render_scene(scene_with_boxes)
-        # output_path = os.path.join(args.results_dir, 'gt-{}.png'.format(scene_name))
-        # img.save(output_path)
+        scene_with_boxes, num_objects = prepare_scene_for_rendering(args, query_predictions['query'][idx], scene_name, query=True)
+        img = render_scene(scene_with_boxes)
+        img_name = 'gt-{}.png'.format(scene_name)
+        output_path = os.path.join(output_dir, img_name)
+        img.save(output_path)
+        caption = '<br />\n'
+        caption += 'Num objects: {} <br />\n'.format(num_objects)
+        imgs_captions.append((img_name, caption))
 
         # render the scene with predicted boxes.
-        scene_with_boxes = prepare_scene_for_rendering(args, query_predictions['predictions'][idx], scene_name,
-                                                       query=False)
+        scene_with_boxes, num_objects = prepare_scene_for_rendering(args, query_predictions['predictions'][idx],
+                                                                    scene_name, query=False)
+        img = render_scene(scene_with_boxes)
+        img_name = 'predicted-{}.png'.format(scene_name)
+        output_path = os.path.join(output_dir, img_name)
+        img.save(output_path)
+        caption = '<br />\n'
+        caption += 'Num objects: {} <br />\n'.format(num_objects)
+        imgs_captions.append((img_name, caption))
+
+    # create img table.
+    imgs, captions = list(zip(*imgs_captions))
+    create_img_table(output_dir, 'imgs', imgs, 'img_table.html', topk=args.num_queries*2, ncols=2, captions=captions,
+                     with_query_scene=False, evaluation_plot=None, query_img=None, query_caption=None)
 
 
 if __name__ == '__main__':
