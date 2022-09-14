@@ -380,7 +380,7 @@ def main(local_rank, args):
         else:
             shuffle = False
         if is_distributed():
-            sampler = DistributedSampler(datasets[split], shuffle=shuffle, drop_last=True)
+            sampler = DistributedSampler(datasets[split], shuffle=shuffle)
         elif shuffle:
             sampler = torch.utils.data.RandomSampler(datasets[split])
         else:
@@ -392,7 +392,8 @@ def main(local_rank, args):
             batch_size=args.batchsize_per_gpu,
             num_workers=args.dataset_num_workers,
             worker_init_fn=my_worker_init_fn,
-            collate_fn=collate_fn
+            collate_fn=collate_fn,
+            drop_last=True
         )
         dataloaders[split + "_sampler"] = sampler
 
