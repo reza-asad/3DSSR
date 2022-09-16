@@ -198,10 +198,10 @@ class Model3DETR(nn.Module):
         features = pc[..., 3:].transpose(1, 2).contiguous() if pc.size(-1) > 3 else None
         return xyz, features
 
-    def run_encoder(self, point_clouds, is_subscene):
+    def run_encoder(self, point_clouds, is_masked):
         xyz, features = self._break_up_pc(point_clouds)
         # TODO: apply the equivariant pre_encoder.
-        if is_subscene:
+        if is_masked:
             pre_enc_xyz, pre_enc_features, pre_enc_inds, pre_enc_bq_inds = apply_pre_encoder(xyz,
                                                                                              features,
                                                                                              self.pre_encoder_sub,
@@ -221,7 +221,7 @@ class Model3DETR(nn.Module):
         pre_enc_features = pre_enc_features.permute(2, 0, 1)
 
         # xyz points are in batch x npointx channel
-        if is_subscene:
+        if is_masked:
             enc_xyz, enc_features, enc_inds = self.encoder_sub(
                 pre_enc_features, xyz=pre_enc_xyz
             )
@@ -350,10 +350,10 @@ class Model3DETR(nn.Module):
 
         return pred_rot_mat
 
-    def forward(self, inputs, subscene_inputs=None, subscene_feats=None, encoder_only=False, predict_rotation=False):
+    def forward(self, inputs, encoded_subscene_inputs=None, is_masked=False, encoder_only=False, predict_rotation=False):
         point_clouds = inputs["point_clouds"]
 
-        enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds, is_subscene=subscene_inputs is None)
+        enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds, is_masked=is_masked)
         enc_features = self.encoder_to_decoder_projection(
             enc_features.permute(1, 2, 0)
         ).permute(2, 0, 1)
@@ -362,8 +362,8 @@ class Model3DETR(nn.Module):
 
         # TODO: return predicted rotation matrix
         if predict_rotation:
-            enc_features_q_t = torch.sum(enc_features.permute(1, 0, 2) * subscene_feats, dim=2)
-            return self.predict_rot_mat(enc_features_q_t)
+            enc_features_q_t = torch.sum(enc_features * encoded_subscene_inputs['enc_features'], dim=2)
+            return self.predict_rot_mat(enc_features_q_t.permute(1, 0))
 
         if encoder_only:
             # return: batch x npoints x channels
@@ -382,12 +382,12 @@ class Model3DETR(nn.Module):
         query_embed = query_embed.permute(2, 0, 1)
 
         # TODO: compute the positional encoding for the query scene.
-        enc_pos_q = self.pos_embedding(subscene_inputs['enc_xyz'], input_range=point_cloud_dims)
-        subscene_inputs['enc_pos'] = enc_pos_q.permute(2, 0, 1)
+        enc_pos_q = self.pos_embedding(encoded_subscene_inputs['enc_xyz'], input_range=point_cloud_dims)
+        encoded_subscene_inputs['enc_pos'] = enc_pos_q.permute(2, 0, 1)
 
         # TODO: aggregate subscene features around each query point to build target.
         tgt = torch.zeros_like(query_embed)
-        tgt = agg_subscene_feats(tgt, query_embed, subscene_inputs, self.query_embedding)
+        tgt = agg_subscene_feats(tgt, query_embed, encoded_subscene_inputs, self.query_embedding)
         box_features = self.decoder(
             tgt, enc_features, query_pos=query_embed, pos=enc_pos
         )[0]

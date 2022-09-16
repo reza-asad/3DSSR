@@ -297,7 +297,7 @@ def main():
         scene_name = query_predictions['scene_names'][idx]
 
         # determine the gt and rpedicted rot mats.
-        if 'rot_mats' not in query_predictions:
+        if ('rot_mats' not in query_predictions) or len(query_predictions['rot_mats']) == 0:
             rot_mat = np.eye(3)
             pred_rot_mat = np.eye(3)
         else:

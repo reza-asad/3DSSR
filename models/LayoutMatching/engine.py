@@ -82,41 +82,56 @@ def train_one_epoch(
         # Forward pass
         optimizer.zero_grad()
 
-        # TODO: encode the point cloud with mask first.
-        masked_inputs = {"point_clouds": batch_data_label["point_clouds_with_mask"]}
-        enc_xyz_q, enc_features_q = model(masked_inputs, encoder_only=True)
-        subscene_inputs = {
-            "enc_xyz": enc_xyz_q,
-            "enc_features": enc_features_q.transpose(1, 0)
-        }
+        # TODO: add masked subscene inputs.
+        query_point_cloud_masked = torch.cat((batch_data_label["point_clouds_with_mask"][..., 0:3],
+                                              batch_data_label["point_clouds_with_mask"][..., 4:5]),
+                                             dim=2)
+        masked_subscene_inputs = {"point_clouds": query_point_cloud_masked.clone()}
         inputs = {
             "point_clouds": batch_data_label["point_clouds"],
             "point_cloud_dims_min": batch_data_label["point_cloud_dims_min"],
             "point_cloud_dims_max": batch_data_label["point_cloud_dims_max"],
         }
+
+        # TODO: encode the point cloud with mask first.
+        if not args.aggressive_rot:
+            enc_xyz_q, enc_features_q = model(masked_subscene_inputs, is_masked=True, encoder_only=True)
+            encoded_subscene_inputs = {
+                "enc_xyz": enc_xyz_q,
+                "enc_features": enc_features_q.transpose(1, 0)
+            }
+            outputs = model(inputs, encoded_subscene_inputs=encoded_subscene_inputs, is_masked=False)
         # TODO: 1) encode the target scene. 2) find the rotation between target and query. 3) rotate the target scene
         #  and compute features. 3) decode the aligned target conditioned on the query.
-        if args.aggressive_rot:
+        else:
+            # apply the encoder (without mask) on the query scene.
+            subscene_inputs = {"point_clouds": batch_data_label["point_clouds_with_mask"][..., :4].clone()}
+            enc_xyz_q, enc_features_q = model(subscene_inputs, is_masked=False, encoder_only=True)
+            encoded_subscene_inputs = {
+                "enc_xyz": enc_xyz_q,
+                "enc_features": enc_features_q.transpose(1, 0)
+            }
+
             # predict the rotation that best aligns target and query.
-            pred_rot_mat = model(inputs, subscene_feats=enc_features_q, predict_rotation=True)
+            pred_rot_mat = model(inputs, encoded_subscene_inputs=encoded_subscene_inputs, is_masked=False,
+                                 predict_rotation=True)
             pred_rot_mat = pred_rot_mat.to(device=enc_features_q.device)
 
             # rotate the query point cloud to align with target using gt
             B, _, _ = enc_features_q.shape
             for i in range(B):
-                masked_inputs['point_clouds'][i, :, 0:3] = torch.mm(masked_inputs['point_clouds'][i, :, 0:3],
-                                                                    batch_data_label['rot_mat'].permute(0, 2, 1)[i, ...])
+                masked_subscene_inputs['point_clouds'][i, :, 0:3] = torch.mm(masked_subscene_inputs['point_clouds'][i, :, 0:3],
+                                                                             batch_data_label['rot_mat'].permute(0, 2, 1)[i, ...])
 
             # encode the aligned query scene.
-            enc_xyz_q, enc_features_q = model(masked_inputs, encoder_only=True)
-            subscene_inputs = {
+            enc_xyz_q, enc_features_q = model(masked_subscene_inputs, is_masked=True, encoder_only=True)
+            encoded_subscene_inputs = {
                 "enc_xyz": enc_xyz_q,
                 "enc_features": enc_features_q.transpose(1, 0)
             }
 
-        # TODO: the decoding is conditioned on the query scene.
-        outputs = model(inputs, subscene_inputs)
-        if args.aggressive_rot:
+            # apply the model on aligned query and target.
+            outputs = model(inputs, encoded_subscene_inputs, is_masked=False)
             outputs['outputs']['pred_rot_mat'] = pred_rot_mat
 
         # Compute loss
@@ -206,41 +221,56 @@ def evaluate(
             if key != 'scan_name':
                 batch_data_label[key] = batch_data_label[key].to(net_device)
 
-        # TODO: encode the point cloud with mask first.
-        masked_inputs = {"point_clouds": batch_data_label["point_clouds_with_mask"]}
-        enc_xyz_q, enc_features_q = model(masked_inputs, encoder_only=True)
-        subscene_inputs = {
-            "enc_xyz": enc_xyz_q,
-            "enc_features": enc_features_q.transpose(1, 0)
-        }
+        # TODO: add masked subscene inputs.
+        query_point_cloud_masked = torch.cat((batch_data_label["point_clouds_with_mask"][..., 0:3],
+                                              batch_data_label["point_clouds_with_mask"][..., 4:5]),
+                                             dim=2)
+        masked_subscene_inputs = {"point_clouds": query_point_cloud_masked.clone()}
         inputs = {
             "point_clouds": batch_data_label["point_clouds"],
             "point_cloud_dims_min": batch_data_label["point_cloud_dims_min"],
             "point_cloud_dims_max": batch_data_label["point_cloud_dims_max"],
         }
+
+        # TODO: encode the point cloud with mask first.
+        if not args.aggressive_rot:
+            enc_xyz_q, enc_features_q = model(masked_subscene_inputs, is_masked=True, encoder_only=True)
+            encoded_subscene_inputs = {
+                "enc_xyz": enc_xyz_q,
+                "enc_features": enc_features_q.transpose(1, 0)
+            }
+            outputs = model(inputs, encoded_subscene_inputs=encoded_subscene_inputs, is_masked=False)
         # TODO: 1) encode the target scene. 2) find the rotation between target and query. 3) rotate the target scene
         #  and compute features. 3) decode the aligned target conditioned on the query.
-        if args.aggressive_rot and args.augment_eval:
+        else:
+            # apply the encoder (without mask) on the query scene.
+            subscene_inputs = {"point_clouds": batch_data_label["point_clouds_with_mask"][..., :4].clone()}
+            enc_xyz_q, enc_features_q = model(subscene_inputs, is_masked=False, encoder_only=True)
+            encoded_subscene_inputs = {
+                "enc_xyz": enc_xyz_q,
+                "enc_features": enc_features_q.transpose(1, 0)
+            }
+
             # predict the rotation that best aligns target and query.
-            pred_rot_mat = model(inputs, subscene_feats=enc_features_q, predict_rotation=True)
+            pred_rot_mat = model(inputs, encoded_subscene_inputs=encoded_subscene_inputs, is_masked=False,
+                                 predict_rotation=True)
             pred_rot_mat = pred_rot_mat.to(device=enc_features_q.device)
 
             # rotate the query point cloud to align with target using gt
             B, _, _ = enc_features_q.shape
             for i in range(B):
-                masked_inputs['point_clouds'][i, :, 0:3] = torch.mm(masked_inputs['point_clouds'][i, :, 0:3],
-                                                                    pred_rot_mat.permute(0, 2, 1)[i, ...])
+                masked_subscene_inputs['point_clouds'][i, :, 0:3] = torch.mm(masked_subscene_inputs['point_clouds'][i, :, 0:3],
+                                                                             pred_rot_mat.permute(0, 2, 1)[i, ...])
 
             # encode the aligned query scene.
-            enc_xyz_q, enc_features_q = model(masked_inputs, encoder_only=True)
-            subscene_inputs = {
+            enc_xyz_q, enc_features_q = model(masked_subscene_inputs, is_masked=True, encoder_only=True)
+            encoded_subscene_inputs = {
                 "enc_xyz": enc_xyz_q,
                 "enc_features": enc_features_q.transpose(1, 0)
             }
 
-        # TODO: the decoding is conditioned on the query scene.
-        outputs = model(inputs, subscene_inputs)
-        if args.aggressive_rot and args.augment_eval:
+            # apply the model on aligned query and target.
+            outputs = model(inputs, encoded_subscene_inputs, is_masked=False)
             outputs['outputs']['pred_rot_mat'] = pred_rot_mat
 
         # Compute loss

@@ -146,9 +146,7 @@ def test_model(args, model, model_no_ddp, dataset_config, dataloaders):
     predictions = ap_calculator.pred_map_cls
     gt = ap_calculator.gt_map_cls
     pred_rot_mats = ap_calculator.pred_rot_mats
-    print(len(pred_rot_mats))
-    print(pred_rot_mats[0])
-    print(rot_mats[0])
+
     # iterate through each scan name and record the ground truth and predictions.
     query_predictions = {'query': [], 'predictions': [], 'scene_names': [], 'rot_mats': [], 'pred_rot_mats': []}
     for idx, scan_name in enumerate(scan_names):
@@ -156,8 +154,9 @@ def test_model(args, model, model_no_ddp, dataset_config, dataloaders):
         query_predictions['scene_names'].append(scan_name)
 
         # add rotation matrix
-        query_predictions['rot_mats'].append(rot_mats[idx].cpu().detach().numpy().tolist())
-        query_predictions['pred_rot_mats'].append(pred_rot_mats[idx].cpu().detach().numpy().tolist())
+        if len(rot_mats) > 0 and len(pred_rot_mats) > 0:
+            query_predictions['rot_mats'].append(rot_mats[idx].cpu().detach().numpy().tolist())
+            query_predictions['pred_rot_mats'].append(pred_rot_mats[idx].cpu().detach().numpy().tolist())
 
         # add gt query.
         gt_scene = gt[idx]
