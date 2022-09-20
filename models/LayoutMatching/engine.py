@@ -309,3 +309,154 @@ def evaluate(
         logger.log_scalars(test_dict, curr_train_iter, prefix="Test/")
 
     return ap_calculator
+
+
+# TODO: add function to train the alignment module for one epoch.
+def train_one_epoch_alignment(
+    args,
+    curr_epoch,
+    model,
+    optimizer,
+    criterion,
+    dataset_loader,
+    logger,
+):
+
+    curr_iter = curr_epoch * len(dataset_loader)
+    max_iters = args.max_epoch * len(dataset_loader)
+    net_device = next(model.parameters()).device
+
+    time_delta = SmoothedValue(window_size=10)
+    loss_avg = SmoothedValue(window_size=10)
+
+    model.train()
+    barrier()
+
+    total_training_loss = 0
+    for batch_idx, batch_data_label in enumerate(dataset_loader):
+        curr_time = time.time()
+        curr_lr = adjust_learning_rate(args, optimizer, curr_iter / max_iters)
+        for key in batch_data_label:
+            if key != 'scan_name':
+                batch_data_label[key] = batch_data_label[key].to(net_device)
+
+        # Forward pass
+        optimizer.zero_grad()
+
+        inputs = {
+            "query_point_clouds": batch_data_label["point_clouds_with_mask"][..., :4],
+            "target_point_clouds": batch_data_label["point_clouds"]
+        }
+        outputs = model(inputs)
+        outputs['pred_rot_mat'] = outputs['pred_rot_mat'].to(device=net_device)
+
+        # Compute loss
+        loss, loss_dict = criterion(outputs, batch_data_label)
+        loss_reduced = all_reduce_average(loss)
+        total_training_loss += loss_reduced
+        loss_dict_reduced = reduce_dict(loss_dict)
+
+        if not math.isfinite(loss_reduced.item()):
+            logging.info(f"Loss in not finite. Training will be stopped.")
+            sys.exit(1)
+
+        loss.backward()
+        if args.clip_gradient > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_gradient)
+        optimizer.step()
+
+        time_delta.update(time.time() - curr_time)
+        loss_avg.update(loss_reduced.item())
+
+        # logging
+        if is_primary() and curr_iter % args.log_every == 0:
+            mem_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)
+            eta_seconds = (max_iters - curr_iter) * time_delta.avg
+            eta_str = str(datetime.timedelta(seconds=int(eta_seconds)))
+            print(
+                f"Epoch [{curr_epoch}/{args.max_epoch}]; Iter [{curr_iter}/{max_iters}]; Loss {loss_avg.avg:0.2f}; LR {curr_lr:0.2e}; Iter time {time_delta.avg:0.2f}; ETA {eta_str}; Mem {mem_mb:0.2f}MB"
+            )
+            logger.log_scalars(loss_dict_reduced, curr_iter, prefix="Train_details/")
+
+            train_dict = {}
+            train_dict["lr"] = curr_lr
+            train_dict["memory"] = mem_mb
+            train_dict["loss"] = loss_avg.avg
+            train_dict["batch_time"] = time_delta.avg
+            logger.log_scalars(train_dict, curr_iter, prefix="Train/")
+
+        curr_iter += 1
+        barrier()
+
+    return total_training_loss
+
+
+# TODO: add function to evaluate the alignment module after n epochs.
+def evaluate_alignment(
+    args,
+    curr_epoch,
+    model,
+    criterion,
+    dataset_loader,
+    logger,
+    curr_train_iter,
+):
+
+    curr_iter = 0
+    net_device = next(model.parameters()).device
+    num_batches = len(dataset_loader)
+
+    time_delta = SmoothedValue(window_size=10)
+    loss_avg = SmoothedValue(window_size=10)
+    model.eval()
+    barrier()
+    epoch_str = f"[{curr_epoch}/{args.max_epoch}]" if curr_epoch > 0 else ""
+
+    total_validation_loss = 0
+    for batch_idx, batch_data_label in enumerate(dataset_loader):
+        curr_time = time.time()
+        for key in batch_data_label:
+            if key != 'scan_name':
+                batch_data_label[key] = batch_data_label[key].to(net_device)
+
+        inputs = {
+            "query_point_clouds": batch_data_label["point_clouds_with_mask"][..., :4],
+            "target_point_clouds": batch_data_label["point_clouds"]
+        }
+        outputs = model(inputs)
+        outputs['pred_rot_mat'] = outputs['pred_rot_mat'].to(device=net_device)
+
+        # Compute loss
+        loss_str = ""
+        if criterion is not None:
+            loss, loss_dict = criterion(outputs, batch_data_label)
+
+            loss_reduced = all_reduce_average(loss)
+            total_validation_loss += loss_reduced.item()
+            loss_dict_reduced = reduce_dict(loss_dict)
+            loss_avg.update(loss_reduced.item())
+            loss_str = f"Loss {loss_avg.avg:0.2f};"
+
+        time_delta.update(time.time() - curr_time)
+        if is_primary() and curr_iter % args.log_every == 0:
+            mem_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)
+            print(
+                f"Evaluate {epoch_str}; Batch [{curr_iter}/{num_batches}]; {loss_str} Iter time {time_delta.avg:0.2f}; Mem {mem_mb:0.2f}MB"
+            )
+
+            test_dict = {}
+            test_dict["memory"] = mem_mb
+            test_dict["batch_time"] = time_delta.avg
+            if criterion is not None:
+                test_dict["loss"] = loss_avg.avg
+        curr_iter += 1
+        barrier()
+    if is_primary():
+        if criterion is not None:
+            logger.log_scalars(
+                loss_dict_reduced, curr_train_iter, prefix="Test_details/"
+            )
+        logger.log_scalars(test_dict, curr_train_iter, prefix="Test/")
+
+    return total_validation_loss
+

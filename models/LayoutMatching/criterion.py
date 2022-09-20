@@ -394,6 +394,33 @@ class SetCriterion(nn.Module):
         return loss, loss_dict
 
 
+# TODO: add alignment loss
+class AlignmentCriterion(nn.Module):
+    def __init__(self, loss_weight_dict, dataset_config):
+        super().__init__()
+        self.dataset_config = dataset_config
+        self.loss_weight_dict = loss_weight_dict
+
+    def loss_rot_mat(self, outputs, targets):
+        rot_mat = targets["rot_mat"]
+        pred_rot_mat = outputs["pred_rot_mat"]
+        rot_mat_loss = F.l1_loss(pred_rot_mat[:, 0, 0], rot_mat[:, 0, 0]) + F.l1_loss(pred_rot_mat[:, 1, 0], rot_mat[:, 1, 0])
+
+        return {"loss_rot_mat": rot_mat_loss}
+
+    def forward(self, outputs, targets):
+        loss_dict = {}
+        final_loss = 0
+        curr_loss = self.loss_rot_mat(outputs, targets)
+        loss_dict.update(curr_loss)
+        for k in self.loss_weight_dict:
+            if self.loss_weight_dict[k] > 0:
+                loss_dict[k.replace("_weight", "")] *= self.loss_weight_dict[k]
+                final_loss += loss_dict[k.replace("_weight", "")]
+
+        return final_loss, loss_dict
+
+
 def build_criterion(args, dataset_config):
     matcher = Matcher(
         cost_class=args.matcher_cls_cost,
@@ -413,4 +440,13 @@ def build_criterion(args, dataset_config):
         "loss_rot_mat_weight": args.loss_rot_mat_weight
     }
     criterion = SetCriterion(matcher, dataset_config, loss_weight_dict, args.aggressive_rot)
+    return criterion
+
+
+# TODO: build criterion for alignment.
+def build_criterion_alignment(args, dataset_config):
+    loss_weight_dict = {
+        "loss_rot_mat_weight": args.loss_rot_mat_weight
+    }
+    criterion = AlignmentCriterion(loss_weight_dict, dataset_config)
     return criterion

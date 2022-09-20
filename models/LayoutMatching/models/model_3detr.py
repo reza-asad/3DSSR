@@ -69,6 +69,116 @@ class BoxProcessor(object):
         )
 
 
+# TODO: build alignment module.
+class AlignmentModule(nn.Module):
+    def __init__(
+        self,
+        pre_encoder,
+        encoder,
+        rot_predictor,
+        n_rot=4,
+        use_equiv_nets=False
+    ):
+        super().__init__()
+        self.pre_encoder = pre_encoder
+        self.encoder = encoder
+        self.rot_predictor = rot_predictor
+        self.n_rot = n_rot
+        self.use_equiv_nets = use_equiv_nets
+
+    def _break_up_pc(self, pc):
+        # pc may contain color/normals.
+
+        xyz = pc[..., 0:3].contiguous()
+        features = pc[..., 3:].transpose(1, 2).contiguous() if pc.size(-1) > 3 else None
+        return xyz, features
+
+    def run_encoder(self, point_clouds):
+        xyz, features = self._break_up_pc(point_clouds)
+        pre_enc_xyz, pre_enc_features, pre_enc_inds = self.pre_encoder(xyz, features)
+        # xyz: batch x npoints x 3
+        # features: batch x channel x Nr x npoints
+        # inds: batch x npoints
+
+        # nn.MultiHeadAttention in encoder expects npoints x batch x channel features
+        pre_enc_features = pre_enc_features.permute(2, 0, 1)
+
+        # xyz points are in batch x npointx channel
+        enc_xyz, enc_features, enc_inds = self.encoder(
+            pre_enc_features, xyz=pre_enc_xyz
+        )
+
+        if enc_inds is None:
+            # encoder does not perform any downsampling
+            enc_inds = pre_enc_inds
+        else:
+            # use gather here to ensure that it works for both FPS and random sampling
+            enc_inds = torch.gather(pre_enc_inds, 1, enc_inds)
+        return enc_xyz, enc_features, enc_inds
+
+    # TODO: encoder that uses equivariant nets.
+    def run_encoder_equiv(self, point_clouds):
+        xyz, features = self._break_up_pc(point_clouds)
+        pre_enc_xyz, pre_enc_features, pre_enc_inds, pre_enc_bq_inds = apply_pre_encoder(xyz,
+                                                                                         features,
+                                                                                         self.pre_encoder,
+                                                                                         n_rot=self.n_rot)
+        # xyz: batch x npoints x 3
+        # features: batch x channel x Nr x npoints
+        # inds: batch x npoints
+
+        # TODO: modify the transformer layers to handle equivariant features.
+        # nn.MultiHeadAttention in encoder expects npoints x batch x channel features
+        pre_enc_features = pre_enc_features.flatten(1, 2)
+        pre_enc_features = pre_enc_features.permute(2, 0, 1)
+
+        # xyz points are in batch x npointx channel
+        enc_xyz, enc_features, enc_inds = self.encoder(
+            pre_enc_features, xyz=pre_enc_xyz
+        )
+
+        if enc_inds is None:
+            # encoder does not perform any downsampling
+            enc_inds = pre_enc_inds
+        else:
+            # use gather here to ensure that it works for both FPS and random sampling
+            enc_inds = torch.gather(pre_enc_inds, 1, enc_inds)
+        return enc_xyz, enc_features, enc_inds
+
+    def predict_rot_mat(self, enc_features_q_t):
+        B, _ = enc_features_q_t.shape
+        pred_rot_mat = torch.zeros((B, 3, 3), dtype=torch.float32)
+        pred_rot_angle = self.rot_predictor(enc_features_q_t) * 2 * np.pi
+        for i in range(B):
+            c = torch.cos(pred_rot_angle[i])
+            s = torch.sin(pred_rot_angle[i])
+            pred_rot_mat[i, 0, 0] = c
+            pred_rot_mat[i, 0, 1] = -s
+            pred_rot_mat[i, 1, 0] = s
+            pred_rot_mat[i, 1, 1] = c
+            pred_rot_mat[i, 2, 2] = 1
+
+        return pred_rot_mat
+
+    def forward(self, inputs):
+        target_point_clouds = inputs["target_point_clouds"]
+        query_point_clouds = inputs["query_point_clouds"]
+
+        if self.use_equiv_nets:
+            enc_xyz, enc_features, enc_inds = self.run_encoder_equiv(target_point_clouds)
+            enc_xyz_q, enc_features_q, enc_inds_q = self.run_encoder_equiv(query_point_clouds)
+        else:
+            enc_xyz, enc_features, enc_inds = self.run_encoder(target_point_clouds)
+            enc_xyz_q, enc_features_q, enc_inds_q = self.run_encoder(query_point_clouds)
+        # encoder features: npoints x batch x channel
+        # encoder xyz: npoints x batch x 3
+        enc_features_q_t = torch.sum(enc_features * enc_features_q, dim=2)
+
+        pred_rot_mat = self.predict_rot_mat(enc_features_q_t.permute(1, 0))
+
+        return {'pred_rot_mat': pred_rot_mat}
+
+
 class Model3DETR(nn.Module):
     """
     Main 3DETR model. Consists of the following learnable sub-models
@@ -409,8 +519,8 @@ def agg_subscene_feats(tgt, query_embed, subscene_inputs, query_embedding):
     return tgt
 
 
-def build_preencoder(args):
-    # TODO: replace the regular set aggregator from PointNet with an equivariant version.
+# TODO: build preencoder using equiv nets
+def build_preencoder_equiv(args):
     sa1 = KPE2ModuleVotes(
         npoint=args.preenc_npoints,
         radius=0.2,
@@ -449,6 +559,18 @@ def build_preencoder(args):
         norm_2d=args.norm_2d
     )
     preencoder = torch.nn.ModuleList([sa1, sa2, sa3, fp1])
+    return preencoder
+
+
+def build_preencoder(args):
+    mlp_dims = [3 * int(args.use_color) + 1, 64, 128, args.enc_dim]
+    preencoder = PointnetSAModuleVotes(
+        radius=0.2,
+        nsample=64,
+        npoint=args.preenc_npoints,
+        mlp=mlp_dims,
+        normalize_xyz=True,
+    )
     return preencoder
 
 
@@ -518,8 +640,7 @@ def build_decoder(args):
 
 
 def build_3detr(args, dataset_config):
-    # TODO:
-    # build pre_encoder and encoder for the subscene.
+    # TODO: build pre_encoder and encoder for the subscene.
     pre_encoder_sub = build_preencoder(args)
     encoder_sub = build_encoder(args)
 
@@ -563,6 +684,41 @@ def build_3detr(args, dataset_config):
     )
     output_processor = BoxProcessor(dataset_config)
     return model, output_processor
+
+
+# TODO: building an alignment module
+def build_alignment_module(args, dataset_config=None):
+    # the pre-encoder and encoder.
+    if args.equiv_nets:
+        pre_encoder = build_preencoder_equiv(args)
+    else:
+        pre_encoder = build_preencoder(args)
+    encoder = build_encoder(args)
+
+    # the mlp for predicting alignment angle.
+    hidden_dims = [args.enc_dim, args.enc_dim]
+    rot_predictor = GenericMLP(
+        input_dim=args.preenc_npoints,
+        hidden_dims=hidden_dims,
+        output_dim=1,
+        norm_fn_name="bn1d",
+        activation="relu",
+        output_activation='sigmoid',
+        use_conv=False,
+        output_use_activation=True,
+        output_use_norm=False,
+        output_use_bias=False,
+    )
+
+    model = AlignmentModule(
+        pre_encoder,
+        encoder,
+        rot_predictor=rot_predictor,
+        n_rot=args.n_rot,
+        use_equiv_nets=args.equiv_nets
+    )
+
+    return model, None
 
 
 # TODO: expanding features to account for the group SO2
