@@ -172,9 +172,10 @@ class AlignmentModule(nn.Module):
             enc_xyz_q, enc_features_q, enc_inds_q = self.run_encoder(query_point_clouds)
         # encoder features: npoints x batch x channel
         # encoder xyz: npoints x batch x 3
-        enc_features_q_t = torch.sum(enc_features * enc_features_q, dim=2)
-
-        pred_rot_mat = self.predict_rot_mat(enc_features_q_t.permute(1, 0))
+        enc_features_q = torch.sum(enc_features_q, dim=0)
+        enc_features = torch.sum(enc_features, dim=0)
+        enc_features_q_t = torch.cat([enc_features, enc_features_q], dim=1)
+        pred_rot_mat = self.predict_rot_mat(enc_features_q_t)
 
         return {'pred_rot_mat': pred_rot_mat}
 
@@ -698,7 +699,7 @@ def build_alignment_module(args, dataset_config=None):
     # the mlp for predicting alignment angle.
     hidden_dims = [args.enc_dim, args.enc_dim]
     rot_predictor = GenericMLP(
-        input_dim=args.preenc_npoints,
+        input_dim=args.enc_dim * 2,
         hidden_dims=hidden_dims,
         output_dim=1,
         norm_fn_name="bn1d",

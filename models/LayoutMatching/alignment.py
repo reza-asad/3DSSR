@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 # 3DETR codebase specific imports
 from datasets import build_dataset
-from engine import evaluate_alignment, train_one_epoch_alignment
+from engine import evaluate_alignment, evaluate_alignment_svd, train_one_epoch_alignment
 from models import build_model
 from optimizer import build_optimizer
 from criterion import build_criterion_alignment
@@ -80,6 +80,7 @@ def make_args_parser():
     parser.add_argument("--nqueries", default=256, type=int)
     parser.add_argument("--use_color", default=False, action="store_true")
     parser.add_argument("--equiv_nets", default=False, action="store_true")
+    parser.add_argument("--use_svd", default=False, action="store_true")
 
     ##### Dataset #####
     parser.add_argument(
@@ -206,7 +207,7 @@ def do_train(
             )
 
         if epoch % args.eval_every_epoch == 0 or epoch == (args.max_epoch - 1):
-            total_validation_loss = evaluate_alignment(
+            total_validation_loss, errors = evaluate_alignment(
                 args,
                 epoch,
                 model,
@@ -233,11 +234,15 @@ def do_train(
                 print(
                     f"Epoch [{epoch}/{args.max_epoch}] saved current best val checkpoint at {filename}; loss: {total_validation_loss}"
                 )
+                print('Mean angular error is: {} degrees'.format(np.mean(errors) * 180 / np.pi))
+                print('Median angular error is: {} degrees'.format(np.median(errors) * 180 / np.pi))
+                print('Min and Max angular errors is: {} and {} degrees'.format(np.min(errors) * 180 / np.pi,
+                                                                                np.max(errors) * 180 / np.pi))
 
     # always evaluate last checkpoint
     epoch = args.max_epoch - 1
     curr_iter = epoch * len(dataloaders["train"])
-    total_validation_loss = evaluate_alignment(
+    total_validation_loss, errors = evaluate_alignment(
         args,
         epoch,
         model,
@@ -249,6 +254,52 @@ def do_train(
     if is_primary():
         print("==" * 10)
         print(f"Evaluate Final [{epoch}/{args.max_epoch}]; Total Validation Loss {total_validation_loss}")
+        print('Mean angular error is: {} degrees'.format(np.mean(errors) * 180 / np.pi))
+        print('Median angular error is: {} degrees'.format(np.median(errors) * 180 / np.pi))
+        print('Min and Max angular errors is: {} and {} degrees'.format(np.min(errors) * 180 / np.pi,
+                                                                        np.max(errors) * 180 / np.pi))
+        print("==" * 10)
+
+
+def test_model(args, model, model_no_ddp, criterion, dataloaders):
+    if args.test_ckpt is None or not os.path.isfile(args.test_ckpt):
+        f"Please specify a test checkpoint using --test_ckpt. Found invalid value {args.test_ckpt}"
+        sys.exit(1)
+
+    sd = torch.load(args.test_ckpt, map_location=torch.device("cpu"))
+    model_no_ddp.load_state_dict(sd["model"])
+    logger = Logger()
+    epoch = -1
+    curr_iter = 0
+    total_validation_loss = None
+    if args.use_svd:
+        errors = evaluate_alignment_svd(
+            args,
+            epoch,
+            model,
+            criterion,
+            dataloaders["test"],
+            logger,
+            curr_iter,
+        )
+    else:
+        total_validation_loss, errors = evaluate_alignment(
+            args,
+            epoch,
+            model,
+            criterion,
+            dataloaders["test"],
+            logger,
+            curr_iter,
+        )
+
+    if is_primary():
+        print("==" * 10)
+        print(f"Test model; Total Validation Loss {total_validation_loss}")
+        print('Mean angular error is: {} degrees'.format(np.mean(errors) * 180 / np.pi))
+        print('Median angular error is: {} degrees'.format(np.median(errors) * 180 / np.pi))
+        print('Min and Max angular errors is: {} and {} degrees'.format(np.min(errors) * 180 / np.pi,
+                                                                        np.max(errors) * 180 / np.pi))
         print("==" * 10)
 
 
@@ -315,26 +366,29 @@ def main(local_rank, args):
         )
         dataloaders[split + "_sampler"] = sampler
 
-    assert (
-        args.checkpoint_dir is not None
-    ), f"Please specify a checkpoint dir using --checkpoint_dir"
-    if is_primary() and not os.path.isdir(args.checkpoint_dir):
-        os.makedirs(args.checkpoint_dir, exist_ok=True)
-    optimizer = build_optimizer(args, model_no_ddp)
-    loaded_epoch, best_val_metrics = resume_if_possible(
-        args.checkpoint_dir, model_no_ddp, optimizer
-    )
-    args.start_epoch = loaded_epoch + 1
-    do_train(
-        args,
-        model,
-        model_no_ddp,
-        optimizer,
-        criterion,
-        dataset_config,
-        dataloaders,
-        best_val_metrics,
-    )
+    if args.test_only:
+        test_model(args, model, model_no_ddp, criterion, dataloaders)
+    else:
+        assert (
+            args.checkpoint_dir is not None
+        ), f"Please specify a checkpoint dir using --checkpoint_dir"
+        if is_primary() and not os.path.isdir(args.checkpoint_dir):
+            os.makedirs(args.checkpoint_dir, exist_ok=True)
+        optimizer = build_optimizer(args, model_no_ddp)
+        loaded_epoch, best_val_metrics = resume_if_possible(
+            args.checkpoint_dir, model_no_ddp, optimizer
+        )
+        args.start_epoch = loaded_epoch + 1
+        do_train(
+            args,
+            model,
+            model_no_ddp,
+            optimizer,
+            criterion,
+            dataset_config,
+            dataloaders,
+            best_val_metrics,
+        )
 
 
 def collate_fn(batch):

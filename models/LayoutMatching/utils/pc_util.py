@@ -292,3 +292,63 @@ def write_lines_as_cylinders(pcl, filename, rad=0.005, res=64):
         )
     mesh_list = trimesh.util.concatenate(scene.dump())
     trimesh.io.export.export_mesh(mesh_list, "%s.ply" % (filename), file_type="ply")
+
+
+# TODO: add a function ro convert a batch of rotation matrices to angles.
+def find_angle_from_mat(rot_mat_batch):
+    B, _, _ = rot_mat_batch.shape
+    angles = np.zeros(B, dtype=np.float32)
+    for i in range(B):
+        rot_mat = rot_mat_batch[i, ...]
+        sin_theta = rot_mat[0, 0]
+        cos_theta = rot_mat[1, 0]
+        theta = np.arctan2(sin_theta.item(), cos_theta.item())
+        angles[i] = theta
+
+    return angles
+
+
+# TODO: add a function that finds the best rotation aligning two point clouds (correspondence is assumed).
+def svd_rotation(pc_q, pc_t, sample_size=100):
+    # solve for 2D (rotation around upward-z)
+    N, D = pc_q.shape
+    pc_q = pc_q[:, :D-1]
+    pc_t = pc_t[:, :D-1]
+
+    # find the centroids.
+    centroid_q = torch.mean(pc_q, dim=0).reshape(-1, 1)
+    centroid_t = torch.mean(pc_t, dim=0).reshape(-1, 1)
+
+    # sample points.
+    random_indices = np.random.choice(N, sample_size)
+    pc_q = pc_q[random_indices, :].t()
+    pc_t = pc_t[random_indices, :].t()
+
+    # centralize
+    pc_q -= centroid_q
+    pc_t -= centroid_t
+
+    # bring to pc and convert to numpy
+    pc_q = pc_q.detach().cpu().numpy()
+    pc_t = pc_t.detach().cpu().numpy()
+
+    # use svd to find the rotation that best aligns the query scene with the target scene
+    COR = pc_q @ np.transpose(pc_t)
+    U, S, Vt = np.linalg.svd(COR)
+    R = Vt.T @ U.T
+    rot_pc_q = np.dot(R, pc_q)
+    best_err = compute_alignment_error(rot_pc_q, pc_t)
+
+    # If R is a reflection matrix look for best rotation.
+    if np.linalg.det(R) < 0:
+        Vt[2, :] *= -1
+        R = Vt.T @ U.T
+
+    return R, best_err
+
+
+# TODO: alignment error for SVD
+def compute_alignment_error(vertices1, vertices2):
+    err = np.linalg.norm(vertices2 - vertices1)
+
+    return err

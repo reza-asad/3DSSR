@@ -1,4 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
+import numpy as np
 import torch
 import datetime
 import logging
@@ -388,6 +389,11 @@ def train_one_epoch_alignment(
         curr_iter += 1
         barrier()
 
+    if is_primary():
+        # print some predictions
+        print(outputs['pred_rot_mat'][0, 0, 0].item(), batch_data_label['rot_mat'][0, 0, 0].item())
+        print(outputs['pred_rot_mat'][0, 1, 0].item(), batch_data_label['rot_mat'][0, 1, 0].item())
+
     return total_training_loss
 
 
@@ -413,6 +419,7 @@ def evaluate_alignment(
     epoch_str = f"[{curr_epoch}/{args.max_epoch}]" if curr_epoch > 0 else ""
 
     total_validation_loss = 0
+    errors = []
     for batch_idx, batch_data_label in enumerate(dataset_loader):
         curr_time = time.time()
         for key in batch_data_label:
@@ -425,6 +432,16 @@ def evaluate_alignment(
         }
         outputs = model(inputs)
         outputs['pred_rot_mat'] = outputs['pred_rot_mat'].to(device=net_device)
+
+        # convert rotation matrices to angles.
+        pred_angle = pc_util.find_angle_from_mat(outputs['pred_rot_mat'])
+        gt_angle = pc_util.find_angle_from_mat(batch_data_label['rot_mat'])
+
+        # compute and accumulate error.
+        abs_diff = np.abs(pred_angle - gt_angle)
+        batch_errors = np.minimum(abs_diff, 2*np.pi - abs_diff)
+        for i in range(len(batch_errors)):
+            errors.append(batch_errors[i])
 
         # Compute loss
         loss_str = ""
@@ -458,5 +475,87 @@ def evaluate_alignment(
             )
         logger.log_scalars(test_dict, curr_train_iter, prefix="Test/")
 
-    return total_validation_loss
+        # print some predictions
+        print(outputs['pred_rot_mat'][0, 0, 0].item(), batch_data_label['rot_mat'][0, 0, 0].item())
+        print(outputs['pred_rot_mat'][0, 1, 0].item(), batch_data_label['rot_mat'][0, 1, 0].item())
 
+    return total_validation_loss, errors
+
+
+# TODO: use svd for alignment
+def evaluate_alignment_svd(
+    args,
+    curr_epoch,
+    model,
+    criterion,
+    dataset_loader,
+    logger,
+    curr_train_iter,
+):
+
+    curr_iter = 0
+    net_device = next(model.parameters()).device
+    num_batches = len(dataset_loader)
+
+    time_delta = SmoothedValue(window_size=10)
+    loss_avg = SmoothedValue(window_size=10)
+    model.eval()
+    barrier()
+    epoch_str = f"[{curr_epoch}/{args.max_epoch}]" if curr_epoch > 0 else ""
+
+    errors = []
+    for batch_idx, batch_data_label in enumerate(dataset_loader):
+        curr_time = time.time()
+        for key in batch_data_label:
+            if key != 'scan_name':
+                batch_data_label[key] = batch_data_label[key].to(net_device)
+
+        inputs = {
+            "query_point_clouds": batch_data_label["point_clouds_with_mask"][..., :3],
+            "target_point_clouds": batch_data_label["point_clouds"][..., :3]
+        }
+
+        # apply svd
+        outputs = {}
+        B = len(batch_data_label['point_clouds'])
+        pred_rot_mat = torch.zeros((B, 3, 3), dtype=torch.float32)
+        for i in range(B):
+            R, error = pc_util.svd_rotation(inputs['query_point_clouds'][i], inputs['target_point_clouds'][i])
+            rotation = np.zeros((3, 3), dtype=np.float32)
+            rotation[:2, :2] = R
+            rotation[2, 2] = 1.0
+            pred_rot_mat[i, ...] = torch.from_numpy(rotation)
+
+        outputs['pred_rot_mat'] = pred_rot_mat
+        outputs['pred_rot_mat'] = outputs['pred_rot_mat'].to(device=net_device)
+
+        # convert rotation matrices to angles.
+        pred_angle = pc_util.find_angle_from_mat(outputs['pred_rot_mat'])
+        gt_angle = pc_util.find_angle_from_mat(batch_data_label['rot_mat'])
+
+        # compute and accumulate error.
+        abs_diff = np.abs(pred_angle - gt_angle)
+        batch_errors = np.minimum(abs_diff, 2*np.pi - abs_diff)
+        for i in range(len(batch_errors)):
+            errors.append(batch_errors[i])
+
+        time_delta.update(time.time() - curr_time)
+        if is_primary() and curr_iter % args.log_every == 0:
+            mem_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)
+            print(
+                f"Evaluate {epoch_str}; Batch [{curr_iter}/{num_batches}]; Iter time {time_delta.avg:0.2f}; Mem {mem_mb:0.2f}MB"
+            )
+
+            test_dict = {}
+            test_dict["memory"] = mem_mb
+            test_dict["batch_time"] = time_delta.avg
+        curr_iter += 1
+        barrier()
+    if is_primary():
+        logger.log_scalars(test_dict, curr_train_iter, prefix="Test/")
+
+        # print some predictions
+        print(outputs['pred_rot_mat'][0, 0, 0].item(), batch_data_label['rot_mat'][0, 0, 0].item())
+        print(outputs['pred_rot_mat'][0, 1, 0].item(), batch_data_label['rot_mat'][0, 1, 0].item())
+
+    return errors
