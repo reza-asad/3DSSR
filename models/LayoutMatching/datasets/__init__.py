@@ -29,8 +29,8 @@ def build_dataset(args):
             root_dir=args.dataset_root_dir, 
             use_color=args.use_color,
             aggressive_rot=args.aggressive_rot,
-            augment=args.augment_eval,
-            use_random_cuboid=False
+            augment_eval=args.augment_eval,
+            augment=False
         ),
     }
     return dataset_dict, dataset_config

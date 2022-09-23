@@ -5,15 +5,15 @@ from functools import partial
 import numpy as np
 import torch
 import torch.nn as nn
-from third_party.pointnet2.pointnet2_modules import PointnetSAModuleVotes, KPE2ModuleVotes, upsample_eqv_point_features
+from third_party.pointnet2.pointnet2_modules import PointnetSAModuleVotes
 from third_party.pointnet2.pointnet2_utils import furthest_point_sample, QueryAndGroup
 from utils.pc_util import scale_points, shift_scale_points
 
 from models.helpers import GenericMLP
 from models.position_embedding import PositionEmbeddingCoordsSine
 from models.transformer import (MaskedTransformerEncoder, TransformerDecoder,
-                                TransformerDecoderLayer, TransformerEncoderEquiv,
-                                TransformerEncoderLayerEquiv, QueryEmbedding)
+                                TransformerDecoderLayer, TransformerEncoder,
+                                TransformerEncoderLayer)
 
 
 class BoxProcessor(object):
@@ -62,122 +62,11 @@ class BoxProcessor(object):
         return cls_prob[..., :-1], objectness_prob
 
     def box_parametrization_to_corners(
-        self, box_center_unnorm, box_size_unnorm, box_angle
+            self, box_center_unnorm, box_size_unnorm, box_angle
     ):
         return self.dataset_config.box_parametrization_to_corners(
             box_center_unnorm, box_size_unnorm, box_angle
         )
-
-
-# TODO: build alignment module.
-class AlignmentModule(nn.Module):
-    def __init__(
-        self,
-        pre_encoder,
-        encoder,
-        rot_predictor,
-        n_rot=4,
-        use_equiv_nets=False
-    ):
-        super().__init__()
-        self.pre_encoder = pre_encoder
-        self.encoder = encoder
-        self.rot_predictor = rot_predictor
-        self.n_rot = n_rot
-        self.use_equiv_nets = use_equiv_nets
-
-    def _break_up_pc(self, pc):
-        # pc may contain color/normals.
-
-        xyz = pc[..., 0:3].contiguous()
-        features = pc[..., 3:].transpose(1, 2).contiguous() if pc.size(-1) > 3 else None
-        return xyz, features
-
-    def run_encoder(self, point_clouds):
-        xyz, features = self._break_up_pc(point_clouds)
-        pre_enc_xyz, pre_enc_features, pre_enc_inds = self.pre_encoder(xyz, features)
-        # xyz: batch x npoints x 3
-        # features: batch x channel x Nr x npoints
-        # inds: batch x npoints
-
-        # nn.MultiHeadAttention in encoder expects npoints x batch x channel features
-        pre_enc_features = pre_enc_features.permute(2, 0, 1)
-
-        # xyz points are in batch x npointx channel
-        enc_xyz, enc_features, enc_inds = self.encoder(
-            pre_enc_features, xyz=pre_enc_xyz
-        )
-
-        if enc_inds is None:
-            # encoder does not perform any downsampling
-            enc_inds = pre_enc_inds
-        else:
-            # use gather here to ensure that it works for both FPS and random sampling
-            enc_inds = torch.gather(pre_enc_inds, 1, enc_inds)
-        return enc_xyz, enc_features, enc_inds
-
-    # TODO: encoder that uses equivariant nets.
-    def run_encoder_equiv(self, point_clouds):
-        xyz, features = self._break_up_pc(point_clouds)
-        pre_enc_xyz, pre_enc_features, pre_enc_inds, pre_enc_bq_inds = apply_pre_encoder(xyz,
-                                                                                         features,
-                                                                                         self.pre_encoder,
-                                                                                         n_rot=self.n_rot)
-        # xyz: batch x npoints x 3
-        # features: batch x channel x Nr x npoints
-        # inds: batch x npoints
-
-        # TODO: modify the transformer layers to handle equivariant features.
-        # nn.MultiHeadAttention in encoder expects npoints x batch x channel features
-        pre_enc_features = pre_enc_features.flatten(1, 2)
-        pre_enc_features = pre_enc_features.permute(2, 0, 1)
-
-        # xyz points are in batch x npointx channel
-        enc_xyz, enc_features, enc_inds = self.encoder(
-            pre_enc_features, xyz=pre_enc_xyz
-        )
-
-        if enc_inds is None:
-            # encoder does not perform any downsampling
-            enc_inds = pre_enc_inds
-        else:
-            # use gather here to ensure that it works for both FPS and random sampling
-            enc_inds = torch.gather(pre_enc_inds, 1, enc_inds)
-        return enc_xyz, enc_features, enc_inds
-
-    def predict_rot_mat(self, enc_features_q_t):
-        B, _ = enc_features_q_t.shape
-        pred_rot_mat = torch.zeros((B, 3, 3), dtype=torch.float32)
-        pred_rot_angle = self.rot_predictor(enc_features_q_t) * 2 * np.pi
-        for i in range(B):
-            c = torch.cos(pred_rot_angle[i])
-            s = torch.sin(pred_rot_angle[i])
-            pred_rot_mat[i, 0, 0] = c
-            pred_rot_mat[i, 0, 1] = -s
-            pred_rot_mat[i, 1, 0] = s
-            pred_rot_mat[i, 1, 1] = c
-            pred_rot_mat[i, 2, 2] = 1
-
-        return pred_rot_mat
-
-    def forward(self, inputs):
-        target_point_clouds = inputs["target_point_clouds"]
-        query_point_clouds = inputs["query_point_clouds"]
-
-        if self.use_equiv_nets:
-            enc_xyz, enc_features, enc_inds = self.run_encoder_equiv(target_point_clouds)
-            enc_xyz_q, enc_features_q, enc_inds_q = self.run_encoder_equiv(query_point_clouds)
-        else:
-            enc_xyz, enc_features, enc_inds = self.run_encoder(target_point_clouds)
-            enc_xyz_q, enc_features_q, enc_inds_q = self.run_encoder(query_point_clouds)
-        # encoder features: npoints x batch x channel
-        # encoder xyz: npoints x batch x 3
-        enc_features_q = torch.sum(enc_features_q, dim=0)
-        enc_features = torch.sum(enc_features, dim=0)
-        enc_features_q_t = torch.cat([enc_features, enc_features_q], dim=1)
-        pred_rot_mat = self.predict_rot_mat(enc_features_q_t)
-
-        return {'pred_rot_mat': pred_rot_mat}
 
 
 class Model3DETR(nn.Module):
@@ -198,25 +87,20 @@ class Model3DETR(nn.Module):
     """
 
     def __init__(
-        self,
-        pre_encoder_sub,
-        encoder_sub,
-        pre_encoder,
-        encoder,
-        decoder,
-        dataset_config,
-        encoder_dim=256,
-        decoder_dim=256,
-        position_embedding="fourier",
-        mlp_dropout=0.3,
-        num_queries=256,
-        query_embedding=None,
-        n_rot=4,
-        rot_predictor=None
+            self,
+            pre_encoder,
+            encoder,
+            decoder,
+            dataset_config,
+            encoder_dim=256,
+            decoder_dim=256,
+            position_embedding="fourier",
+            mlp_dropout=0.3,
+            num_queries=256,
+            query_and_group=None
+
     ):
         super().__init__()
-        self.pre_encoder_sub = pre_encoder_sub
-        self.encoder_sub = encoder_sub
         self.pre_encoder = pre_encoder
         self.encoder = encoder
         if hasattr(self.encoder, "masking_radius"):
@@ -250,12 +134,8 @@ class Model3DETR(nn.Module):
 
         self.num_queries = num_queries
         # TODO: add the query and group function.
-        self.query_embedding = query_embedding
+        self.query_and_group = query_and_group
         self.box_processor = BoxProcessor(dataset_config)
-        self.n_rot = n_rot
-
-        # TODO: add MLP for finding the rotation angle between target and query scenes.
-        self.rot_predictor = rot_predictor
 
     def build_mlp_heads(self, dataset_config, decoder_dim, mlp_dropout):
         mlp_func = partial(
@@ -309,38 +189,20 @@ class Model3DETR(nn.Module):
         features = pc[..., 3:].transpose(1, 2).contiguous() if pc.size(-1) > 3 else None
         return xyz, features
 
-    def run_encoder(self, point_clouds, is_masked):
+    def run_encoder(self, point_clouds):
         xyz, features = self._break_up_pc(point_clouds)
-        # TODO: apply the equivariant pre_encoder.
-        if is_masked:
-            pre_enc_xyz, pre_enc_features, pre_enc_inds, pre_enc_bq_inds = apply_pre_encoder(xyz,
-                                                                                             features,
-                                                                                             self.pre_encoder_sub,
-                                                                                             n_rot=self.n_rot)
-        else:
-            pre_enc_xyz, pre_enc_features, pre_enc_inds, pre_enc_bq_inds = apply_pre_encoder(xyz,
-                                                                                             features,
-                                                                                             self.pre_encoder,
-                                                                                             n_rot=self.n_rot)
+        pre_enc_xyz, pre_enc_features, pre_enc_inds = self.pre_encoder(xyz, features)
         # xyz: batch x npoints x 3
-        # features: batch x channel x Nr x npoints
+        # features: batch x channel x npoints
         # inds: batch x npoints
 
-        # TODO: modify the transformer layers to handle equivariant features.
         # nn.MultiHeadAttention in encoder expects npoints x batch x channel features
-        pre_enc_features = pre_enc_features.flatten(1, 2)
         pre_enc_features = pre_enc_features.permute(2, 0, 1)
 
-        # xyz points are in batch x npointx channel
-        if is_masked:
-            enc_xyz, enc_features, enc_inds = self.encoder_sub(
-                pre_enc_features, xyz=pre_enc_xyz
-            )
-        else:
-            enc_xyz, enc_features, enc_inds = self.encoder(
-                pre_enc_features, xyz=pre_enc_xyz
-            )
-
+        # xyz points are in batch x npointx channel order
+        enc_xyz, enc_features, enc_inds = self.encoder(
+            pre_enc_features, xyz=pre_enc_xyz
+        )
         if enc_inds is None:
             # encoder does not perform any downsampling
             enc_inds = pre_enc_inds
@@ -371,7 +233,7 @@ class Model3DETR(nn.Module):
         # mlp head outputs are (num_layers x batch) x noutput x nqueries, so transpose last two dims
         cls_logits = self.mlp_heads["sem_cls_head"](box_features).transpose(1, 2)
         center_offset = (
-            self.mlp_heads["center_head"](box_features).sigmoid().transpose(1, 2) - 0.5
+                self.mlp_heads["center_head"](box_features).sigmoid().transpose(1, 2) - 0.5
         )
         size_normalized = (
             self.mlp_heads["size_head"](box_features).sigmoid().transpose(1, 2)
@@ -390,7 +252,7 @@ class Model3DETR(nn.Module):
             num_layers, batch, num_queries, -1
         )
         angle_residual = angle_residual_normalized * (
-            np.pi / angle_residual_normalized.shape[-1]
+                np.pi / angle_residual_normalized.shape[-1]
         )
 
         outputs = []
@@ -445,36 +307,15 @@ class Model3DETR(nn.Module):
             "aux_outputs": aux_outputs,  # output from intermediate layers of decoder
         }
 
-    # TODO: add function to convert predicted rotation angle around z-axis to matrix.
-    def predict_rot_mat(self, enc_features_q_t):
-        B, _ = enc_features_q_t.shape
-        pred_rot_mat = torch.zeros((B, 3, 3), dtype=torch.float32)
-        pred_rot_angle = self.rot_predictor(enc_features_q_t) * 2 * np.pi
-        for i in range(B):
-            c = torch.cos(pred_rot_angle[i])
-            s = torch.sin(pred_rot_angle[i])
-            pred_rot_mat[i, 0, 0] = c
-            pred_rot_mat[i, 0, 1] = -s
-            pred_rot_mat[i, 1, 0] = s
-            pred_rot_mat[i, 1, 1] = c
-            pred_rot_mat[i, 2, 2] = 1
-
-        return pred_rot_mat
-
-    def forward(self, inputs, encoded_subscene_inputs=None, is_masked=False, encoder_only=False, predict_rotation=False):
+    def forward(self, inputs, subscene_inputs=None, encoder_only=False):
         point_clouds = inputs["point_clouds"]
 
-        enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds, is_masked=is_masked)
+        enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds)
         enc_features = self.encoder_to_decoder_projection(
             enc_features.permute(1, 2, 0)
         ).permute(2, 0, 1)
         # encoder features: npoints x batch x channel
         # encoder xyz: npoints x batch x 3
-
-        # TODO: return predicted rotation matrix
-        if predict_rotation:
-            enc_features_q_t = torch.sum(enc_features * encoded_subscene_inputs['enc_features'], dim=2)
-            return self.predict_rot_mat(enc_features_q_t.permute(1, 0))
 
         if encoder_only:
             # return: batch x npoints x channels
@@ -492,13 +333,9 @@ class Model3DETR(nn.Module):
         enc_pos = enc_pos.permute(2, 0, 1)
         query_embed = query_embed.permute(2, 0, 1)
 
-        # TODO: compute the positional encoding for the query scene.
-        enc_pos_q = self.pos_embedding(encoded_subscene_inputs['enc_xyz'], input_range=point_cloud_dims)
-        encoded_subscene_inputs['enc_pos'] = enc_pos_q.permute(2, 0, 1)
-
         # TODO: aggregate subscene features around each query point to build target.
-        tgt = torch.zeros_like(query_embed)
-        tgt = agg_subscene_feats(tgt, query_embed, encoded_subscene_inputs, self.query_embedding)
+        # tgt = torch.zeros_like(query_embed)
+        tgt = agg_subscene_feats(self.query_and_group, query_xyz, subscene_inputs)
         box_features = self.decoder(
             tgt, enc_features, query_pos=query_embed, pos=enc_pos
         )[0]
@@ -509,61 +346,28 @@ class Model3DETR(nn.Module):
 
 
 # TODO: add function to aggregate features around each query point.
-def agg_subscene_feats(tgt, query_embed, subscene_inputs, query_embedding):
-    # prepare the input.
-    enc_pos, enc_features = subscene_inputs['enc_pos'], subscene_inputs['enc_features']
+def agg_subscene_feats(query_and_group, query_xyz, subscene_inputs):
+    # prepare the input for pointnet2 utils.
+    enc_xyz, enc_features = subscene_inputs['enc_xyz'], subscene_inputs['enc_features']
+    enc_features = enc_features.permute(0, 2, 1)
+    query_xyz = query_xyz.contiguous()
 
     # aggregate the features around each query xyz point.
-    tgt, attn = query_embedding(tgt=tgt, query_pos=query_embed, memory=enc_features, pos=enc_pos)
-    # npoints x batch x channel
+    new_features = query_and_group(xyz=enc_xyz, new_xyz=query_xyz, features=enc_features)
+    # batch x (3 + channel) x npoints x nsample
 
-    return tgt
+    # skip the xyz and sum the features across nsample.
+    new_features = new_features[:, 3:, :, :]
+    new_features = torch.sum(new_features, dim=3)
 
+    # reshape to match the tgt: npoints x batch x channel
+    new_features = new_features.permute(2, 0, 1)
 
-# TODO: build preencoder using equiv nets
-def build_preencoder_equiv(args):
-    sa1 = KPE2ModuleVotes(
-        npoint=args.preenc_npoints,
-        radius=0.2,
-        nsample=64,
-        in_dim=1,
-        out_dim=32,
-        n_rot=args.n_rot,
-        norm_2d=args.norm_2d,
-        is_first_layer=True
-    )
-    sa2 = KPE2ModuleVotes(
-        npoint=args.preenc_npoints,
-        radius=0.2,
-        nsample=64,
-        in_dim=32,
-        out_dim=32,
-        n_rot=args.n_rot,
-        norm_2d=args.norm_2d
-    )
-    sa3 = KPE2ModuleVotes(
-        npoint=args.preenc_npoints//2,
-        radius=0.4,
-        nsample=32,
-        in_dim=32,
-        out_dim=64,
-        n_rot=args.n_rot,
-        norm_2d=args.norm_2d
-    )
-    fp1 = KPE2ModuleVotes(
-        npoint=args.preenc_npoints,
-        radius=0.2,
-        nsample=64,
-        in_dim=(32 + 64),
-        out_dim=32,
-        n_rot=args.n_rot,
-        norm_2d=args.norm_2d
-    )
-    preencoder = torch.nn.ModuleList([sa1, sa2, sa3, fp1])
-    return preencoder
+    return new_features
 
 
 def build_preencoder(args):
+    # TODO: adding number of mask features for first MLP layer.
     mlp_dims = [3 * int(args.use_color) + 1, 64, 128, args.enc_dim]
     preencoder = PointnetSAModuleVotes(
         radius=0.2,
@@ -576,29 +380,17 @@ def build_preencoder(args):
 
 
 def build_encoder(args):
-    # TODO: build an equivariant version of the vanilla architecture.
     if args.enc_type == "vanilla":
-        encoder_layer = TransformerEncoderLayerEquiv(
+        encoder_layer = TransformerEncoderLayer(
             d_model=args.enc_dim,
             nhead=args.enc_nhead,
             dim_feedforward=args.enc_ffn_dim,
             dropout=args.enc_dropout,
             activation=args.enc_activation,
         )
-        encoder = TransformerEncoderEquiv(
+        encoder = TransformerEncoder(
             encoder_layer=encoder_layer, num_layers=args.enc_nlayers
         )
-    # if args.enc_type == "vanilla":
-    #     encoder_layer = TransformerEncoderLayer(
-    #         d_model=args.enc_dim,
-    #         nhead=args.enc_nhead,
-    #         dim_feedforward=args.enc_ffn_dim,
-    #         dropout=args.enc_dropout,
-    #         activation=args.enc_activation,
-    #     )
-    #     encoder = TransformerEncoder(
-    #         encoder_layer=encoder_layer, num_layers=args.enc_nlayers
-    #     )
     elif args.enc_type in ["masked"]:
         encoder_layer = TransformerEncoderLayer(
             d_model=args.enc_dim,
@@ -614,7 +406,7 @@ def build_encoder(args):
             mlp=[args.enc_dim, 256, 256, args.enc_dim],
             normalize_xyz=True,
         )
-        
+
         masking_radius = [math.pow(x, 2) for x in [0.4, 0.8, 1.2]]
         encoder = MaskedTransformerEncoder(
             encoder_layer=encoder_layer,
@@ -641,36 +433,13 @@ def build_decoder(args):
 
 
 def build_3detr(args, dataset_config):
-    # TODO: build pre_encoder and encoder for the subscene.
-    pre_encoder_sub = build_preencoder(args)
-    encoder_sub = build_encoder(args)
-
     pre_encoder = build_preencoder(args)
     encoder = build_encoder(args)
     decoder = build_decoder(args)
-    # TODO: find embedding for query points in the target scene by attending to points in the query scene.
-    query_embedding = QueryEmbedding(args.dec_dim)
-
-    # TODO: add rotation predictor if alignment is needed.
-    rot_predictor = None
-    if args.aggressive_rot:
-        hidden_dims = [args.enc_dim, args.enc_dim]
-        rot_predictor = GenericMLP(
-            input_dim=args.preenc_npoints,
-            hidden_dims=hidden_dims,
-            output_dim=1,
-            norm_fn_name="bn1d",
-            activation="relu",
-            output_activation='sigmoid',
-            use_conv=False,
-            output_use_activation=True,
-            output_use_norm=False,
-            output_use_bias=False,
-        )
+    # TODO: add a query and group to aggregate features for each query point.
+    query_and_group = QueryAndGroup(radius=0.2, nsample=64)
 
     model = Model3DETR(
-        pre_encoder_sub,
-        encoder_sub,
         pre_encoder,
         encoder,
         decoder,
@@ -679,92 +448,7 @@ def build_3detr(args, dataset_config):
         decoder_dim=args.dec_dim,
         mlp_dropout=args.mlp_dropout,
         num_queries=args.nqueries,
-        query_embedding=query_embedding,
-        n_rot=args.n_rot,
-        rot_predictor=rot_predictor
+        query_and_group=query_and_group
     )
     output_processor = BoxProcessor(dataset_config)
     return model, output_processor
-
-
-# TODO: building an alignment module
-def build_alignment_module(args, dataset_config=None):
-    # the pre-encoder and encoder.
-    if args.equiv_nets:
-        pre_encoder = build_preencoder_equiv(args)
-    else:
-        pre_encoder = build_preencoder(args)
-    encoder = build_encoder(args)
-
-    # the mlp for predicting alignment angle.
-    hidden_dims = [args.enc_dim, args.enc_dim]
-    rot_predictor = GenericMLP(
-        input_dim=args.enc_dim * 2,
-        hidden_dims=hidden_dims,
-        output_dim=1,
-        norm_fn_name="bn1d",
-        activation="relu",
-        output_activation='sigmoid',
-        use_conv=False,
-        output_use_activation=True,
-        output_use_norm=False,
-        output_use_bias=False,
-    )
-
-    model = AlignmentModule(
-        pre_encoder,
-        encoder,
-        rot_predictor=rot_predictor,
-        n_rot=args.n_rot,
-        use_equiv_nets=args.equiv_nets
-    )
-
-    return model, None
-
-
-# TODO: expanding features to account for the group SO2
-def construct_feature_orbit(features, Nr):
-    """
-    Args:
-        features:
-            if (B, C, Nr, Np), return itself without modification.
-            if (B, C, Np),  expand it to (B, C, Nr, Np)
-        Nr:
-    """
-    if len(features.shape) == 4: return features
-    expanded_features = features[:, :, None, :].expand(-1, -1, Nr, -1)
-    return expanded_features
-
-
-def apply_pre_encoder(xyz, features, pre_encoder, n_rot):
-    # load the networks.
-    sa1, sa2, sa3, fp1 = pre_encoder
-
-    # apply equivariant pre_encoder.
-    end_points = {}
-    xyz, features, fps_inds, bq_idx = sa1(xyz, features)
-    end_points['sa1_inds'] = fps_inds
-    end_points['sa1_xyz'] = xyz
-    end_points['sa1_features'] = features
-
-    xyz, features, fps_inds, bq_idx = sa2(xyz, features)
-    end_points['sa2_inds'] = fps_inds
-    end_points['sa2_xyz'] = xyz
-    end_points['sa2_features'] = features
-
-    xyz, features, fps_inds, bq_idx = sa3(xyz, features)
-    end_points['sa3_inds'] = fps_inds
-    end_points['sa3_xyz'] = xyz
-    end_points['sa3_features'] = features
-
-    # apply feature propagation.
-    skipped_feature = end_points['sa2_features']
-    forward_feature = end_points['sa3_features']
-    skipped_xyz = end_points['sa2_xyz']
-    forward_feature = construct_feature_orbit(forward_feature, n_rot)
-    skipped_feature = construct_feature_orbit(skipped_feature, n_rot)
-    interpolated_feats = upsample_eqv_point_features(skipped_xyz, end_points['sa3_xyz'], forward_feature)
-    cat_feats = torch.cat([interpolated_feats, skipped_feature], dim=1)
-    xyz, features, fps_inds, bq_idx = fp1(skipped_xyz, cat_feats)
-
-    return xyz, features, fps_inds, bq_idx

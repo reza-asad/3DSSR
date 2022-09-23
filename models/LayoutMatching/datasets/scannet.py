@@ -176,6 +176,7 @@ class ScannetDetectionDataset(Dataset):
         augment=False,
         use_random_cuboid=True,
         aggressive_rot=False,
+        augment_eval=False,
         random_cuboid_min_points=30000,
     ):
 
@@ -219,6 +220,7 @@ class ScannetDetectionDataset(Dataset):
         self.use_random_cuboid = use_random_cuboid
         self.random_cuboid_augmentor = RandomCuboid(min_points=random_cuboid_min_points)
         self.aggressive_rot = aggressive_rot
+        self.augment_eval = augment_eval
         self.center_normalizing_range = [
             np.zeros((1, 3), dtype=np.float32),
             np.ones((1, 3), dtype=np.float32),
@@ -232,8 +234,8 @@ class ScannetDetectionDataset(Dataset):
     #  TODO: add binary mask to the point cloud where 1 represents a point that belongs to the subscene.
     def add_subscene_mask(self, point_cloud, instance_bboxes):
         N, D = point_cloud.shape
-        masked_point_cloud = np.zeros((N, D + 1), dtype=np.float32)
-        masked_point_cloud[:, :D] = point_cloud[:, :D]
+        masked_point_cloud = np.zeros((N, D), dtype=np.float32)
+        masked_point_cloud[:, :D-1] = point_cloud[:, :D-1]
 
         for box in instance_bboxes:
             # find the points corresponding to the box
@@ -242,7 +244,7 @@ class ScannetDetectionDataset(Dataset):
             is_in_box = np.sum(is_in_box, axis=1) == 3
 
             # add the mask for the object.
-            masked_point_cloud[is_in_box, D] = 1.0
+            masked_point_cloud[is_in_box, D-1] = 1.0
 
         return masked_point_cloud
 
@@ -322,9 +324,10 @@ class ScannetDetectionDataset(Dataset):
 
         # TODO: add a binary mask to the point cloud with 1 representing point belonging to the subscene.
         point_cloud_with_mask = self.add_subscene_mask(point_cloud, instance_bboxes)
+        # print(point_cloud.shape)
         # print(point_cloud_with_mask.shape)
         # trimesh.points.PointCloud(point_cloud[:, :3]).show()
-        # subscene = point_cloud_with_mask[point_cloud_with_mask[:, 4] == 1, :3]
+        # subscene = point_cloud_with_mask[point_cloud_with_mask[:, 3] == 1, :3]
         # trimesh.points.PointCloud(subscene).show()
         # t=y
         # ------------------------------- DATA AUGMENTATION ------------------------------
@@ -343,12 +346,20 @@ class ScannetDetectionDataset(Dataset):
 
             # TODO: allow for more aggressive rotation
             # Rotation along up-axis/Z-axis
-            if self.split_set != 'train':
-                np.random.seed(idx)
             if self.aggressive_rot:
                 rot_angle = np.random.uniform(0, 2*np.pi)
             else:
                 rot_angle = (np.random.random() * np.pi / 18) - np.pi / 36  # -5 ~ +5 degree
+            rot_mat = pc_util.rotz(rot_angle)
+            point_cloud[:, 0:3] = np.dot(point_cloud[:, 0:3], np.transpose(rot_mat))
+            target_bboxes = self.dataset_config.rotate_aligned_boxes(
+                target_bboxes, rot_mat
+            )
+
+        # TODO: allow for rotation during evaluation.
+        if self.augment_eval and self.aggressive_rot:
+            np.random.seed(idx)
+            rot_angle = np.random.uniform(0, 2 * np.pi)
             rot_mat = pc_util.rotz(rot_angle)
             point_cloud[:, 0:3] = np.dot(point_cloud[:, 0:3], np.transpose(rot_mat))
             target_bboxes = self.dataset_config.rotate_aligned_boxes(

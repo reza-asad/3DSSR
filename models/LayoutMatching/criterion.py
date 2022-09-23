@@ -87,12 +87,11 @@ class Matcher(nn.Module):
 
 
 class SetCriterion(nn.Module):
-    def __init__(self, matcher, dataset_config, loss_weight_dict, aggressive_rot):
+    def __init__(self, matcher, dataset_config, loss_weight_dict):
         super().__init__()
         self.dataset_config = dataset_config
         self.matcher = matcher
         self.loss_weight_dict = loss_weight_dict
-        self.aggressive_rot = aggressive_rot
 
         semcls_percls_weights = torch.ones(dataset_config.num_semcls + 1)
         semcls_percls_weights[-1] = loss_weight_dict["loss_no_object_weight"]
@@ -307,6 +306,7 @@ class SetCriterion(nn.Module):
             size_loss = F.l1_loss(pred_box_sizes, gt_box_sizes, reduction="none").sum(
                 dim=-1
             )
+
             # zero-out non-matched proposals
             size_loss *= assignments["proposal_matched_mask"]
             size_loss = size_loss.sum()
@@ -316,15 +316,7 @@ class SetCriterion(nn.Module):
             size_loss = torch.zeros(1, device=pred_box_sizes.device).squeeze()
         return {"loss_size": size_loss}
 
-    # TODO: add loss for rot matrix prediction.
-    def loss_rot_mat(self, outputs, targets):
-        rot_mat = targets["rot_mat"]
-        pred_rot_mat = outputs["pred_rot_mat"]
-        rot_mat_loss = F.l1_loss(pred_rot_mat[:, 0, 0], rot_mat[:, 0, 0]) + F.l1_loss(pred_rot_mat[:, 1, 0], rot_mat[:, 1, 0])
-
-        return {"loss_rot_mat": rot_mat_loss}
-
-    def single_output_forward(self, outputs, targets, aux):
+    def single_output_forward(self, outputs, targets):
         gious = generalized_box3d_iou(
             outputs["box_corners"],
             targets["gt_box_corners"],
@@ -353,21 +345,11 @@ class SetCriterion(nn.Module):
                 curr_loss = self.loss_functions[k](outputs, targets, assignments)
                 losses.update(curr_loss)
 
-        # TODO: add loss for predicting the rotation matrix between query and target scenes.
-        if self.aggressive_rot and (not aux):
-            curr_loss = self.loss_rot_mat(outputs, targets)
-            losses.update(curr_loss)
-
         final_loss = 0
         for k in self.loss_weight_dict:
             if self.loss_weight_dict[k] > 0:
-                # TODO: skip the rot_mat loss for aux outputs.
-                if k == 'loss_rot_mat_weight':
-                    if aux or (not self.aggressive_rot):
-                        continue
                 losses[k.replace("_weight", "")] *= self.loss_weight_dict[k]
                 final_loss += losses[k.replace("_weight", "")]
-
         return final_loss, losses
 
     def forward(self, outputs, targets):
@@ -379,46 +361,18 @@ class SetCriterion(nn.Module):
             "num_boxes_replica"
         ] = nactual_gt.sum().item()  # number of boxes on this worker for dist training
 
-        loss, loss_dict = self.single_output_forward(outputs["outputs"], targets, aux=False)
+        loss, loss_dict = self.single_output_forward(outputs["outputs"], targets)
 
         if "aux_outputs" in outputs:
             for k in range(len(outputs["aux_outputs"])):
-                # TODO: indicate the loss is for aux outputs.
                 interm_loss, interm_loss_dict = self.single_output_forward(
-                    outputs["aux_outputs"][k], targets, aux=True
+                    outputs["aux_outputs"][k], targets
                 )
 
                 loss += interm_loss
                 for interm_key in interm_loss_dict:
                     loss_dict[f"{interm_key}_{k}"] = interm_loss_dict[interm_key]
         return loss, loss_dict
-
-
-# TODO: add alignment loss
-class AlignmentCriterion(nn.Module):
-    def __init__(self, loss_weight_dict, dataset_config):
-        super().__init__()
-        self.dataset_config = dataset_config
-        self.loss_weight_dict = loss_weight_dict
-
-    def loss_rot_mat(self, outputs, targets):
-        rot_mat = targets["rot_mat"]
-        pred_rot_mat = outputs["pred_rot_mat"]
-        rot_mat_loss = F.l1_loss(pred_rot_mat[:, 0, 0], rot_mat[:, 0, 0]) + F.l1_loss(pred_rot_mat[:, 1, 0], rot_mat[:, 1, 0])
-
-        return {"loss_rot_mat": rot_mat_loss}
-
-    def forward(self, outputs, targets):
-        loss_dict = {}
-        final_loss = 0
-        curr_loss = self.loss_rot_mat(outputs, targets)
-        loss_dict.update(curr_loss)
-        for k in self.loss_weight_dict:
-            if self.loss_weight_dict[k] > 0:
-                loss_dict[k.replace("_weight", "")] *= self.loss_weight_dict[k]
-                final_loss += loss_dict[k.replace("_weight", "")]
-
-        return final_loss, loss_dict
 
 
 def build_criterion(args, dataset_config):
@@ -437,16 +391,6 @@ def build_criterion(args, dataset_config):
         "loss_angle_reg_weight": args.loss_angle_reg_weight,
         "loss_center_weight": args.loss_center_weight,
         "loss_size_weight": args.loss_size_weight,
-        "loss_rot_mat_weight": args.loss_rot_mat_weight
     }
-    criterion = SetCriterion(matcher, dataset_config, loss_weight_dict, args.aggressive_rot)
-    return criterion
-
-
-# TODO: build criterion for alignment.
-def build_criterion_alignment(args, dataset_config):
-    loss_weight_dict = {
-        "loss_rot_mat_weight": args.loss_rot_mat_weight
-    }
-    criterion = AlignmentCriterion(loss_weight_dict, dataset_config)
+    criterion = SetCriterion(matcher, dataset_config, loss_weight_dict)
     return criterion
