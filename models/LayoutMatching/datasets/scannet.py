@@ -172,7 +172,7 @@ class ScannetDetectionDataset(Dataset):
         meta_data_dir=None,
         num_points=40000,
         use_color=False,
-        use_height=True,
+        use_height=False,
         augment=False,
         use_random_cuboid=True,
         aggressive_rot=False,
@@ -269,11 +269,14 @@ class ScannetDetectionDataset(Dataset):
             point_cloud[:, 3:] = (point_cloud[:, 3:] - MEAN_COLOR_RGB) / 256.0
             pcl_color = point_cloud[:, 3:]
 
-        # TODO: set the default to True. The EquivConv need at least 1 dim for feature.
         if self.use_height:
             floor_height = np.percentile(point_cloud[:, 2], 0.99)
             height = point_cloud[:, 2] - floor_height
             point_cloud = np.concatenate([point_cloud, np.expand_dims(height, 1)], 1)
+
+        # TODO: add zero value as the last dimension of the original point cloud.
+        zero_feat = np.zeros((len(point_cloud), 1), dtype=np.float32)
+        point_cloud = np.concatenate([point_cloud, zero_feat], 1)
 
         # ------------------------------- LABELS ------------------------------
         MAX_NUM_OBJ = self.dataset_config.max_num_obj
