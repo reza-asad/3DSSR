@@ -307,6 +307,47 @@ class Model3DETR(nn.Module):
             "aux_outputs": aux_outputs,  # output from intermediate layers of decoder
         }
 
+    # TODO: find n furthest points from the subscene and extract the features for them.
+    @ staticmethod
+    def sample_seed_subscene_points(masked_pc, enc_xyz, enc_features, enc_inds, num_points=5):
+        # print(masked_pc.shape)
+        # print(enc_xyz.shape)
+        # print(enc_features.shape)
+        # print(enc_inds.shape)
+        # create the tensors holding the furthest points on the subscene and their features.
+        B, N, _ = enc_xyz.shape
+        D = enc_features.shape[-1]
+        enc_xyz_sub_sample = torch.zeros((B, num_points, 3), dtype=torch.float32)
+        enc_features_sub_sample = torch.zeros((B, num_points, D), dtype=torch.float32)
+
+        # set to the right device
+        enc_xyz_sub_sample = enc_xyz_sub_sample.to(device=enc_xyz.device)
+        enc_features_sub_sample = enc_features_sub_sample.to(device=enc_features.device)
+
+        # extract the xyz points that are downsampled along with binary mask value.
+        masked_pc_downsampled = torch.zeros((B, N, 4), dtype=torch.float32)
+        for i in range(B):
+            masked_pc_downsampled[i, :, :] = masked_pc[i, enc_inds[i, :].long(), :]
+
+            # filter the downsampled points to ones from the subscene.
+            is_sub = masked_pc_downsampled[i, :, 3] == 1
+            enc_xyz_sub = enc_xyz[i, is_sub, :]
+            enc_features_sub = enc_features[i, is_sub, :]
+
+            # set to the right device
+            enc_xyz_sub = enc_xyz_sub.to(device=enc_xyz.device)
+            enc_features_sub = enc_features_sub.to(device=enc_features.device)
+
+            # find the indices for furthest points on the subscene.
+            indices = furthest_point_sample(enc_xyz_sub.unsqueeze(0), num_points)
+            indices.squeeze_()
+
+            # extract the contextual features corresponding to the furthest points and their xyz locations.
+            enc_xyz_sub_sample[i, ...] = enc_xyz_sub[indices.long()]
+            enc_features_sub_sample[i, ...] = enc_features_sub[indices.long()]
+
+        return enc_xyz_sub_sample, enc_features_sub_sample
+
     def forward(self, inputs, subscene_inputs=None, encoder_only=False):
         point_clouds = inputs["point_clouds"]
 
@@ -319,7 +360,7 @@ class Model3DETR(nn.Module):
 
         if encoder_only:
             # return: batch x npoints x channels
-            return enc_xyz, enc_features.transpose(0, 1)
+            return enc_xyz, enc_features.transpose(0, 1), enc_inds
 
         point_cloud_dims = [
             inputs["point_cloud_dims_min"],

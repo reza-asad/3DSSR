@@ -55,7 +55,8 @@ class Matcher(nn.Module):
             + self.cost_center * center_mat
             + self.cost_giou * giou_mat
         )
-
+        print(final_cost.shape)
+        t=y
         final_cost = final_cost.detach().cpu().numpy()
         assignments = []
 

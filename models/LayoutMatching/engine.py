@@ -83,7 +83,13 @@ def train_one_epoch(
 
         # TODO: encode the point cloud with mask first.
         masked_inputs = {"point_clouds": batch_data_label["point_clouds_with_mask"]}
-        enc_xyz, enc_features = model(masked_inputs, encoder_only=True)
+        enc_xyz, enc_features, enc_inds = model(masked_inputs, encoder_only=True)
+
+        # TODO: take 5 furthest points sampled from the subscene as well as their contextual features.
+        seed_xyz, seed_features = model.sample_seed_subscene_points(masked_inputs['point_clouds'], enc_xyz,
+                                                                    enc_features, enc_inds, num_points=5)
+        # batch_size x 5 x 3 and batch_size x 5 x 256
+        # t=y
         subscene_inputs = {
             "enc_xyz": enc_xyz,
             "enc_features": enc_features
