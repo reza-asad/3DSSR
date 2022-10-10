@@ -70,6 +70,13 @@ def compute_loss(args, q_seed_points_info, t_seed_points_info, net_device, crite
             pos_indices = is_same_instance.nonzero().squeeze(dim=1)
             neg_indices = (1 - is_same_instance).nonzero().squeeze()
 
+            # skip if no positive or negative found.
+            if len(pos_indices) == 0 or len(neg_indices) == 0:
+                j += 1
+                if j == len(q_seed_labels):
+                    j = 0
+                continue
+
             if evaluation:
                 np.random.seed(0)
             rand_pos_index = np.random.choice(pos_indices, 1)[0]
