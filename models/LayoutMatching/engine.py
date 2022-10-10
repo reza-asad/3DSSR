@@ -104,7 +104,6 @@ def train_one_epoch(
 
         # Compute loss
         loss, loss_dict = criterion(outputs, batch_data_label)
-
         loss_reduced = all_reduce_average(loss)
         loss_dict_reduced = reduce_dict(loss_dict)
 

@@ -386,6 +386,149 @@ class Model3DETR(nn.Module):
         return box_predictions
 
 
+# TODO: Model for finding seed point correspondences bwetween query and target.
+class ModelSeedCorr(nn.Module):
+    """
+    Main 3DETR model. Consists of the following learnable sub-models
+    - pre_encoder: takes raw point cloud, subsamples it and projects into "D" dimensions
+                Input is a Nx3 matrix of N point coordinates
+                Output is a N'xD matrix of N' point features
+    - encoder: series of self-attention blocks to extract point features
+                Input is a N'xD matrix of N' point features
+                Output is a N''xD matrix of N'' point features.
+                N'' = N' for regular encoder; N'' = N'//2 for masked encoder
+    - query computation: samples a set of B coordinates from the N'' points
+                and outputs a BxD matrix of query features.
+    - decoder: series of self-attention and cross-attention blocks to produce BxD box features
+                Takes N''xD features from the encoder and BxD query features.
+    - mlp_heads: Predicts bounding box parameters and classes from the BxD box features
+    """
+
+    def __init__(
+            self,
+            pre_encoder,
+            encoder,
+            encoder_dim=256,
+            position_embedding="fourier",
+            num_queries=256,
+
+    ):
+        super().__init__()
+        self.pre_encoder = pre_encoder
+        self.encoder = encoder
+        if hasattr(self.encoder, "masking_radius"):
+            hidden_dims = [encoder_dim]
+        else:
+            hidden_dims = [encoder_dim, encoder_dim]
+        self.encoder_to_decoder_projection = GenericMLP(
+            input_dim=encoder_dim,
+            hidden_dims=hidden_dims,
+            output_dim=encoder_dim,
+            norm_fn_name="bn1d",
+            activation="relu",
+            use_conv=True,
+            output_use_activation=True,
+            output_use_norm=True,
+            output_use_bias=False,
+        )
+        self.pos_embedding = PositionEmbeddingCoordsSine(
+            d_pos=encoder_dim, pos_type=position_embedding, normalize=True
+        )
+        self.query_projection = GenericMLP(
+            input_dim=encoder_dim,
+            hidden_dims=[encoder_dim],
+            output_dim=encoder_dim,
+            use_conv=True,
+            output_use_activation=True,
+            hidden_use_bias=True,
+        )
+
+        self.num_queries = num_queries
+
+    def get_query_embeddings(self, encoder_xyz, point_cloud_dims):
+        query_inds = furthest_point_sample(encoder_xyz, self.num_queries)
+        query_inds = query_inds.long()
+        query_xyz = [torch.gather(encoder_xyz[..., x], 1, query_inds) for x in range(3)]
+        query_xyz = torch.stack(query_xyz)
+        query_xyz = query_xyz.permute(1, 2, 0)
+
+        # Gater op above can be replaced by the three lines below from the pointnet2 codebase
+        # xyz_flipped = encoder_xyz.transpose(1, 2).contiguous()
+        # query_xyz = gather_operation(xyz_flipped, query_inds.int())
+        # query_xyz = query_xyz.transpose(1, 2)
+        pos_embed = self.pos_embedding(query_xyz, input_range=point_cloud_dims)
+        query_embed = self.query_projection(pos_embed)
+        return query_xyz, query_embed, query_inds
+
+    def _break_up_pc(self, pc):
+        # pc may contain color/normals.
+
+        xyz = pc[..., 0:3].contiguous()
+        features = pc[..., 3:].transpose(1, 2).contiguous() if pc.size(-1) > 3 else None
+        return xyz, features
+
+    def run_encoder(self, point_clouds):
+        xyz, features = self._break_up_pc(point_clouds)
+        pre_enc_xyz, pre_enc_features, pre_enc_inds = self.pre_encoder(xyz, features)
+        # xyz: batch x npoints x 3
+        # features: batch x channel x npoints
+        # inds: batch x npoints
+
+        # nn.MultiHeadAttention in encoder expects npoints x batch x channel features
+        pre_enc_features = pre_enc_features.permute(2, 0, 1)
+
+        # xyz points are in batch x npointx channel order
+        enc_xyz, enc_features, enc_inds = self.encoder(
+            pre_enc_features, xyz=pre_enc_xyz
+        )
+        if enc_inds is None:
+            # encoder does not perform any downsampling
+            enc_inds = pre_enc_inds
+        else:
+            # use gather here to ensure that it works for both FPS and random sampling
+            enc_inds = torch.gather(pre_enc_inds, 1, enc_inds)
+        return enc_xyz, enc_features, enc_inds
+
+    # TODO: find n furthest points from the subscene and extract the features for them.
+    @ staticmethod
+    def sample_seed_subscene_points(masked_pc, enc_xyz, enc_features, enc_inds, instance_labels):
+        # create the tensors holding the furthest points on the subscene and their features.
+        B, N, _ = enc_xyz.shape
+        seed_points_info = []
+
+        # extract the xyz points that are downsampled along with binary mask value.
+        masked_pc_downsampled = torch.zeros((B, N, 4), dtype=torch.float32)
+        instance_labels_downsampled = torch.zeros((B, N), dtype=torch.long)
+        for i in range(B):
+            masked_pc_downsampled[i, :, :] = masked_pc[i, enc_inds[i, :].long(), :]
+            instance_labels_downsampled[i, :] = instance_labels[i, enc_inds[i, :].long()]
+
+            # filter the downsampled points to ones from the subscene.
+            is_sub = masked_pc_downsampled[i, :, 3] == 1
+            enc_xyz_sub = enc_xyz[i, is_sub, :]
+            enc_features_sub = enc_features[i, is_sub, :]
+            enc_inds_sub = enc_inds[i, is_sub]
+            labels_sub = instance_labels_downsampled[i, is_sub]
+
+            # extract the contextual features corresponding to the furthest points and their xyz locations.
+            seed_points_info.append((enc_xyz_sub, enc_features_sub, enc_inds_sub, labels_sub))
+
+        return seed_points_info
+
+    def forward(self, inputs):
+        point_clouds = inputs["point_clouds"]
+
+        enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds)
+        enc_features = self.encoder_to_decoder_projection(
+            enc_features.permute(1, 2, 0)
+        ).permute(2, 0, 1)
+        # encoder features: npoints x batch x channel
+        # encoder xyz: npoints x batch x 3
+
+        # return: batch x npoints x channels
+        return enc_xyz, enc_features.transpose(0, 1), enc_inds
+
+
 # TODO: add function to aggregate features around each query point.
 def agg_subscene_feats(query_and_group, query_xyz, subscene_inputs):
     # prepare the input for pointnet2 utils.
@@ -493,3 +636,17 @@ def build_3detr(args, dataset_config):
     )
     output_processor = BoxProcessor(dataset_config)
     return model, output_processor
+
+
+# TODO: build a model to find correspondence betweeen seed points.
+def build_seed_corr(args, dataset_config):
+    pre_encoder = build_preencoder(args)
+    encoder = build_encoder(args)
+
+    model = ModelSeedCorr(
+        pre_encoder,
+        encoder,
+        encoder_dim=args.enc_dim,
+        num_queries=args.preenc_npoints,
+    )
+    return model, None

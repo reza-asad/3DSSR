@@ -248,6 +248,28 @@ class ScannetDetectionDataset(Dataset):
 
         return masked_point_cloud
 
+    def sample_subscene(self, instance_bboxes, MAX_NUM_OBJ):
+        # randomly take an anchor object.
+        if self.split_set != 'train':
+            np.random.seed(0)
+        num_boxes = len(instance_bboxes)
+        anchor_idx = np.random.choice(num_boxes, 1)[0]
+        anchor_box = instance_bboxes[anchor_idx, ...]
+
+        # pick MAX_NUM_OBJ - 1 closest boxes to anchor box
+        anchor_centroid = anchor_box[:3]
+        instance_bboxes_centroids = instance_bboxes[:, :3]
+        dist = np.linalg.norm(instance_bboxes_centroids - anchor_centroid, axis=1)
+        idx_dist = zip(range(num_boxes), dist)
+        # sort boxes from closest to furthest from the anchor box.
+        sorted_idx_dist = sorted(idx_dist, key=lambda x: x[1])
+        # taking the anchor box too.
+        closest_indices = list(list(zip(*sorted_idx_dist[:MAX_NUM_OBJ]))[0])
+
+        instance_bboxes = instance_bboxes[closest_indices, ...]
+
+        return instance_bboxes
+
     def __getitem__(self, idx):
         scan_name = self.scan_names[idx]
         # if scan_name != 'scene0636_00':
@@ -298,14 +320,10 @@ class ScannetDetectionDataset(Dataset):
             instance_labels = per_point_labels[0]
             semantic_labels = per_point_labels[1]
 
-        # TODO: randomly take MAX_NUM_OBJ many boxes among the instance_bboxes.
-        if self.split_set != 'train':
-            np.random.seed(0)
-        num_boxes = len(instance_bboxes)
-        box_indices = np.arange(num_boxes)
-        np.random.shuffle(box_indices)
-        instance_bboxes = instance_bboxes[box_indices, ...]
-        instance_bboxes = instance_bboxes[: MAX_NUM_OBJ, ...]
+        # TODO: randomly take MAX_NUM_OBJ - 1 many closest boxes (to an anchor) among the instance_bboxes.
+        if len(instance_bboxes) == 0:
+            return None
+        instance_bboxes = self.sample_subscene(instance_bboxes, MAX_NUM_OBJ)
 
         point_cloud, choices = pc_util.random_sampling(
             point_cloud, self.num_points, return_choices=True
@@ -402,6 +420,8 @@ class ScannetDetectionDataset(Dataset):
         ret_dict["point_clouds"] = point_cloud.astype(np.float32)
         # TODO: add point cloud with mask representing the subscene.
         ret_dict["point_clouds_with_mask"] = point_cloud_with_mask.astype(np.float32)
+        # TODO: add the instance labels per point.
+        ret_dict["instance_labels"] = instance_labels.astype(np.long)
         ret_dict["gt_box_corners"] = box_corners.astype(np.float32)
         ret_dict["gt_box_centers"] = box_centers.astype(np.float32)
         ret_dict["gt_box_centers_normalized"] = box_centers_normalized.astype(

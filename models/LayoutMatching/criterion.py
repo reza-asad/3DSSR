@@ -55,8 +55,6 @@ class Matcher(nn.Module):
             + self.cost_center * center_mat
             + self.cost_giou * giou_mat
         )
-        print(final_cost.shape)
-        t=y
         final_cost = final_cost.detach().cpu().numpy()
         assignments = []
 
@@ -79,7 +77,8 @@ class Matcher(nn.Module):
                 per_prop_gt_inds[b, assign[0]] = assign[1]
                 proposal_matched_mask[b, assign[0]] = 1
             assignments.append(assign)
-
+        print(assignments)
+        t=y
         return {
             "assignments": assignments,
             "per_prop_gt_inds": per_prop_gt_inds,
@@ -374,6 +373,19 @@ class SetCriterion(nn.Module):
                 for interm_key in interm_loss_dict:
                     loss_dict[f"{interm_key}_{k}"] = interm_loss_dict[interm_key]
         return loss, loss_dict
+
+
+# TODO: add the loss for contrastive seed point matching.
+class NCESoftmaxLoss(nn.Module):
+    def __init__(self):
+        super(NCESoftmaxLoss, self).__init__()
+        self.criterion = nn.CrossEntropyLoss()
+
+    def forward(self, x, label):
+        bsz = x.shape[0]
+        x = x.squeeze()
+        loss = self.criterion(x, label)
+        return loss
 
 
 def build_criterion(args, dataset_config):
