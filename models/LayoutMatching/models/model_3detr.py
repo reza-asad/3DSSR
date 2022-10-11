@@ -431,17 +431,6 @@ class ModelSeedCorr(nn.Module):
             output_use_norm=True,
             output_use_bias=False,
         )
-        self.pos_embedding = PositionEmbeddingCoordsSine(
-            d_pos=encoder_dim, pos_type=position_embedding, normalize=True
-        )
-        self.query_projection = GenericMLP(
-            input_dim=encoder_dim,
-            hidden_dims=[encoder_dim],
-            output_dim=encoder_dim,
-            use_conv=True,
-            output_use_activation=True,
-            hidden_use_bias=True,
-        )
 
         self.num_queries = num_queries
 
