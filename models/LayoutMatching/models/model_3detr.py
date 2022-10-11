@@ -489,32 +489,6 @@ class ModelSeedCorr(nn.Module):
             enc_inds = torch.gather(pre_enc_inds, 1, enc_inds)
         return enc_xyz, enc_features, enc_inds
 
-    # TODO: find n furthest points from the subscene and extract the features for them.
-    @ staticmethod
-    def sample_seed_subscene_points(masked_pc, enc_xyz, enc_features, enc_inds, instance_labels):
-        # create the tensors holding the furthest points on the subscene and their features.
-        B, N, _ = enc_xyz.shape
-        seed_points_info = []
-
-        # extract the xyz points that are downsampled along with binary mask value.
-        masked_pc_downsampled = torch.zeros((B, N, 4), dtype=torch.float32)
-        instance_labels_downsampled = torch.zeros((B, N), dtype=torch.long)
-        for i in range(B):
-            masked_pc_downsampled[i, :, :] = masked_pc[i, enc_inds[i, :].long(), :]
-            instance_labels_downsampled[i, :] = instance_labels[i, enc_inds[i, :].long()]
-
-            # filter the downsampled points to ones from the subscene.
-            is_sub = masked_pc_downsampled[i, :, 3] == 1
-            enc_xyz_sub = enc_xyz[i, is_sub, :]
-            enc_features_sub = enc_features[i, is_sub, :]
-            enc_inds_sub = enc_inds[i, is_sub]
-            labels_sub = instance_labels_downsampled[i, is_sub]
-
-            # extract the contextual features corresponding to the furthest points and their xyz locations.
-            seed_points_info.append((enc_xyz_sub, enc_features_sub, enc_inds_sub, labels_sub))
-
-        return seed_points_info
-
     def forward(self, inputs):
         point_clouds = inputs["point_clouds"]
 
