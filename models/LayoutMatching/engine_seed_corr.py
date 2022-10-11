@@ -45,70 +45,9 @@ def adjust_learning_rate(args, optimizer, curr_epoch):
     return curr_lr
 
 
-def compute_loss(args, q_seed_points_info, t_seed_points_info, net_device, criterion, evaluation=False):
-    # create the label for contrastive loss.
-    cl_loss_label = torch.arange(args.npos_pairs)
-    cl_loss_label = cl_loss_label.to(device=net_device, dtype=torch.long)
-
-    # sample positive and negative points for each target seed point
-    loss = 0
-    batch_size = len(q_seed_points_info)
-    batch_logits = torch.zeros((batch_size, args.npos_pairs, args.npos_pairs), dtype=torch.float32, device=net_device)
-    for i in range(batch_size):
-        _, q_seed_features, _, q_seed_labels = q_seed_points_info[i]
-        _, t_seed_features, _, t_seed_labels = t_seed_points_info[i]
-
-        logits = torch.zeros((args.npos_pairs, args.npos_pairs), dtype=torch.float32, device=net_device)
-        j = 0
-        pos_pair_idx = 0
-        bad_example = False
-        while pos_pair_idx < args.npos_pairs:
-            # find all the target points with the same instance label as the label for the current query point
-            curr_label = q_seed_labels[j]
-            is_same_instance = (t_seed_labels == curr_label).long()
-
-            # randomly choose one matching query points and n-1 negative examples.
-            pos_indices = is_same_instance.nonzero().squeeze(dim=1)
-            neg_indices = (1 - is_same_instance).nonzero().squeeze()
-
-            # skip if no positive or negative found.
-            if len(pos_indices) == 0 or len(neg_indices) == 0:
-                print('No pos/neg found')
-                bad_example = True
-                break
-
-            if evaluation:
-                np.random.seed(0)
-            rand_pos_index = np.random.choice(pos_indices, 1)[0]
-            rand_neg_indices = np.random.choice(neg_indices, args.npos_pairs-1, replace=len(neg_indices) < (args.npos_pairs-1))
-
-            # load the positive and negative features.
-            t_pos_feature = t_seed_features[rand_pos_index, :]
-            t_neg_features = t_seed_features[rand_neg_indices, :]
-
-            # compute the logit given the pos/neg examples.
-            logits[pos_pair_idx, pos_pair_idx] = torch.dot(q_seed_features[j, :], t_pos_feature)
-            neg_logits = torch.mm(t_neg_features, q_seed_features[j:j + 1, :].t()).squeeze()
-            logits[pos_pair_idx, :pos_pair_idx] = neg_logits[:pos_pair_idx]
-            logits[pos_pair_idx, pos_pair_idx + 1:] = neg_logits[pos_pair_idx:]
-
-            # update the number of pos pairs constructed.
-            pos_pair_idx += 1
-            j += 1
-            if j == len(q_seed_labels):
-                j = 0
-
-        if not bad_example:
-            out = torch.div(logits, args.tempreature)
-            batch_logits[i, ...] = out
-            loss += criterion(out, cl_loss_label)
-
-    return loss, batch_logits
-
-
 def find_correspondence_accuracy(batch_logits):
     batch_size, npos_pairs, _ = batch_logits.shape
-    cost_matrix = batch_logits.detach().cpu().numpy()
+    cost_matrix = 1 / (batch_logits.detach().cpu().numpy() + 1e-8)
     num_correct, num_total = 0, 0
     for i in range(batch_size):
         row_ind, col_ind = linear_sum_assignment(cost_matrix[i, :, :])
@@ -172,7 +111,7 @@ def train_one_epoch(
                                    instance_labels=batch_data_label["instance_labels"])
 
         # compute loss.
-        loss, _ = compute_loss(args, q_seed_points_info, t_seed_points_info, net_device, criterion)
+        loss, _ = criterion(q_seed_points_info, t_seed_points_info, evaluation=False)
         loss_reduced = all_reduce_average(loss)
 
         if not math.isfinite(loss_reduced.item()):
@@ -260,8 +199,7 @@ def evaluate(
                                    instance_labels=batch_data_label["instance_labels"])
 
         # compute loss.
-        loss, batch_logits = compute_loss(args, q_seed_points_info, t_seed_points_info, net_device, criterion,
-                                          evaluation=True)
+        loss, batch_logits = criterion(q_seed_points_info, t_seed_points_info, evaluation=True)
         loss_reduced = all_reduce_average(loss)
         loss_avg.update(loss_reduced.item())
         loss_str = f"Loss {loss_avg.avg:0.2f};"

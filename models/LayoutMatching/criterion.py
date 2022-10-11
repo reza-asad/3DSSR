@@ -375,7 +375,7 @@ class SetCriterion(nn.Module):
         return loss, loss_dict
 
 
-# TODO: add the loss for contrastive seed point matching.
+# TODO: add nce softmax loss used by contrastive learning.
 class NCESoftmaxLoss(nn.Module):
     def __init__(self):
         super(NCESoftmaxLoss, self).__init__()
@@ -386,6 +386,76 @@ class NCESoftmaxLoss(nn.Module):
         x = x.squeeze()
         loss = self.criterion(x, label)
         return loss
+
+
+# TODO: add the loss for contrastive seed point matching.
+class PointContrastiveLoss(nn.Module):
+    def __init__(self, npos_pairs, nce_loss, tempreature):
+        super().__init__()
+        self.npos_pairs = npos_pairs
+        self.nce_loss = nce_loss
+        self.tempreature = tempreature
+
+    def forward(self, q_seed_points_info, t_seed_points_info, evaluation=False):
+        # create the label for contrastive loss.
+        cl_loss_label = torch.arange(self.npos_pairs)
+        cl_loss_label = cl_loss_label.to(dtype=torch.long)
+
+        # sample positive and negative points for each target seed point
+        loss = 0
+        batch_size = len(q_seed_points_info)
+        batch_logits = torch.zeros((batch_size, self.npos_pairs, self.npos_pairs), dtype=torch.float32)
+        for i in range(batch_size):
+            _, q_seed_features, _, q_seed_labels = q_seed_points_info[i]
+            _, t_seed_features, _, t_seed_labels = t_seed_points_info[i]
+
+            logits = torch.zeros((self.npos_pairs, self.npos_pairs), dtype=torch.float32)
+            j = 0
+            pos_pair_idx = 0
+            bad_example = False
+            while pos_pair_idx < self.npos_pairs:
+                # find all the target points with the same instance label as the label for the current query point
+                curr_label = q_seed_labels[j]
+                is_same_instance = (t_seed_labels == curr_label).long()
+
+                # randomly choose one matching query points and n-1 negative examples.
+                pos_indices = is_same_instance.nonzero().squeeze(dim=1)
+                neg_indices = (1 - is_same_instance).nonzero().squeeze()
+
+                # skip if no positive or negative found.
+                if len(pos_indices) == 0 or len(neg_indices) == 0:
+                    print('No pos/neg found')
+                    bad_example = True
+                    break
+
+                if evaluation:
+                    np.random.seed(0)
+                rand_pos_index = np.random.choice(pos_indices, 1)[0]
+                rand_neg_indices = np.random.choice(neg_indices, self.npos_pairs - 1,
+                                                    replace=len(neg_indices) < (self.npos_pairs - 1))
+
+                # load the positive and negative features.
+                t_pos_feature = t_seed_features[rand_pos_index, :]
+                t_neg_features = t_seed_features[rand_neg_indices, :]
+
+                # compute the logit given the pos/neg examples.
+                logits[pos_pair_idx, pos_pair_idx] = torch.dot(q_seed_features[j, :], t_pos_feature)
+                neg_logits = torch.mm(t_neg_features, q_seed_features[j:j + 1, :].t()).squeeze()
+                logits[pos_pair_idx, :pos_pair_idx] = neg_logits[:pos_pair_idx]
+                logits[pos_pair_idx, pos_pair_idx + 1:] = neg_logits[pos_pair_idx:]
+
+                # update the number of pos pairs constructed.
+                pos_pair_idx += 1
+                j += 1
+                if j == len(q_seed_labels):
+                    j = 0
+
+            if not bad_example:
+                out = torch.div(logits, self.tempreature)
+                batch_logits[i, ...] = out
+                loss += self.nce_loss(out, cl_loss_label)
+
+        return loss, batch_logits
 
 
 def build_criterion(args, dataset_config):
@@ -406,4 +476,11 @@ def build_criterion(args, dataset_config):
         "loss_size_weight": args.loss_size_weight,
     }
     criterion = SetCriterion(matcher, dataset_config, loss_weight_dict)
+    return criterion
+
+
+def build_criterion_point_contrast(args):
+    nce_loss = NCESoftmaxLoss()
+    criterion = PointContrastiveLoss(args.npos_pairs, nce_loss, args.tempreature)
+
     return criterion

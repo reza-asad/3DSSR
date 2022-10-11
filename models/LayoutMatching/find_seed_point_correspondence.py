@@ -15,7 +15,7 @@ from datasets import build_dataset
 from engine_seed_corr import evaluate, train_one_epoch
 from models import build_model
 from optimizer import build_optimizer
-from criterion import NCESoftmaxLoss
+from criterion import build_criterion_point_contrast
 from utils.dist import init_distributed, is_distributed, is_primary, get_rank, barrier
 from utils.misc import my_worker_init_fn
 from utils.io import save_checkpoint, resume_if_possible
@@ -316,7 +316,7 @@ def main(local_rank, args):
             model, device_ids=[local_rank]
         )
     # TODO: change criterion to contrastive loss
-    criterion = NCESoftmaxLoss()
+    criterion = build_criterion_point_contrast(args)
     criterion = criterion.cuda(local_rank)
 
     dataloaders = {}
