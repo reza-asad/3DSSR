@@ -396,20 +396,17 @@ class PointContrastiveLoss(nn.Module):
         self.nce_loss = nce_loss
         self.tempreature = tempreature
 
-    def forward(self, q_seed_points_info, t_seed_points_info, evaluation=False):
-        # create the label for contrastive loss.
-        cl_loss_label = torch.arange(self.npos_pairs)
-        cl_loss_label = cl_loss_label.to(dtype=torch.long)
-
+    def forward(self, q_seed_points_info, t_seed_points_info, cl_loss_label, evaluation=False):
         # sample positive and negative points for each target seed point
         loss = 0
         batch_size = len(q_seed_points_info)
-        batch_logits = torch.zeros((batch_size, self.npos_pairs, self.npos_pairs), dtype=torch.float32)
+        batch_logits = torch.zeros((batch_size, self.npos_pairs, self.npos_pairs), dtype=torch.float32,
+                                   device=cl_loss_label.device)
         for i in range(batch_size):
             _, q_seed_features, _, q_seed_labels = q_seed_points_info[i]
             _, t_seed_features, _, t_seed_labels = t_seed_points_info[i]
 
-            logits = torch.zeros((self.npos_pairs, self.npos_pairs), dtype=torch.float32)
+            logits = torch.zeros((self.npos_pairs, self.npos_pairs), dtype=torch.float32, device=cl_loss_label.device)
             j = 0
             pos_pair_idx = 0
             bad_example = False

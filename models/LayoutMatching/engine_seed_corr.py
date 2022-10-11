@@ -110,8 +110,12 @@ def train_one_epoch(
                                    enc_features=enc_features, enc_inds=enc_inds_t,
                                    instance_labels=batch_data_label["instance_labels"])
 
+        # create the label for contrastive loss.
+        cl_loss_label = torch.arange(args.npos_pairs)
+        cl_loss_label = cl_loss_label.to(device=net_device, dtype=torch.long)
+
         # compute loss.
-        loss, _ = criterion(q_seed_points_info, t_seed_points_info, evaluation=False)
+        loss, _ = criterion(q_seed_points_info, t_seed_points_info, cl_loss_label, evaluation=False)
         loss_reduced = all_reduce_average(loss)
 
         if not math.isfinite(loss_reduced.item()):
@@ -198,8 +202,12 @@ def evaluate(
                                    enc_features=enc_features, enc_inds=enc_inds_t,
                                    instance_labels=batch_data_label["instance_labels"])
 
+        # create the label for contrastive loss.
+        cl_loss_label = torch.arange(args.npos_pairs)
+        cl_loss_label = cl_loss_label.to(device=net_device, dtype=torch.long)
+
         # compute loss.
-        loss, batch_logits = criterion(q_seed_points_info, t_seed_points_info, evaluation=True)
+        loss, batch_logits = criterion(q_seed_points_info, t_seed_points_info, cl_loss_label, evaluation=True)
         loss_reduced = all_reduce_average(loss)
         loss_avg.update(loss_reduced.item())
         loss_str = f"Loss {loss_avg.avg:0.2f};"
