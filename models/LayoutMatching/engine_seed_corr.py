@@ -45,31 +45,6 @@ def adjust_learning_rate(args, optimizer, curr_epoch):
     return curr_lr
 
 
-def sample_seed_subscene_points(masked_pc, enc_xyz, enc_features, enc_inds, instance_labels):
-    # create the tensors holding the furthest points on the subscene and their features.
-    B, N, _ = enc_xyz.shape
-    seed_points_info = []
-
-    # extract the xyz points that are downsampled along with binary mask value.
-    masked_pc_downsampled = torch.zeros((B, N, 4), dtype=torch.float32)
-    instance_labels_downsampled = torch.zeros((B, N), dtype=torch.long)
-    for i in range(B):
-        masked_pc_downsampled[i, :, :] = masked_pc[i, enc_inds[i, :].long(), :]
-        instance_labels_downsampled[i, :] = instance_labels[i, enc_inds[i, :].long()]
-
-        # filter the downsampled points to ones from the subscene.
-        is_sub = masked_pc_downsampled[i, :, 3] == 1
-        enc_xyz_sub = enc_xyz[i, is_sub, :]
-        enc_features_sub = enc_features[i, is_sub, :]
-        enc_inds_sub = enc_inds[i, is_sub]
-        labels_sub = instance_labels_downsampled[i, is_sub]
-
-        # extract the contextual features corresponding to the furthest points and their xyz locations.
-        seed_points_info.append((enc_xyz_sub, enc_features_sub, enc_inds_sub, labels_sub))
-
-    return seed_points_info
-
-
 def compute_loss(args, q_seed_points_info, t_seed_points_info, net_device, criterion, evaluation=False):
     # create the label for contrastive loss.
     cl_loss_label = torch.arange(args.npos_pairs)
@@ -178,8 +153,9 @@ def train_one_epoch(
         enc_xyz, enc_features, enc_inds_q = model(masked_inputs)
 
         # TODO: take furthest points sampled from the subscene as well as their contextual features.
-        q_seed_points_info = sample_seed_subscene_points(masked_inputs['point_clouds'], enc_xyz, enc_features,
-                                                         enc_inds_q, batch_data_label["instance_labels"])
+        q_seed_points_info = model(inputs=None, encode=False, masked_pc=masked_inputs['point_clouds'], enc_xyz=enc_xyz,
+                                   enc_features=enc_features, enc_inds=enc_inds_q,
+                                   instance_labels=batch_data_label["instance_labels"])
         # batch_size x num_points x 3 and batch_size x num_points x 256
 
         inputs = {
@@ -191,8 +167,9 @@ def train_one_epoch(
         enc_xyz, enc_features, enc_inds_t = model(inputs)
 
         # during training the target seed point sampling is done on the subscene.
-        t_seed_points_info = sample_seed_subscene_points(masked_inputs['point_clouds'], enc_xyz, enc_features,
-                                                         enc_inds_t, batch_data_label["instance_labels"])
+        t_seed_points_info = model(inputs=None, encode=False, masked_pc=masked_inputs['point_clouds'], enc_xyz=enc_xyz,
+                                   enc_features=enc_features, enc_inds=enc_inds_t,
+                                   instance_labels=batch_data_label["instance_labels"])
 
         # compute loss.
         loss, _ = compute_loss(args, q_seed_points_info, t_seed_points_info, net_device, criterion)
@@ -264,8 +241,9 @@ def evaluate(
         enc_xyz, enc_features, enc_inds_q = model(masked_inputs)
 
         # TODO: take furthest points sampled from the subscene as well as their contextual features.
-        q_seed_points_info = sample_seed_subscene_points(masked_inputs['point_clouds'], enc_xyz, enc_features,
-                                                         enc_inds_q, batch_data_label["instance_labels"])
+        q_seed_points_info = model(inputs=None, encode=False, masked_pc=masked_inputs['point_clouds'], enc_xyz=enc_xyz,
+                                   enc_features=enc_features, enc_inds=enc_inds_q,
+                                   instance_labels=batch_data_label["instance_labels"])
         # batch_size x num_points x 3 and batch_size x num_points x 256
 
         inputs = {
@@ -277,8 +255,9 @@ def evaluate(
         enc_xyz, enc_features, enc_inds_t = model(inputs)
 
         # during training the target seed point sampling is done on the subscene.
-        t_seed_points_info = sample_seed_subscene_points(masked_inputs['point_clouds'], enc_xyz, enc_features,
-                                                         enc_inds_t, batch_data_label["instance_labels"])
+        t_seed_points_info = model(inputs=None, encode=False, masked_pc=masked_inputs['point_clouds'], enc_xyz=enc_xyz,
+                                   enc_features=enc_features, enc_inds=enc_inds_t,
+                                   instance_labels=batch_data_label["instance_labels"])
 
         # compute loss.
         loss, batch_logits = compute_loss(args, q_seed_points_info, t_seed_points_info, net_device, criterion,

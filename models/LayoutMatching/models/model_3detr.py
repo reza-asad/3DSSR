@@ -489,18 +489,48 @@ class ModelSeedCorr(nn.Module):
             enc_inds = torch.gather(pre_enc_inds, 1, enc_inds)
         return enc_xyz, enc_features, enc_inds
 
-    def forward(self, inputs):
-        point_clouds = inputs["point_clouds"]
+    # TODO: find n furthest points from the subscene and extract the features for them.
+    @ staticmethod
+    def sample_seed_subscene_points(masked_pc, enc_xyz, enc_features, enc_inds, instance_labels):
+        # create the tensors holding the furthest points on the subscene and their features.
+        B, N, _ = enc_xyz.shape
+        seed_points_info = []
 
-        enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds)
-        enc_features = self.encoder_to_decoder_projection(
-            enc_features.permute(1, 2, 0)
-        ).permute(2, 0, 1)
-        # encoder features: npoints x batch x channel
-        # encoder xyz: npoints x batch x 3
+        # extract the xyz points that are downsampled along with binary mask value.
+        masked_pc_downsampled = torch.zeros((B, N, 4), dtype=torch.float32)
+        instance_labels_downsampled = torch.zeros((B, N), dtype=torch.long)
+        for i in range(B):
+            masked_pc_downsampled[i, :, :] = masked_pc[i, enc_inds[i, :].long(), :]
+            instance_labels_downsampled[i, :] = instance_labels[i, enc_inds[i, :].long()]
 
-        # return: batch x npoints x channels
-        return enc_xyz, enc_features.transpose(0, 1), enc_inds
+            # filter the downsampled points to ones from the subscene.
+            is_sub = masked_pc_downsampled[i, :, 3] == 1
+            enc_xyz_sub = enc_xyz[i, is_sub, :]
+            enc_features_sub = enc_features[i, is_sub, :]
+            enc_inds_sub = enc_inds[i, is_sub]
+            labels_sub = instance_labels_downsampled[i, is_sub]
+
+            # extract the contextual features corresponding to the furthest points and their xyz locations.
+            seed_points_info.append((enc_xyz_sub, enc_features_sub, enc_inds_sub, labels_sub))
+
+        return seed_points_info
+
+    def forward(self, inputs=None, encode=True, masked_pc=None, enc_xyz=None, enc_features=None, enc_inds=None,
+                instance_labels=None):
+        if encode:
+            point_clouds = inputs["point_clouds"]
+
+            enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds)
+            enc_features = self.encoder_to_decoder_projection(
+                enc_features.permute(1, 2, 0)
+            ).permute(2, 0, 1)
+            # encoder features: npoints x batch x channel
+            # encoder xyz: npoints x batch x 3
+
+            # return: batch x npoints x channels
+            return enc_xyz, enc_features.transpose(0, 1), enc_inds
+        else:
+            return self.sample_seed_subscene_points(masked_pc, enc_xyz, enc_features, enc_inds, instance_labels)
 
 
 # TODO: add function to aggregate features around each query point.
