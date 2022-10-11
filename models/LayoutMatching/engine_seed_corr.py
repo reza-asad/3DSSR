@@ -61,6 +61,7 @@ def compute_loss(args, q_seed_points_info, t_seed_points_info, net_device, crite
         logits = torch.zeros((args.npos_pairs, args.npos_pairs), dtype=torch.float32, device=net_device)
         j = 0
         pos_pair_idx = 0
+        bad_example = False
         while pos_pair_idx < args.npos_pairs:
             # find all the target points with the same instance label as the label for the current query point
             curr_label = q_seed_labels[j]
@@ -72,10 +73,9 @@ def compute_loss(args, q_seed_points_info, t_seed_points_info, net_device, crite
 
             # skip if no positive or negative found.
             if len(pos_indices) == 0 or len(neg_indices) == 0:
-                j += 1
-                if j == len(q_seed_labels):
-                    j = 0
-                continue
+                print('No pos/neg found')
+                bad_example = True
+                break
 
             if evaluation:
                 np.random.seed(0)
@@ -98,9 +98,10 @@ def compute_loss(args, q_seed_points_info, t_seed_points_info, net_device, crite
             if j == len(q_seed_labels):
                 j = 0
 
-        out = torch.div(logits, args.tempreature)
-        batch_logits[i, ...] = out
-        loss += criterion(out, cl_loss_label)
+        if not bad_example:
+            out = torch.div(logits, args.tempreature)
+            batch_logits[i, ...] = out
+            loss += criterion(out, cl_loss_label)
 
     return loss, batch_logits
 
