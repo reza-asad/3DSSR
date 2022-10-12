@@ -91,10 +91,14 @@ def train_one_epoch(
         masked_inputs = {"point_clouds": batch_data_label["point_clouds_with_mask"]}
         enc_xyz, enc_features, enc_inds_q = model(masked_inputs)
 
+        # TODO: compute the radius used for cropping and aggregating features around seed points.
+        crop_radius = batch_data_label['subscene_radius'] * args.crop_factor
+
         # TODO: take furthest points sampled from the subscene as well as their contextual features.
         q_seed_points_info = model(inputs=None, encode=False, masked_pc=masked_inputs['point_clouds'], enc_xyz=enc_xyz,
                                    enc_features=enc_features, enc_inds=enc_inds_q,
-                                   instance_labels=batch_data_label["instance_labels"])
+                                   instance_labels=batch_data_label["instance_labels"], crop_radius=crop_radius,
+                                   is_query=True)
         # batch_size x num_points x 3 and batch_size x num_points x 256
 
         inputs = {
@@ -108,7 +112,8 @@ def train_one_epoch(
         # during training the target seed point sampling is done on the subscene.
         t_seed_points_info = model(inputs=None, encode=False, masked_pc=masked_inputs['point_clouds'], enc_xyz=enc_xyz,
                                    enc_features=enc_features, enc_inds=enc_inds_t,
-                                   instance_labels=batch_data_label["instance_labels"])
+                                   instance_labels=batch_data_label["instance_labels"], crop_radius=crop_radius,
+                                   is_query=False)
 
         # create the label for contrastive loss.
         cl_loss_label = torch.arange(args.npos_pairs)
@@ -183,10 +188,14 @@ def evaluate(
         masked_inputs = {"point_clouds": batch_data_label["point_clouds_with_mask"]}
         enc_xyz, enc_features, enc_inds_q = model(masked_inputs)
 
+        # TODO: compute the radius used for cropping and aggregating features around seed points.
+        crop_radius = batch_data_label['subscene_radius'] * args.crop_factor
+
         # TODO: take furthest points sampled from the subscene as well as their contextual features.
         q_seed_points_info = model(inputs=None, encode=False, masked_pc=masked_inputs['point_clouds'], enc_xyz=enc_xyz,
                                    enc_features=enc_features, enc_inds=enc_inds_q,
-                                   instance_labels=batch_data_label["instance_labels"])
+                                   instance_labels=batch_data_label["instance_labels"], crop_radius=crop_radius,
+                                   is_query=True)
         # batch_size x num_points x 3 and batch_size x num_points x 256
 
         inputs = {
@@ -200,7 +209,8 @@ def evaluate(
         # during training the target seed point sampling is done on the subscene.
         t_seed_points_info = model(inputs=None, encode=False, masked_pc=masked_inputs['point_clouds'], enc_xyz=enc_xyz,
                                    enc_features=enc_features, enc_inds=enc_inds_t,
-                                   instance_labels=batch_data_label["instance_labels"])
+                                   instance_labels=batch_data_label["instance_labels"], crop_radius=crop_radius,
+                                   is_query=False)
 
         # create the label for contrastive loss.
         cl_loss_label = torch.arange(args.npos_pairs)

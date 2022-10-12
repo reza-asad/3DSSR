@@ -417,10 +417,10 @@ class PointContrastiveLoss(nn.Module):
 
                 # randomly choose one matching query points and n-1 negative examples.
                 pos_indices = is_same_instance.nonzero().squeeze(dim=1)
-                neg_indices = (1 - is_same_instance).nonzero().squeeze()
+                neg_indices = (1 - is_same_instance).nonzero().squeeze(dim=1)
 
                 # skip if no positive or negative found.
-                if len(pos_indices) == 0 or len(neg_indices) == 0:
+                if (pos_indices.dim() < 1) or (neg_indices.dim() < 1) or (len(pos_indices) == 0) or (len(neg_indices) == 0):
                     print('No pos/neg found')
                     bad_example = True
                     break

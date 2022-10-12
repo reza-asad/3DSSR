@@ -66,6 +66,7 @@ def make_args_parser():
     )
     parser.add_argument("--npos_pairs", default=256, type=int)
     parser.add_argument("--tempreature", default=0.4, type=float)
+    parser.add_argument("--crop_factor", default=0.1, type=float)
     parser.add_argument("--use_color", default=False, action="store_true")
 
     ##### Dataset #####

@@ -261,14 +261,16 @@ class ScannetDetectionDataset(Dataset):
         instance_bboxes_centroids = instance_bboxes[:, :3]
         dist = np.linalg.norm(instance_bboxes_centroids - anchor_centroid, axis=1)
         idx_dist = zip(range(num_boxes), dist)
+
         # sort boxes from closest to furthest from the anchor box.
         sorted_idx_dist = sorted(idx_dist, key=lambda x: x[1])
+
         # taking the anchor box too.
         closest_indices = list(list(zip(*sorted_idx_dist[:MAX_NUM_OBJ]))[0])
 
         instance_bboxes = instance_bboxes[closest_indices, ...]
 
-        return instance_bboxes
+        return instance_bboxes, sorted_idx_dist[-1][-1]
 
     def __getitem__(self, idx):
         scan_name = self.scan_names[idx]
@@ -323,7 +325,7 @@ class ScannetDetectionDataset(Dataset):
         # TODO: randomly take MAX_NUM_OBJ - 1 many closest boxes (to an anchor) among the instance_bboxes.
         if len(instance_bboxes) == 0:
             return None
-        instance_bboxes = self.sample_subscene(instance_bboxes, MAX_NUM_OBJ)
+        instance_bboxes, subscene_radius = self.sample_subscene(instance_bboxes, MAX_NUM_OBJ)
 
         point_cloud, choices = pc_util.random_sampling(
             point_cloud, self.num_points, return_choices=True
@@ -422,6 +424,8 @@ class ScannetDetectionDataset(Dataset):
         ret_dict["point_clouds_with_mask"] = point_cloud_with_mask.astype(np.float32)
         # TODO: add the instance labels per point.
         ret_dict["instance_labels"] = instance_labels.astype(np.long)
+        # TODO: add the radius of the subscene.
+        ret_dict["subscene_radius"] = subscene_radius.astype(np.float32)
         ret_dict["gt_box_corners"] = box_corners.astype(np.float32)
         ret_dict["gt_box_centers"] = box_centers.astype(np.float32)
         ret_dict["gt_box_centers_normalized"] = box_centers_normalized.astype(
