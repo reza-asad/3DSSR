@@ -77,8 +77,7 @@ class Matcher(nn.Module):
                 per_prop_gt_inds[b, assign[0]] = assign[1]
                 proposal_matched_mask[b, assign[0]] = 1
             assignments.append(assign)
-        print(assignments)
-        t=y
+
         return {
             "assignments": assignments,
             "per_prop_gt_inds": per_prop_gt_inds,
@@ -406,6 +405,10 @@ class PointContrastiveLoss(nn.Module):
             _, q_seed_features, _, q_seed_labels = q_seed_points_info[i]
             _, t_seed_features, _, t_seed_labels = t_seed_points_info[i]
 
+            # normalize the features
+            q_seed_features = torch.nn.functional.normalize(q_seed_features, dim=1)
+            t_seed_features = torch.nn.functional.normalize(t_seed_features, dim=1)
+
             logits = torch.zeros((self.npos_pairs, self.npos_pairs), dtype=torch.float32, device=cl_loss_label.device)
             j = 0
             pos_pair_idx = 0
@@ -416,8 +419,8 @@ class PointContrastiveLoss(nn.Module):
                 is_same_instance = (t_seed_labels == curr_label).long()
 
                 # randomly choose one matching query points and n-1 negative examples.
-                pos_indices = is_same_instance.nonzero().squeeze(dim=1)
-                neg_indices = (1 - is_same_instance).nonzero().squeeze(dim=1)
+                pos_indices = is_same_instance.nonzero().squeeze(dim=1).detach().cpu()
+                neg_indices = (1 - is_same_instance).nonzero().squeeze(dim=1).detach().cpu()
 
                 # skip if no positive or negative found.
                 if (pos_indices.dim() < 1) or (neg_indices.dim() < 1) or (len(pos_indices) == 0) or (len(neg_indices) == 0):
@@ -436,6 +439,9 @@ class PointContrastiveLoss(nn.Module):
                 t_neg_features = t_seed_features[rand_neg_indices, :]
 
                 # compute the logit given the pos/neg examples.
+                # print(t_seed_features[j, :10])
+                # print(q_seed_features[j, :10])
+                # print('*'*50)
                 logits[pos_pair_idx, pos_pair_idx] = torch.dot(q_seed_features[j, :], t_pos_feature)
                 neg_logits = torch.mm(t_neg_features, q_seed_features[j:j + 1, :].t()).squeeze()
                 logits[pos_pair_idx, :pos_pair_idx] = neg_logits[:pos_pair_idx]

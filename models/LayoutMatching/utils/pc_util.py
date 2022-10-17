@@ -309,20 +309,15 @@ def find_angle_from_mat(rot_mat_batch):
 
 
 # TODO: add a function that finds the best rotation aligning two point clouds (correspondence is assumed).
-def svd_rotation(pc_q, pc_t, sample_size=100):
+def svd_rotation(pc_q, pc_t):
     # solve for 2D (rotation around upward-z)
     N, D = pc_q.shape
-    pc_q = pc_q[:, :D-1]
-    pc_t = pc_t[:, :D-1]
+    pc_q = pc_q[:, :D-1].t()
+    pc_t = pc_t[:, :D-1].t()
 
     # find the centroids.
-    centroid_q = torch.mean(pc_q, dim=0).reshape(-1, 1)
-    centroid_t = torch.mean(pc_t, dim=0).reshape(-1, 1)
-
-    # sample points.
-    random_indices = np.random.choice(N, sample_size)
-    pc_q = pc_q[random_indices, :].t()
-    pc_t = pc_t[random_indices, :].t()
+    centroid_q = torch.mean(pc_q, dim=1).reshape(-1, 1)
+    centroid_t = torch.mean(pc_t, dim=1).reshape(-1, 1)
 
     # centralize
     pc_q -= centroid_q
@@ -341,7 +336,7 @@ def svd_rotation(pc_q, pc_t, sample_size=100):
 
     # If R is a reflection matrix look for best rotation.
     if np.linalg.det(R) < 0:
-        Vt[2, :] *= -1
+        Vt[1, :] *= -1
         R = Vt.T @ U.T
 
     return R, best_err

@@ -40,10 +40,10 @@ def make_args_parser():
     ##### Model #####
     parser.add_argument(
         "--model_name",
-        default="3detr",
+        default="3dssr",
         type=str,
         help="Name of the model",
-        choices=["3detr"],
+        choices=["3detr", "3dssr"],
     )
     ### Encoder
     parser.add_argument(
@@ -83,6 +83,9 @@ def make_args_parser():
         "--pos_embed", default="fourier", type=str, choices=["fourier", "sine"]
     )
     parser.add_argument("--nqueries", default=256, type=int)
+    parser.add_argument("--npos_pairs", default=256, type=int)
+    parser.add_argument("--tempreature", default=0.4, type=float)
+    parser.add_argument("--crop_factor", default=0.1, type=float)
     parser.add_argument("--use_color", default=False, action="store_true")
 
     ##### Set Loss #####
@@ -136,6 +139,7 @@ def make_args_parser():
     ##### Testing #####
     parser.add_argument("--test_only", default=False, action="store_true")
     parser.add_argument("--test_ckpt", default=None, type=str)
+    parser.add_argument("--corr_model_ckpt", default=None, type=str)
 
     ##### I/O #####
     parser.add_argument("--checkpoint_dir", default=None, type=str)
@@ -361,6 +365,13 @@ def main(local_rank, args):
     model, _ = build_model(args, dataset_config)
     model = model.cuda(local_rank)
     model_no_ddp = model
+
+    # TODO: load the pre-trained weights for the seed corr model.
+    corr_model = torch.load(args.corr_model_ckpt, map_location=torch.device("cpu"))
+    model_no_ddp.corr_model.load_state_dict(corr_model["model"])
+    model_no_ddp.corr_model.eval()
+    for p in model_no_ddp.corr_model.parameters():
+        p.requires_grad = False
 
     if is_distributed():
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)

@@ -257,32 +257,30 @@ def do_train(
             pickle.dump(accuracy_dict, fh)
 
 
-# def test_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders):
-#     if args.test_ckpt is None or not os.path.isfile(args.test_ckpt):
-#         f"Please specify a test checkpoint using --test_ckpt. Found invalid value {args.test_ckpt}"
-#         sys.exit(1)
-#
-#     sd = torch.load(args.test_ckpt, map_location=torch.device("cpu"))
-#     model_no_ddp.load_state_dict(sd["model"])
-#     logger = Logger()
-#     criterion = None  # do not compute loss for speed-up; Comment out to see test loss
-#     epoch = -1
-#     curr_iter = 0
-#     ap_calculator = evaluate(
-#         args,
-#         epoch,
-#         model,
-#         criterion,
-#         dataloaders["test"],
-#         logger,
-#         curr_iter,
-#     )
-#     metrics = ap_calculator.compute_metrics()
-#     metric_str = ap_calculator.metrics_to_str(metrics)
-#     if is_primary():
-#         print("==" * 10)
-#         print(f"Test model; Metrics {metric_str}")
-#         print("==" * 10)
+def test_model(args, model, model_no_ddp, criterion, dataloaders):
+    if args.test_ckpt is None or not os.path.isfile(args.test_ckpt):
+       f"Please specify a test checkpoint using --test_ckpt. Found invalid value {args.test_ckpt}"
+       sys.exit(1)
+
+    sd = torch.load(args.test_ckpt, map_location=torch.device("cpu"))
+    model_no_ddp.load_state_dict(sd["model"])
+    logger = Logger()
+    epoch = -1
+    curr_iter = 0
+    accuracy_dict, loss = evaluate(
+        args,
+        epoch,
+        model,
+        criterion,
+        dataloaders["test"],
+        logger,
+        curr_iter,
+    )
+    metric_str = accuracy_dict['accuracy']
+    if is_primary():
+        print("==" * 10)
+        print(f"Test model; Metrics {metric_str}")
+        print("==" * 10)
 
 
 def main(local_rank, args):
@@ -349,9 +347,7 @@ def main(local_rank, args):
         dataloaders[split + "_sampler"] = sampler
 
     if args.test_only:
-        pass
-        # criterion = None  # faster evaluation
-        # test_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders)
+        test_model(args, model, model_no_ddp, criterion, dataloaders)
     else:
         assert (
             args.checkpoint_dir is not None

@@ -1,10 +1,12 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
+import numpy as np
 import torch
 import datetime
 import logging
 import math
 import time
 import sys
+from scipy.optimize import linear_sum_assignment
 
 from torch.distributed.distributed_c10d import reduce
 from utils.ap_calculator import APCalculator
@@ -16,6 +18,7 @@ from utils.dist import (
     reduce_dict,
     barrier,
 )
+import utils.pc_util as pc_util
 
 
 def compute_learning_rate(args, curr_epoch_normalized):
@@ -41,6 +44,144 @@ def adjust_learning_rate(args, optimizer, curr_epoch):
     for param_group in optimizer.param_groups:
         param_group["lr"] = curr_lr
     return curr_lr
+
+
+# TODO: add function that uses the trained point corr model to extract and encode query seed points.
+def extract_encode_seed_points(model, inputs, instance_labels, crop_radius, is_query):
+    # encode the masked pc with the trained point corr model.
+    enc_xyz, enc_features, enc_inds = model.corr_model(inputs)
+
+    # take furthest points sampled from the subscene as well as their contextual features.
+    if is_query:
+        seed_points_info = model.corr_model.sample_agg_q_seed_points(pc=inputs['point_clouds'],
+                                                                     enc_xyz=enc_xyz,
+                                                                     enc_features=enc_features,
+                                                                     enc_inds=enc_inds,
+                                                                     instance_labels=instance_labels,
+                                                                     crop_radius=crop_radius)
+    else:
+        seed_points_info = model.corr_model.sample_agg_t_seed_points(enc_xyz=enc_xyz,
+                                                                     enc_features=enc_features,
+                                                                     enc_inds=enc_inds,
+                                                                     instance_labels=instance_labels,
+                                                                     crop_radius=crop_radius)
+
+    return seed_points_info
+
+
+# def find_seed_point_correspondence(args, q_seed_points_info, t_seed_points_info):
+#     B = len(q_seed_points_info)
+#     corr_indices = []
+#     for i in range(B):
+#         _, q_seed_features, enc_inds_q, instance_labels_q = q_seed_points_info[i]
+#         _, t_seed_features, enc_inds_t, instance_labels_t = t_seed_points_info[i]
+#         N_q = q_seed_features.shape[0]
+#         N_t = t_seed_features.shape[0]
+#
+#         # sample query seed points.
+#         n = 256
+#         rand_pos_indices = np.random.choice(N_q, n, replace=n>N_q)
+#         q_seed_features = q_seed_features[rand_pos_indices, :]
+#         instance_labels_q = instance_labels_q[rand_pos_indices]
+#
+#         # sample target seed points.
+#         m = 512
+#         rand_neg_indices = np.random.choice(N_t, m, replace=m>N_t)
+#         t_seed_features = t_seed_features[rand_neg_indices, :]
+#         instance_labels_t = instance_labels_t[rand_neg_indices]
+#
+#         # compute the logits for query and target points.
+#         logits = torch.mm(q_seed_features, t_seed_features.t())
+#         out = torch.div(logits, args.tempreature)
+#
+#         # build the cost matrix from the logits.
+#         cost_matrix = 1 / (out.detach().cpu().numpy() + 1e-8)
+#
+#         # apply the hungarian algorithm to find the optimal point assignment.
+#         row_ind, col_ind = linear_sum_assignment(cost_matrix)
+#         print(torch.sum(instance_labels_q[row_ind] == instance_labels_t[col_ind]).item()/len(row_ind) * 100)
+#         # corr_indices.append((enc_inds_q[row_ind].long(), enc_inds_t[col_ind].long()))
+#     tt
+#     return corr_indices
+
+
+def find_seed_point_correspondence(args, q_seed_points_info, t_seed_points_info):
+    B = len(q_seed_points_info)
+    for i in range(B):
+        _, q_seed_features, _, q_seed_labels = q_seed_points_info[i]
+        _, t_seed_features, _, t_seed_labels = t_seed_points_info[i]
+
+        logits = torch.zeros((args.npos_pairs, args.npos_pairs), dtype=torch.float32, device=q_seed_features.device)
+        j = 0
+        pos_pair_idx = 0
+        bad_example = False
+        while pos_pair_idx < args.npos_pairs:
+            # find all the target points with the same instance label as the label for the current query point
+            curr_label = q_seed_labels[j]
+            is_same_instance = (t_seed_labels == curr_label).long()
+
+            # randomly choose one matching query points and n-1 negative examples.
+            pos_indices = is_same_instance.nonzero().squeeze(dim=1).detach().cpu()
+            neg_indices = (1 - is_same_instance).nonzero().squeeze(dim=1).detach().cpu()
+
+            # skip if no positive or negative found.
+            if (pos_indices.dim() < 1) or (neg_indices.dim() < 1) or (len(pos_indices) == 0) or (len(neg_indices) == 0):
+                print('No pos/neg found')
+                bad_example = True
+                break
+
+            rand_pos_index = np.random.choice(pos_indices, 1)[0]
+            rand_neg_indices = np.random.choice(neg_indices, args.npos_pairs - 1,
+                                                replace=len(neg_indices) < (args.npos_pairs - 1))
+
+            # load the positive and negative features.
+            t_pos_feature = t_seed_features[rand_pos_index, :]
+            t_neg_features = t_seed_features[rand_neg_indices, :]
+
+            # compute the logit given the pos/neg examples.
+            logits[pos_pair_idx, pos_pair_idx] = torch.dot(q_seed_features[j, :], t_pos_feature)
+            neg_logits = torch.mm(t_neg_features, q_seed_features[j:j + 1, :].t()).squeeze()
+            logits[pos_pair_idx, :pos_pair_idx] = neg_logits[:pos_pair_idx]
+            logits[pos_pair_idx, pos_pair_idx + 1:] = neg_logits[pos_pair_idx:]
+
+            # update the number of pos pairs constructed.
+            pos_pair_idx += 1
+            j += 1
+            if j == len(q_seed_labels):
+                j = 0
+
+        if not bad_example:
+            out = torch.div(logits, args.tempreature)
+            cost_matrix = 1 / (out.detach().cpu().numpy() + 1e-8)
+            print(torch.sum(out))
+            tt
+            print(cost_matrix[0, :])
+            tt
+            # apply the hungarian algorithm to find the optimal point assignment.
+            row_ind, col_ind = linear_sum_assignment(cost_matrix)
+            print(row_ind)
+            print(col_ind)
+            tt
+    tt
+
+def align_target_query(corr_indices, pc_q, pc_t):
+    rot_angles = []
+    B = len(corr_indices)
+    # import trimesh
+    # apply svd on the corresponding query/target points in each batch.
+    for i in range(B):
+        # find the xyz for query seed points
+        pc_q_i = pc_q[i, corr_indices[i][0], :3]
+        pc_t_i = pc_t[i, corr_indices[i][1], :3]
+        # trimesh.points.PointCloud(pc_q_i.detach().cpu().numpy()).show()
+        # trimesh.points.PointCloud(pc_t_i.detach().cpu().numpy()).show()
+        R, error = pc_util.svd_rotation(pc_q_i, pc_t_i)
+
+        # convert the rotation matrix to an angle.
+        rot_angle = np.arctan2(R[1, 0], R[0, 0]) * 180 / np.pi
+        rot_angles.append(rot_angle)
+
+    return rot_angles
 
 
 def train_one_epoch(
@@ -69,6 +210,8 @@ def train_one_epoch(
     loss_avg = SmoothedValue(window_size=10)
 
     model.train()
+    # TODO: ensuring the corr model is in evaluation mode.
+    model.corr_model.eval()
     barrier()
 
     for batch_idx, batch_data_label in enumerate(dataset_loader):
@@ -81,27 +224,51 @@ def train_one_epoch(
         # Forward pass
         optimizer.zero_grad()
 
-        # TODO: encode the point cloud with mask first.
+        # TODO: extract and encode the query seed points using the trained seed point correspondence model.
+        # compute the radius used for cropping and aggregating features around seed points.
+        crop_radius = batch_data_label['subscene_radius'] * args.crop_factor
         masked_inputs = {"point_clouds": batch_data_label["point_clouds_with_mask"]}
-        enc_xyz, enc_features, enc_inds = model(masked_inputs, encoder_only=True)
+        q_seed_points_info = extract_encode_seed_points(model,
+                                                        masked_inputs,
+                                                        batch_data_label["instance_labels"],
+                                                        crop_radius,
+                                                        is_query=True)
 
-        # TODO: take 5 furthest points sampled from the subscene as well as their contextual features.
-        seed_xyz, seed_features = model.sample_seed_subscene_points(masked_inputs['point_clouds'], enc_xyz,
-                                                                    enc_features, enc_inds, num_points=5)
-        # batch_size x 5 x 3 and batch_size x 5 x 256
-        # t=y
-        subscene_inputs = {
-            "enc_xyz": enc_xyz,
-            "enc_features": enc_features
-        }
+        # TODO: extract and encode target seed points, this time across the target scene (no condition on subscene).
         inputs = {
             "point_clouds": batch_data_label["point_clouds"],
             "point_cloud_dims_min": batch_data_label["point_cloud_dims_min"],
             "point_cloud_dims_max": batch_data_label["point_cloud_dims_max"],
         }
-        # TODO: the decoding is conditioned on the subscene inputs.
-        outputs = model(inputs, subscene_inputs)
+        t_seed_points_info = extract_encode_seed_points(model,
+                                                        inputs,
+                                                        batch_data_label["instance_labels"],
+                                                        crop_radius,
+                                                        is_query=False)
 
+        # TODO: find the correspondence between the query and target seed points.
+        corr_indices = find_seed_point_correspondence(args, q_seed_points_info, t_seed_points_info)
+
+        # TODO: find the alignment that best matches target and query.
+        rot_angles = align_target_query(corr_indices,
+                                        batch_data_label["point_clouds_with_mask"],
+                                        batch_data_label["point_clouds"])
+        for i in range(len(corr_indices)):
+            print(rot_angles[i], batch_data_label["rot_angle"][i].item() * 180/np.pi)
+        tt
+        # TODO: during training the query and target scenes are aligned using ground truth.
+
+        # TODO: encode the point cloud with mask using the 3detr model.
+        enc_xyz, enc_features, enc_inds_q = model(masked_inputs, encoder_only=True)
+
+        subscene_inputs = {
+            "enc_xyz": enc_xyz,
+            "enc_features": enc_features,
+        }
+
+        # TODO: decoding is conditioned on the subscene where target and query are aligned.
+        outputs = model(inputs, subscene_inputs)
+        tt
         # Compute loss
         loss, loss_dict = criterion(outputs, batch_data_label)
         loss_reduced = all_reduce_average(loss)

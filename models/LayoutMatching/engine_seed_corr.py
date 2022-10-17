@@ -47,6 +47,9 @@ def adjust_learning_rate(args, optimizer, curr_epoch):
 
 def find_correspondence_accuracy(batch_logits):
     batch_size, npos_pairs, _ = batch_logits.shape
+    # take into account the case where the logits are all 0
+    if torch.sum(batch_logits) == 0:
+        return 0, npos_pairs * batch_size
     cost_matrix = 1 / (batch_logits.detach().cpu().numpy() + 1e-8)
     num_correct, num_total = 0, 0
     for i in range(batch_size):
@@ -120,7 +123,7 @@ def train_one_epoch(
         cl_loss_label = cl_loss_label.to(device=net_device, dtype=torch.long)
 
         # compute loss.
-        loss, _ = criterion(q_seed_points_info, t_seed_points_info, cl_loss_label, evaluation=False)
+        loss, batch_logits = criterion(q_seed_points_info, t_seed_points_info, cl_loss_label, evaluation=False)
         loss_reduced = all_reduce_average(loss)
 
         if not math.isfinite(loss_reduced.item()):

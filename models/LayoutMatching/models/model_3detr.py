@@ -506,30 +506,48 @@ class ModelSeedCorr(nn.Module):
 
     # TODO: find n points on the subscene and aggregate features around their neighbour.
     @ staticmethod
-    def sample_agg_seed_subscene_points(masked_pc, enc_xyz, enc_features, enc_inds, instance_labels, crop_radius,
-                                        is_query):
+    def sample_agg_q_seed_points(pc, enc_xyz, enc_features, enc_inds, instance_labels, crop_radius):
         # create the tensors holding the furthest points on the subscene and their features.
         B, N, _ = enc_xyz.shape
         seed_points_info = []
 
         # extract the xyz points that are downsampled along with binary mask value.
-        masked_pc_downsampled = torch.zeros((B, N, 4), dtype=torch.float32)
-        instance_labels_downsampled = torch.zeros((B, N), dtype=torch.long)
+        pc_downsampled = torch.zeros((B, N, 4), dtype=torch.float32)
+        instance_labels_downsampled = torch.zeros((B, N), dtype=torch.long, device=pc.device)
         for i in range(B):
-            masked_pc_downsampled[i, :, :] = masked_pc[i, enc_inds[i, :].long(), :]
+            pc_downsampled[i, :, :] = pc[i, enc_inds[i, :].long(), :]
             instance_labels_downsampled[i, :] = instance_labels[i, enc_inds[i, :].long()]
 
             # filter the downsampled points to ones from the subscene.
-            is_sub = masked_pc_downsampled[i, :, 3] == 1
+            is_sub = pc_downsampled[i, :, 3] == 1
             enc_xyz_sub = enc_xyz[i, is_sub, :]
             enc_inds_sub = enc_inds[i, is_sub]
             enc_features_sub = enc_features[i, is_sub]
+            # TODO: should the is_query change to True?
             enc_features_sub_agg = agg_nearby_features(enc_xyz[i, ...], enc_features[i, ...], enc_xyz_sub,
-                                                       enc_features_sub, crop_radius[i], is_query)
+                                                       enc_features_sub, crop_radius[i], is_query=False)
             labels_sub = instance_labels_downsampled[i, is_sub]
 
             # extract the contextual features corresponding to the furthest points and their xyz locations.
             seed_points_info.append((enc_xyz_sub, enc_features_sub_agg, enc_inds_sub, labels_sub))
+
+        return seed_points_info
+
+    # TODO: find n points on the target scene and aggregate features around their neighbour.
+    @ staticmethod
+    def sample_agg_t_seed_points(enc_xyz, enc_features, enc_inds, instance_labels, crop_radius):
+        # create the tensors holding the furthest points on the target scene and their features.
+        B, N, _ = enc_xyz.shape
+        seed_points_info = []
+
+        for i in range(B):
+            # filter the downsampled points to ones from the subscene.
+            enc_features_sub_agg = agg_nearby_features(enc_xyz[i, ...], enc_features[i, ...], enc_xyz[i, ...],
+                                                       enc_features[i, ...], crop_radius[i], is_query=False)
+
+            # extract the contextual features corresponding to the furthest points and their xyz locations.
+            seed_points_info.append((enc_xyz[i, ...], enc_features_sub_agg, enc_inds[i, ...],
+                                     instance_labels[i, enc_inds[i, ...].long()]))
 
         return seed_points_info
 
@@ -547,9 +565,289 @@ class ModelSeedCorr(nn.Module):
 
             # return: batch x npoints x channels
             return enc_xyz, enc_features.transpose(0, 1), enc_inds
+        elif is_query:
+            return self.sample_agg_q_seed_points(masked_pc, enc_xyz, enc_features, enc_inds, instance_labels,
+                                                 crop_radius)
         else:
-            return self.sample_agg_seed_subscene_points(masked_pc, enc_xyz, enc_features, enc_inds, instance_labels,
-                                                        crop_radius, is_query)
+            return self.sample_agg_t_seed_points(enc_xyz, enc_features, enc_inds, instance_labels, crop_radius)
+
+
+# TODO: a 3dssr model that uses a trained seed point corr for detecting 3d subscenes.
+class Model3DSSR(nn.Module):
+    """
+    Main 3DETR model. Consists of the following learnable sub-models
+    - pre_encoder: takes raw point cloud, subsamples it and projects into "D" dimensions
+                Input is a Nx3 matrix of N point coordinates
+                Output is a N'xD matrix of N' point features
+    - encoder: series of self-attention blocks to extract point features
+                Input is a N'xD matrix of N' point features
+                Output is a N''xD matrix of N'' point features.
+                N'' = N' for regular encoder; N'' = N'//2 for masked encoder
+    - query computation: samples a set of B coordinates from the N'' points
+                and outputs a BxD matrix of query features.
+    - decoder: series of self-attention and cross-attention blocks to produce BxD box features
+                Takes N''xD features from the encoder and BxD query features.
+    - mlp_heads: Predicts bounding box parameters and classes from the BxD box features
+    """
+
+    def __init__(
+            self,
+            corr_model,
+            pre_encoder,
+            encoder,
+            decoder,
+            dataset_config,
+            encoder_dim=256,
+            decoder_dim=256,
+            position_embedding="fourier",
+            mlp_dropout=0.3,
+            num_queries=256,
+            query_and_group=None
+
+    ):
+        super().__init__()
+        self.corr_model = corr_model
+        self.pre_encoder = pre_encoder
+        self.encoder = encoder
+        if hasattr(self.encoder, "masking_radius"):
+            hidden_dims = [encoder_dim]
+        else:
+            hidden_dims = [encoder_dim, encoder_dim]
+        self.encoder_to_decoder_projection = GenericMLP(
+            input_dim=encoder_dim,
+            hidden_dims=hidden_dims,
+            output_dim=decoder_dim,
+            norm_fn_name="bn1d",
+            activation="relu",
+            use_conv=True,
+            output_use_activation=True,
+            output_use_norm=True,
+            output_use_bias=False,
+        )
+        self.pos_embedding = PositionEmbeddingCoordsSine(
+            d_pos=decoder_dim, pos_type=position_embedding, normalize=True
+        )
+        self.target_projection = GenericMLP(
+            input_dim=decoder_dim,
+            hidden_dims=[decoder_dim],
+            output_dim=decoder_dim,
+            use_conv=True,
+            output_use_activation=True,
+            hidden_use_bias=True,
+        )
+        self.decoder = decoder
+        self.build_mlp_heads(dataset_config, decoder_dim, mlp_dropout)
+
+        self.num_queries = num_queries
+        self.query_and_group = query_and_group
+        self.box_processor = BoxProcessor(dataset_config)
+
+    def build_mlp_heads(self, dataset_config, decoder_dim, mlp_dropout):
+        mlp_func = partial(
+            GenericMLP,
+            norm_fn_name="bn1d",
+            activation="relu",
+            use_conv=True,
+            hidden_dims=[decoder_dim, decoder_dim],
+            dropout=mlp_dropout,
+            input_dim=decoder_dim,
+        )
+
+        # Semantic class of the box
+        # add 1 for background/not-an-object class
+        semcls_head = mlp_func(output_dim=dataset_config.num_semcls + 1)
+
+        # geometry of the box
+        center_head = mlp_func(output_dim=3)
+        size_head = mlp_func(output_dim=3)
+        angle_cls_head = mlp_func(output_dim=dataset_config.num_angle_bin)
+        angle_reg_head = mlp_func(output_dim=dataset_config.num_angle_bin)
+
+        mlp_heads = [
+            ("sem_cls_head", semcls_head),
+            ("center_head", center_head),
+            ("size_head", size_head),
+            ("angle_cls_head", angle_cls_head),
+            ("angle_residual_head", angle_reg_head),
+        ]
+        self.mlp_heads = nn.ModuleDict(mlp_heads)
+
+    def get_target_points_embeddings(self, encoder_xyz, point_cloud_dims):
+        target_inds = furthest_point_sample(encoder_xyz, self.num_queries)
+        target_inds = target_inds.long()
+        target_xyz = [torch.gather(encoder_xyz[..., x], 1, target_inds) for x in range(3)]
+        target_xyz = torch.stack(target_xyz)
+        target_xyz = target_xyz.permute(1, 2, 0)
+
+        # Gater op above can be replaced by the three lines below from the pointnet2 codebase
+        # xyz_flipped = encoder_xyz.transpose(1, 2).contiguous()
+        # query_xyz = gather_operation(xyz_flipped, query_inds.int())
+        # query_xyz = query_xyz.transpose(1, 2)
+        pos_embed = self.pos_embedding(target_xyz, input_range=point_cloud_dims)
+        target_embed = self.target_projection(pos_embed)
+        return target_xyz, target_embed
+
+    def _break_up_pc(self, pc):
+        # pc may contain color/normals.
+
+        xyz = pc[..., 0:3].contiguous()
+        features = pc[..., 3:].transpose(1, 2).contiguous() if pc.size(-1) > 3 else None
+        return xyz, features
+
+    def run_encoder(self, point_clouds):
+        xyz, features = self._break_up_pc(point_clouds)
+        pre_enc_xyz, pre_enc_features, pre_enc_inds = self.pre_encoder(xyz, features)
+        # xyz: batch x npoints x 3
+        # features: batch x channel x npoints
+        # inds: batch x npoints
+
+        # nn.MultiHeadAttention in encoder expects npoints x batch x channel features
+        pre_enc_features = pre_enc_features.permute(2, 0, 1)
+
+        # xyz points are in batch x npointx channel order
+        enc_xyz, enc_features, enc_inds = self.encoder(
+            pre_enc_features, xyz=pre_enc_xyz
+        )
+        if enc_inds is None:
+            # encoder does not perform any downsampling
+            enc_inds = pre_enc_inds
+        else:
+            # use gather here to ensure that it works for both FPS and random sampling
+            enc_inds = torch.gather(pre_enc_inds, 1, enc_inds)
+        return enc_xyz, enc_features, enc_inds
+
+    def get_box_predictions(self, query_xyz, point_cloud_dims, box_features):
+        """
+        Parameters:
+            query_xyz: batch x nqueries x 3 tensor of query XYZ coords
+            point_cloud_dims: List of [min, max] dims of point cloud
+                              min: batch x 3 tensor of min XYZ coords
+                              max: batch x 3 tensor of max XYZ coords
+            box_features: num_layers x num_queries x batch x channel
+        """
+        # box_features change to (num_layers x batch) x channel x num_queries
+        box_features = box_features.permute(0, 2, 3, 1)
+        num_layers, batch, channel, num_queries = (
+            box_features.shape[0],
+            box_features.shape[1],
+            box_features.shape[2],
+            box_features.shape[3],
+        )
+        box_features = box_features.reshape(num_layers * batch, channel, num_queries)
+
+        # mlp head outputs are (num_layers x batch) x noutput x nqueries, so transpose last two dims
+        cls_logits = self.mlp_heads["sem_cls_head"](box_features).transpose(1, 2)
+        center_offset = (
+                self.mlp_heads["center_head"](box_features).sigmoid().transpose(1, 2) - 0.5
+        )
+        size_normalized = (
+            self.mlp_heads["size_head"](box_features).sigmoid().transpose(1, 2)
+        )
+        angle_logits = self.mlp_heads["angle_cls_head"](box_features).transpose(1, 2)
+        angle_residual_normalized = self.mlp_heads["angle_residual_head"](
+            box_features
+        ).transpose(1, 2)
+
+        # reshape outputs to num_layers x batch x nqueries x noutput
+        cls_logits = cls_logits.reshape(num_layers, batch, num_queries, -1)
+        center_offset = center_offset.reshape(num_layers, batch, num_queries, -1)
+        size_normalized = size_normalized.reshape(num_layers, batch, num_queries, -1)
+        angle_logits = angle_logits.reshape(num_layers, batch, num_queries, -1)
+        angle_residual_normalized = angle_residual_normalized.reshape(
+            num_layers, batch, num_queries, -1
+        )
+        angle_residual = angle_residual_normalized * (
+                np.pi / angle_residual_normalized.shape[-1]
+        )
+
+        outputs = []
+        for l in range(num_layers):
+            # box processor converts outputs so we can get a 3D bounding box
+            (
+                center_normalized,
+                center_unnormalized,
+            ) = self.box_processor.compute_predicted_center(
+                center_offset[l], query_xyz, point_cloud_dims
+            )
+            angle_continuous = self.box_processor.compute_predicted_angle(
+                angle_logits[l], angle_residual[l]
+            )
+            size_unnormalized = self.box_processor.compute_predicted_size(
+                size_normalized[l], point_cloud_dims
+            )
+            box_corners = self.box_processor.box_parametrization_to_corners(
+                center_unnormalized, size_unnormalized, angle_continuous
+            )
+
+            # below are not used in computing loss (only for matching/mAP eval)
+            # we compute them with no_grad() so that distributed training does not complain about unused variables
+            with torch.no_grad():
+                (
+                    semcls_prob,
+                    objectness_prob,
+                ) = self.box_processor.compute_objectness_and_cls_prob(cls_logits[l])
+
+            box_prediction = {
+                "sem_cls_logits": cls_logits[l],
+                "center_normalized": center_normalized.contiguous(),
+                "center_unnormalized": center_unnormalized,
+                "size_normalized": size_normalized[l],
+                "size_unnormalized": size_unnormalized,
+                "angle_logits": angle_logits[l],
+                "angle_residual": angle_residual[l],
+                "angle_residual_normalized": angle_residual_normalized[l],
+                "angle_continuous": angle_continuous,
+                "objectness_prob": objectness_prob,
+                "sem_cls_prob": semcls_prob,
+                "box_corners": box_corners,
+            }
+            outputs.append(box_prediction)
+
+        # intermediate decoder layer outputs are only used during training
+        aux_outputs = outputs[:-1]
+        outputs = outputs[-1]
+
+        return {
+            "outputs": outputs,  # output from last layer of decoder
+            "aux_outputs": aux_outputs,  # output from intermediate layers of decoder
+        }
+
+    def forward(self, inputs, subscene_inputs=None, encoder_only=False):
+        point_clouds = inputs["point_clouds"]
+
+        enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds)
+        enc_features = self.encoder_to_decoder_projection(
+            enc_features.permute(1, 2, 0)
+        ).permute(2, 0, 1)
+        # encoder features: npoints x batch x channel
+        # encoder xyz: npoints x batch x 3
+
+        if encoder_only:
+            # return: batch x npoints x channels
+            return enc_xyz, enc_features.transpose(0, 1), enc_inds
+
+        point_cloud_dims = [
+            inputs["point_cloud_dims_min"],
+            inputs["point_cloud_dims_max"],
+        ]
+        target_xyz, target_embed = self.get_target_points_embeddings(enc_xyz, point_cloud_dims)
+        # query_embed: batch x channel x npoint
+
+        # decoder expects: npoints x batch x channel
+        enc_pos = self.pos_embedding(enc_xyz, input_range=point_cloud_dims)
+        enc_pos = enc_pos.permute(2, 0, 1)
+        target_embed = target_embed.permute(2, 0, 1)
+
+        # TODO: aggregate subscene features around each query point to build target.
+        # tgt = torch.zeros_like(query_embed)
+        tgt = agg_subscene_feats(self.query_and_group, target_xyz, subscene_inputs)
+        box_features = self.decoder(
+            tgt, enc_features, query_pos=target_embed, pos=enc_pos
+        )[0]
+        box_predictions = self.get_box_predictions(
+            target_xyz, point_cloud_dims, box_features
+        )
+        return box_predictions
 
 
 # TODO: sampling points nearby a query seed point (proportional to dist to the point) and aggregating their features
@@ -562,9 +860,9 @@ def agg_nearby_features(enc_xyz, enc_features, enc_xyz_sub, enc_features_sub, cr
     for i in range(num_seed_points):
         # compute distances and sort them
         if is_query:
-            distances = torch.sum((enc_xyz_sub - enc_xyz_sub[i, :])**2, dim=1)
+            distances = torch.sqrt(torch.sum((enc_xyz_sub - enc_xyz_sub[i, :])**2, dim=1))
         else:
-            distances = torch.sum((enc_xyz - enc_xyz_sub[i, :]) ** 2, dim=1)
+            distances = torch.sqrt(torch.sum((enc_xyz - enc_xyz_sub[i, :]) ** 2, dim=1))
         distances, indices = torch.sort(distances)
 
         # take points within the crop radius
@@ -578,14 +876,14 @@ def agg_nearby_features(enc_xyz, enc_features, enc_xyz_sub, enc_features_sub, cr
 
 
 # TODO: add function to aggregate features around each query point.
-def agg_subscene_feats(query_and_group, query_xyz, subscene_inputs):
+def agg_subscene_feats(query_and_group, target_xyz, subscene_inputs):
     # prepare the input for pointnet2 utils.
     enc_xyz, enc_features = subscene_inputs['enc_xyz'], subscene_inputs['enc_features']
     enc_features = enc_features.permute(0, 2, 1)
-    query_xyz = query_xyz.contiguous()
+    target_xyz = target_xyz.contiguous()
 
     # aggregate the features around each query xyz point.
-    new_features = query_and_group(xyz=enc_xyz, new_xyz=query_xyz, features=enc_features)
+    new_features = query_and_group(xyz=enc_xyz, new_xyz=target_xyz, features=enc_features)
     # batch x (3 + channel) x npoints x nsample
 
     # skip the xyz and sum the features across nsample.
@@ -698,3 +996,29 @@ def build_seed_corr(args, dataset_config):
         num_queries=args.preenc_npoints,
     )
     return model, None
+
+
+# TODO: add a function to build a 3dssr by combining 3detr and a trained seed corr model.
+def build_3dssr(args, dataset_config):
+    # build a conditional 3detr model with a trained seed point correspondence.
+    corr_model, _ = build_seed_corr(args, dataset_config)
+    pre_encoder = build_preencoder(args)
+    encoder = build_encoder(args)
+    decoder = build_decoder(args)
+    query_and_group = QueryAndGroup(radius=0.2, nsample=64)
+
+    model = Model3DSSR(
+        corr_model,
+        pre_encoder,
+        encoder,
+        decoder,
+        dataset_config,
+        encoder_dim=args.enc_dim,
+        decoder_dim=args.dec_dim,
+        mlp_dropout=args.mlp_dropout,
+        num_queries=args.nqueries,
+        query_and_group=query_and_group
+    )
+    output_processor = BoxProcessor(dataset_config)
+
+    return model, output_processor
