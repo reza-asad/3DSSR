@@ -47,13 +47,14 @@ def adjust_learning_rate(args, optimizer, curr_epoch):
 
 def find_correspondence_accuracy(batch_logits):
     batch_size, npos_pairs, _ = batch_logits.shape
-    # take into account the case where the logits are all 0
-    if torch.sum(batch_logits) == 0:
-        return 0, npos_pairs * batch_size
     cost_matrix = 1 / (batch_logits.detach().cpu().numpy() + 1e-8)
     num_correct, num_total = 0, 0
     for i in range(batch_size):
+        # take into account the case where the logits are all 0
+        valid_logits_sum = torch.sum(batch_logits[i, ...], dim=1) != 0
+        valid_logits_sum = valid_logits_sum.detach().cpu()
         row_ind, col_ind = linear_sum_assignment(cost_matrix[i, :, :])
+        row_ind, col_ind = row_ind[valid_logits_sum], col_ind[valid_logits_sum]
         num_correct += (row_ind == col_ind).sum()
         num_total += npos_pairs
 
