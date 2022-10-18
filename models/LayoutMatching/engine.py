@@ -69,100 +69,94 @@ def extract_encode_seed_points(model, inputs, instance_labels, crop_radius, is_q
     return seed_points_info
 
 
-# def find_seed_point_correspondence(args, q_seed_points_info, t_seed_points_info):
-#     B = len(q_seed_points_info)
-#     corr_indices = []
-#     for i in range(B):
-#         _, q_seed_features, enc_inds_q, instance_labels_q = q_seed_points_info[i]
-#         _, t_seed_features, enc_inds_t, instance_labels_t = t_seed_points_info[i]
-#         N_q = q_seed_features.shape[0]
-#         N_t = t_seed_features.shape[0]
-#
-#         # sample query seed points.
-#         n = 256
-#         rand_pos_indices = np.random.choice(N_q, n, replace=n>N_q)
-#         q_seed_features = q_seed_features[rand_pos_indices, :]
-#         instance_labels_q = instance_labels_q[rand_pos_indices]
-#
-#         # sample target seed points.
-#         m = 512
-#         rand_neg_indices = np.random.choice(N_t, m, replace=m>N_t)
-#         t_seed_features = t_seed_features[rand_neg_indices, :]
-#         instance_labels_t = instance_labels_t[rand_neg_indices]
-#
-#         # compute the logits for query and target points.
-#         logits = torch.mm(q_seed_features, t_seed_features.t())
-#         out = torch.div(logits, args.tempreature)
-#
-#         # build the cost matrix from the logits.
-#         cost_matrix = 1 / (out.detach().cpu().numpy() + 1e-8)
-#
-#         # apply the hungarian algorithm to find the optimal point assignment.
-#         row_ind, col_ind = linear_sum_assignment(cost_matrix)
-#         print(torch.sum(instance_labels_q[row_ind] == instance_labels_t[col_ind]).item()/len(row_ind) * 100)
-#         # corr_indices.append((enc_inds_q[row_ind].long(), enc_inds_t[col_ind].long()))
-#     tt
-#     return corr_indices
-
-
 def find_seed_point_correspondence(args, q_seed_points_info, t_seed_points_info):
     B = len(q_seed_points_info)
+    corr_indices = []
     for i in range(B):
-        _, q_seed_features, _, q_seed_labels = q_seed_points_info[i]
-        _, t_seed_features, _, t_seed_labels = t_seed_points_info[i]
+        _, q_seed_features, enc_inds_q, instance_labels_q = q_seed_points_info[i]
+        _, t_seed_features, enc_inds_t, instance_labels_t = t_seed_points_info[i]
+        N_q = q_seed_features.shape[0]
 
-        logits = torch.zeros((args.npos_pairs, args.npos_pairs), dtype=torch.float32, device=q_seed_features.device)
-        j = 0
-        pos_pair_idx = 0
-        bad_example = False
-        while pos_pair_idx < args.npos_pairs:
-            # find all the target points with the same instance label as the label for the current query point
-            curr_label = q_seed_labels[j]
-            is_same_instance = (t_seed_labels == curr_label).long()
+        # sample query seed points.
+        rand_pos_indices = np.random.choice(N_q, args.npos_pairs, replace=args.npos_pairs > N_q)
+        q_seed_features = q_seed_features[rand_pos_indices, :]
+        instance_labels_q = instance_labels_q[rand_pos_indices]
+        enc_inds_q = enc_inds_q[rand_pos_indices]
 
-            # randomly choose one matching query points and n-1 negative examples.
-            pos_indices = is_same_instance.nonzero().squeeze(dim=1).detach().cpu()
-            neg_indices = (1 - is_same_instance).nonzero().squeeze(dim=1).detach().cpu()
+        # compute the logits for query and target points.
+        logits = torch.mm(q_seed_features, t_seed_features.t())
+        out = torch.div(logits, args.tempreature)
 
-            # skip if no positive or negative found.
-            if (pos_indices.dim() < 1) or (neg_indices.dim() < 1) or (len(pos_indices) == 0) or (len(neg_indices) == 0):
-                print('No pos/neg found')
-                bad_example = True
-                break
+        # build the cost matrix from the logits.
+        cost_matrix = 1 / (out.detach().cpu().numpy() + 1e-8)
 
-            rand_pos_index = np.random.choice(pos_indices, 1)[0]
-            rand_neg_indices = np.random.choice(neg_indices, args.npos_pairs - 1,
-                                                replace=len(neg_indices) < (args.npos_pairs - 1))
+        # apply the hungarian algorithm to find the optimal point assignment.
+        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+        print(torch.sum(instance_labels_q[row_ind] == instance_labels_t[col_ind]).item()/len(row_ind) * 100)
+        corr_indices.append((enc_inds_q[row_ind].long(), enc_inds_t[col_ind].long()))
 
-            # load the positive and negative features.
-            t_pos_feature = t_seed_features[rand_pos_index, :]
-            t_neg_features = t_seed_features[rand_neg_indices, :]
+    return corr_indices
 
-            # compute the logit given the pos/neg examples.
-            logits[pos_pair_idx, pos_pair_idx] = torch.dot(q_seed_features[j, :], t_pos_feature)
-            neg_logits = torch.mm(t_neg_features, q_seed_features[j:j + 1, :].t()).squeeze()
-            logits[pos_pair_idx, :pos_pair_idx] = neg_logits[:pos_pair_idx]
-            logits[pos_pair_idx, pos_pair_idx + 1:] = neg_logits[pos_pair_idx:]
 
-            # update the number of pos pairs constructed.
-            pos_pair_idx += 1
-            j += 1
-            if j == len(q_seed_labels):
-                j = 0
+# def find_seed_point_correspondence(args, q_seed_points_info, t_seed_points_info):
+#     B = len(q_seed_points_info)
+#     for i in range(B):
+#         _, q_seed_features, _, q_seed_labels = q_seed_points_info[i]
+#         _, t_seed_features, _, t_seed_labels = t_seed_points_info[i]
+#
+#         logits = torch.zeros((args.npos_pairs, args.npos_pairs), dtype=torch.float32, device=q_seed_features.device)
+#         j = 0
+#         pos_pair_idx = 0
+#         bad_example = False
+#         while pos_pair_idx < args.npos_pairs:
+#             # find all the target points with the same instance label as the label for the current query point
+#             curr_label = q_seed_labels[j]
+#             is_same_instance = (t_seed_labels == curr_label).long()
+#
+#             # randomly choose one matching query points and n-1 negative examples.
+#             pos_indices = is_same_instance.nonzero().squeeze(dim=1).detach().cpu()
+#             neg_indices = (1 - is_same_instance).nonzero().squeeze(dim=1).detach().cpu()
+#
+#             # skip if no positive or negative found.
+#             if (pos_indices.dim() < 1) or (neg_indices.dim() < 1) or (len(pos_indices) == 0) or (len(neg_indices) == 0):
+#                 print('No pos/neg found')
+#                 bad_example = True
+#                 break
+#
+#             rand_pos_index = np.random.choice(pos_indices, 1)[0]
+#             rand_neg_indices = np.random.choice(neg_indices, args.npos_pairs - 1,
+#                                                 replace=len(neg_indices) < (args.npos_pairs - 1))
+#
+#             # load the positive and negative features.
+#             t_pos_feature = t_seed_features[rand_pos_index, :]
+#             t_neg_features = t_seed_features[rand_neg_indices, :]
+#
+#             # compute the logit given the pos/neg examples.
+#             logits[pos_pair_idx, pos_pair_idx] = torch.dot(q_seed_features[j, :], t_pos_feature)
+#             neg_logits = torch.mm(t_neg_features, q_seed_features[j:j + 1, :].t()).squeeze()
+#             logits[pos_pair_idx, :pos_pair_idx] = neg_logits[:pos_pair_idx]
+#             logits[pos_pair_idx, pos_pair_idx + 1:] = neg_logits[pos_pair_idx:]
+#
+#             # update the number of pos pairs constructed.
+#             pos_pair_idx += 1
+#             j += 1
+#             if j == len(q_seed_labels):
+#                 j = 0
+#
+#         if not bad_example:
+#             valid_logits_sum = torch.sum(logits, dim=1) != 0
+#             valid_logits_sum = valid_logits_sum.detach().cpu()
+#             out = torch.div(logits, args.tempreature)
+#             cost_matrix = 1 / (out.detach().cpu().numpy() + 1e-8)
+#
+#             # apply the hungarian algorithm to find the optimal point assignment.
+#             row_ind, col_ind = linear_sum_assignment(cost_matrix)
+#             row_ind, col_ind = row_ind[valid_logits_sum], col_ind[valid_logits_sum]
+#             # print(row_ind)
+#             # print(col_ind)
+#             print(np.sum(row_ind == col_ind)/len(row_ind))
+#             # tt
 
-        if not bad_example:
-            out = torch.div(logits, args.tempreature)
-            cost_matrix = 1 / (out.detach().cpu().numpy() + 1e-8)
-            print(torch.sum(out))
-            tt
-            print(cost_matrix[0, :])
-            tt
-            # apply the hungarian algorithm to find the optimal point assignment.
-            row_ind, col_ind = linear_sum_assignment(cost_matrix)
-            print(row_ind)
-            print(col_ind)
-            tt
-    tt
 
 def align_target_query(corr_indices, pc_q, pc_t):
     rot_angles = []
@@ -178,7 +172,9 @@ def align_target_query(corr_indices, pc_q, pc_t):
         R, error = pc_util.svd_rotation(pc_q_i, pc_t_i)
 
         # convert the rotation matrix to an angle.
-        rot_angle = np.arctan2(R[1, 0], R[0, 0]) * 180 / np.pi
+        rot_angle = np.arctan2(R[1, 0], R[0, 0])
+        rot_angle = (rot_angle + 2*np.pi) % (2*np.pi)
+        rot_angle = rot_angle * 180 / np.pi
         rot_angles.append(rot_angle)
 
     return rot_angles
