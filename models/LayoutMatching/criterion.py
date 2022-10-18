@@ -482,8 +482,16 @@ def build_criterion(args, dataset_config):
     return criterion
 
 
+# TODO: build the criterion that uses point level contrastive loss.
 def build_criterion_point_contrast(args):
     nce_loss = NCESoftmaxLoss()
     criterion = PointContrastiveLoss(args.npos_pairs, nce_loss, args.tempreature)
 
     return criterion
+
+
+# TODO: build the criterion that uses point level contrastive loss.
+def build_criterion_alignment(args):
+    mse_loss = nn.MSELoss()
+
+    return mse_loss

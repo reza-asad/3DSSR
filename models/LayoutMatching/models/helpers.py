@@ -32,6 +32,7 @@ NORM_DICT = {
 }
 
 ACTIVATION_DICT = {
+    "tanh": nn.Tanh,
     "relu": nn.ReLU,
     "gelu": nn.GELU,
     "leakyrelu": partial(nn.LeakyReLU, negative_slope=0.1),
@@ -50,6 +51,7 @@ class GenericMLP(nn.Module):
         output_dim,
         norm_fn_name=None,
         activation="relu",
+        output_activation=None,
         use_conv=False,
         dropout=None,
         hidden_use_bias=False,
@@ -60,6 +62,9 @@ class GenericMLP(nn.Module):
     ):
         super().__init__()
         activation = ACTIVATION_DICT[activation]
+        # TODO: allow for a different activation for output.
+        if output_activation is not None:
+            output_activation = ACTIVATION_DICT[output_activation]()
         norm = None
         if norm_fn_name is not None:
             norm = NORM_DICT[norm_fn_name]
@@ -94,8 +99,11 @@ class GenericMLP(nn.Module):
             layers.append(norm(output_dim))
 
         if output_use_activation:
-            layers.append(activation())
-
+            # TODO: allow for a different activation for the last layer.
+            if output_activation is None:
+                layers.append(activation())
+            else:
+                layers.append(output_activation)
         self.layers = nn.Sequential(*layers)
 
         if weight_init_name is not None:

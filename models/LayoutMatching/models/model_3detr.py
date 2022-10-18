@@ -572,6 +572,112 @@ class ModelSeedCorr(nn.Module):
             return self.sample_agg_t_seed_points(enc_xyz, enc_features, enc_inds, instance_labels, crop_radius)
 
 
+# TODO: Model for finding the alignment angle between query and target scenes.
+class ModelAlignment(nn.Module):
+    """
+    Main 3DETR model. Consists of the following learnable sub-models
+    - pre_encoder: takes raw point cloud, subsamples it and projects into "D" dimensions
+                Input is a Nx3 matrix of N point coordinates
+                Output is a N'xD matrix of N' point features
+    - encoder: series of self-attention blocks to extract point features
+                Input is a N'xD matrix of N' point features
+                Output is a N''xD matrix of N'' point features.
+                N'' = N' for regular encoder; N'' = N'//2 for masked encoder
+    - query computation: samples a set of B coordinates from the N'' points
+                and outputs a BxD matrix of query features.
+    - decoder: series of self-attention and cross-attention blocks to produce BxD box features
+                Takes N''xD features from the encoder and BxD query features.
+    - mlp_heads: Predicts bounding box parameters and classes from the BxD box features
+    """
+
+    def __init__(
+            self,
+            pre_encoder,
+            encoder,
+            encoder_dim=256,
+
+    ):
+        super().__init__()
+        self.pre_encoder = pre_encoder
+        self.encoder = encoder
+        if hasattr(self.encoder, "masking_radius"):
+            hidden_dims = [encoder_dim]
+        else:
+            hidden_dims = [encoder_dim, encoder_dim]
+        self.encoder_to_decoder_projection = GenericMLP(
+            input_dim=encoder_dim,
+            hidden_dims=hidden_dims,
+            output_dim=encoder_dim,
+            norm_fn_name="bn1d",
+            activation="relu",
+            use_conv=True,
+            output_use_activation=True,
+            output_use_norm=True,
+            output_use_bias=False,
+        )
+        self.rot_predictor = GenericMLP(
+            input_dim=encoder_dim,
+            hidden_dims=hidden_dims,
+            output_dim=2,
+            norm_fn_name="bn1d",
+            activation="relu",
+            output_activation='tanh',
+            use_conv=False,
+            output_use_activation=True,
+            output_use_norm=False,
+            output_use_bias=False,
+        )
+
+    def _break_up_pc(self, pc):
+        # pc may contain color/normals.
+
+        xyz = pc[..., 0:3].contiguous()
+        features = pc[..., 3:].transpose(1, 2).contiguous() if pc.size(-1) > 3 else None
+        return xyz, features
+
+    def run_encoder(self, point_clouds):
+        xyz, features = self._break_up_pc(point_clouds)
+        pre_enc_xyz, pre_enc_features, pre_enc_inds = self.pre_encoder(xyz, features)
+        # xyz: batch x npoints x 3
+        # features: batch x channel x npoints
+        # inds: batch x npoints
+
+        # nn.MultiHeadAttention in encoder expects npoints x batch x channel features
+        pre_enc_features = pre_enc_features.permute(2, 0, 1)
+
+        # xyz points are in batch x npointx channel order
+        enc_xyz, enc_features, enc_inds = self.encoder(
+            pre_enc_features, xyz=pre_enc_xyz
+        )
+        if enc_inds is None:
+            # encoder does not perform any downsampling
+            enc_inds = pre_enc_inds
+        else:
+            # use gather here to ensure that it works for both FPS and random sampling
+            enc_inds = torch.gather(pre_enc_inds, 1, enc_inds)
+        return enc_xyz, enc_features, enc_inds
+
+    def forward(self, inputs, encoder_only):
+        if encoder_only:
+            point_clouds = inputs["point_clouds"]
+
+            enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds)
+            enc_features = self.encoder_to_decoder_projection(
+                enc_features.permute(1, 2, 0)
+            ).permute(2, 0, 1)
+            # encoder features: npoints x batch x channel
+            # encoder xyz: npoints x batch x 3
+
+            # return: batch x npoints x channels
+            return enc_xyz, enc_features.transpose(0, 1), enc_inds
+        else:
+            enc_features_q = torch.sum(inputs["enc_features_q"], dim=1)
+            enc_features_t = torch.sum(inputs["enc_features_t"], dim=1)
+            output = self.rot_predictor(enc_features_q * enc_features_t)
+
+            return output
+
+
 # TODO: a 3dssr model that uses a trained seed point corr for detecting 3d subscenes.
 class Model3DSSR(nn.Module):
     """
@@ -994,6 +1100,19 @@ def build_seed_corr(args, dataset_config):
         encoder,
         encoder_dim=args.enc_dim,
         num_queries=args.preenc_npoints,
+    )
+    return model, None
+
+
+# TODO: build a model to find the alignment angle between query and target scenes.
+def build_alignment_module(args, dataset_config):
+    pre_encoder = build_preencoder(args)
+    encoder = build_encoder(args)
+
+    model = ModelAlignment(
+        pre_encoder,
+        encoder,
+        encoder_dim=args.enc_dim,
     )
     return model, None
 
