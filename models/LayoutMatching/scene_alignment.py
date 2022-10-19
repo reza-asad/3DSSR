@@ -184,7 +184,7 @@ def do_train(
             )
 
         if epoch % args.eval_every_epoch == 0 or epoch == (args.max_epoch - 1):
-            validation_loss = evaluate(
+            errors, validation_loss = evaluate(
                 args,
                 epoch,
                 model,
@@ -222,7 +222,7 @@ def do_train(
     # always evaluate last checkpoint
     epoch = args.max_epoch - 1
     curr_iter = epoch * len(dataloaders["train"])
-    validation_loss = evaluate(
+    errors, validation_loss = evaluate(
         args,
         epoch,
         model,
@@ -254,30 +254,31 @@ def do_train(
             pickle.dump(loss_dict, fh)
 
 
-# def test_model(args, model, model_no_ddp, criterion, dataloaders):
-#     if args.test_ckpt is None or not os.path.isfile(args.test_ckpt):
-#        f"Please specify a test checkpoint using --test_ckpt. Found invalid value {args.test_ckpt}"
-#        sys.exit(1)
-#
-#     sd = torch.load(args.test_ckpt, map_location=torch.device("cpu"))
-#     model_no_ddp.load_state_dict(sd["model"])
-#     logger = Logger()
-#     epoch = -1
-#     curr_iter = 0
-#     accuracy_dict, loss = evaluate(
-#         args,
-#         epoch,
-#         model,
-#         criterion,
-#         dataloaders["test"],
-#         logger,
-#         curr_iter,
-#     )
-#     metric_str = accuracy_dict['accuracy']
-#     if is_primary():
-#         print("==" * 10)
-#         print(f"Test model; Metrics {metric_str}")
-#         print("==" * 10)
+def test_model(args, model, model_no_ddp, criterion, dataloaders):
+    if args.test_ckpt is None or not os.path.isfile(args.test_ckpt):
+       f"Please specify a test checkpoint using --test_ckpt. Found invalid value {args.test_ckpt}"
+       sys.exit(1)
+
+    sd = torch.load(args.test_ckpt, map_location=torch.device("cpu"))
+    model_no_ddp.load_state_dict(sd["model"])
+    logger = Logger()
+    epoch = -1
+    curr_iter = 0
+    errors, validation_loss = evaluate(
+        args,
+        epoch,
+        model,
+        criterion,
+        dataloaders["test"],
+        logger,
+        curr_iter,
+    )
+    metric_dict = {"Validation Loss": validation_loss, "Median Error": np.median(errors), "Mean Error": np.mean(errors),
+                   "Min Error": np.min(errors), "Max Error": np.max(errors)}
+    if is_primary():
+        print("==" * 10)
+        print(f"Test model; Metrics {metric_dict}")
+        print("==" * 10)
 
 
 def main(local_rank, args):

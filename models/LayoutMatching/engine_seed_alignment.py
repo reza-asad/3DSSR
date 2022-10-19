@@ -169,7 +169,7 @@ def evaluate(
     barrier()
     epoch_str = f"[{curr_epoch}/{args.max_epoch}]" if curr_epoch > 0 else ""
 
-    num_correct_epoch, num_total_epoch = 0, 0
+    errors = []
     for batch_idx, batch_data_label in enumerate(dataset_loader):
         curr_time = time.time()
         for key in batch_data_label:
@@ -200,6 +200,16 @@ def evaluate(
         loss_avg.update(loss_reduced.item())
         loss_str = f"Loss {loss_avg.avg:0.2f};"
 
+        # compute angle errors.
+        output_np = output.detach().cpu().numpy()
+        pred_rot_angle = np.arctan2(output_np[:, 0], output_np[:, 1])
+        pred_rot_angle = (pred_rot_angle + 2*np.pi) % (2*np.pi)
+        pred_rot_angle = pred_rot_angle * 180 / np.pi
+        gt_rot_angle = batch_data_label["rot_angle"].detach().cpu().numpy()
+        angle_diff = np.abs(pred_rot_angle - gt_rot_angle)
+        batch_errors = list(np.minimum(angle_diff, 360 - angle_diff))
+        errors += batch_errors
+
         time_delta.update(time.time() - curr_time)
         if is_primary() and curr_iter % args.log_every == 0:
             mem_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)
@@ -217,4 +227,4 @@ def evaluate(
     if is_primary():
         logger.log_scalars(test_dict, curr_train_iter, prefix="Test/")
 
-    return loss_avg.global_avg
+    return errors, loss_avg.global_avg

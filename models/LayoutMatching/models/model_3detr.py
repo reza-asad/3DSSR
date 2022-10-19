@@ -698,7 +698,7 @@ class Model3DSSR(nn.Module):
 
     def __init__(
             self,
-            corr_model,
+            alignment_model,
             pre_encoder,
             encoder,
             decoder,
@@ -712,7 +712,7 @@ class Model3DSSR(nn.Module):
 
     ):
         super().__init__()
-        self.corr_model = corr_model
+        self.alignment_model = alignment_model
         self.pre_encoder = pre_encoder
         self.encoder = encoder
         if hasattr(self.encoder, "masking_radius"):
@@ -1120,14 +1120,14 @@ def build_alignment_module(args, dataset_config):
 # TODO: add a function to build a 3dssr by combining 3detr and a trained seed corr model.
 def build_3dssr(args, dataset_config):
     # build a conditional 3detr model with a trained seed point correspondence.
-    corr_model, _ = build_seed_corr(args, dataset_config)
+    alignment_model, _ = build_alignment_module(args, dataset_config)
     pre_encoder = build_preencoder(args)
     encoder = build_encoder(args)
     decoder = build_decoder(args)
     query_and_group = QueryAndGroup(radius=0.2, nsample=64)
 
     model = Model3DSSR(
-        corr_model,
+        alignment_model,
         pre_encoder,
         encoder,
         decoder,
