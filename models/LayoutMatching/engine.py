@@ -68,16 +68,16 @@ def rotate_pc(pc, thetas):
     return pc_rot
 
 
-def find_alignment(pc_q, pc_t, model):
+def find_alignment(pc_q, pc_t, alignment_model):
     # encode query and target scenes first.
     inputs_q = {'point_clouds': pc_q}
     inputs_t = {'point_clouds': pc_t}
-    enc_xyz_q, enc_features_q, _ = model.alignment_model(inputs_q, encoder_only=True)
-    enc_xyz_t, enc_features_t, _ = model.alignment_model(inputs_t, encoder_only=True)
+    enc_xyz_q, enc_features_q, _ = alignment_model(inputs_q, encoder_only=True)
+    enc_xyz_t, enc_features_t, _ = alignment_model(inputs_t, encoder_only=True)
 
     # find predicted sines and cosines for the rotation angle.
     feature_inputs = {"enc_features_q": enc_features_q, "enc_features_t": enc_features_t}
-    output = model.alignment_model(feature_inputs, encoder_only=False)
+    output = alignment_model(feature_inputs, encoder_only=False)
     output_np = output.detach().cpu().numpy()
     pred_thetas_np = np.arctan2(output_np[:, 0], output_np[:, 1])
     pred_thetas = torch.from_numpy(pred_thetas_np).to(output.device)
@@ -112,7 +112,10 @@ def train_one_epoch(
 
     model.train()
     # TODO: ensuring the corr model is in evaluation mode.
-    model.alignment_model.eval()
+    if args.ngpus > 1:
+        model.module.alignment_model.eval()
+    else:
+        model.alignment_model.eval()
     barrier()
 
     for batch_idx, batch_data_label in enumerate(dataset_loader):
@@ -231,8 +234,12 @@ def evaluate(
                 batch_data_label[key] = batch_data_label[key].to(net_device)
 
         # TODO: during evaluation predict the rotation angle to align the query and target scenes.
-        pred_thetas = find_alignment(batch_data_label["point_clouds_with_mask"], batch_data_label["point_clouds"],
-                                     model)
+        if args.ngpus > 1:
+            pred_thetas = find_alignment(batch_data_label["point_clouds_with_mask"], batch_data_label["point_clouds"],
+                                         model.module.alignment_model)
+        else:
+            pred_thetas = find_alignment(batch_data_label["point_clouds_with_mask"], batch_data_label["point_clouds"],
+                                         model.alignment_model)
 
         # TODO: rotate the query scene using the predicted angle.
         pc_q_rot = rotate_pc(batch_data_label["point_clouds_with_mask"], pred_thetas)

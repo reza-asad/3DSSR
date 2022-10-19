@@ -186,7 +186,6 @@ def do_train(
     for epoch in range(args.start_epoch, args.max_epoch):
         if is_distributed():
             dataloaders["train_sampler"].set_epoch(epoch)
-
         aps = train_one_epoch(
             args,
             epoch,
@@ -375,6 +374,7 @@ def main(local_rank, args):
         model = torch.nn.parallel.DistributedDataParallel(
             model, device_ids=[local_rank]
         )
+
     criterion = build_criterion(args, dataset_config)
     criterion = criterion.cuda(local_rank)
 
