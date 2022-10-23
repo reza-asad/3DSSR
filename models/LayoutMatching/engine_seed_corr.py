@@ -124,7 +124,9 @@ def train_one_epoch(
         cl_loss_label = cl_loss_label.to(device=net_device, dtype=torch.long)
 
         # compute loss.
-        loss, batch_logits = criterion(q_seed_points_info, t_seed_points_info, cl_loss_label, evaluation=False)
+        loss, _ = criterion(q_seed_points_info, t_seed_points_info, cl_loss_label,
+                            batch_data_label["point_clouds_with_mask"], batch_data_label["point_clouds"],
+                            evaluation=False)
         loss_reduced = all_reduce_average(loss)
 
         if not math.isfinite(loss_reduced.item()):
@@ -221,7 +223,9 @@ def evaluate(
         cl_loss_label = cl_loss_label.to(device=net_device, dtype=torch.long)
 
         # compute loss.
-        loss, batch_logits = criterion(q_seed_points_info, t_seed_points_info, cl_loss_label, evaluation=True)
+        loss, batch_logits = criterion(q_seed_points_info, t_seed_points_info, cl_loss_label,
+                                       batch_data_label["point_clouds_with_mask"], batch_data_label["point_clouds"],
+                                       evaluation=True)
         loss_reduced = all_reduce_average(loss)
         loss_avg.update(loss_reduced.item())
         loss_str = f"Loss {loss_avg.avg:0.2f};"

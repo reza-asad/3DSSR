@@ -65,9 +65,14 @@ def make_args_parser():
         "--pos_embed", default="fourier", type=str, choices=["fourier", "sine"]
     )
     parser.add_argument("--npos_pairs", default=256, type=int)
-    parser.add_argument("--tempreature", default=0.4, type=float)
+    parser.add_argument("--temperature", default=0.4, type=float)
     parser.add_argument("--crop_factor", default=0.1, type=float)
     parser.add_argument("--use_color", default=False, action="store_true")
+
+    ### Loss
+    parser.add_argument("--distortion_loss_type", default="residual", type=str, help="type of distortion loss",
+                        choices=["residual", "disparity"])
+    parser.add_argument("--distortion_loss_weight", default=1.0, type=float)
 
     ##### Dataset #####
     parser.add_argument(

@@ -8,6 +8,8 @@ from utils.dist import all_reduce_average
 from utils.misc import huber_loss
 from scipy.optimize import linear_sum_assignment
 
+import utils.pc_util as pc_util
+
 
 class Matcher(nn.Module):
     def __init__(self, cost_class, cost_objectness, cost_giou, cost_center):
@@ -387,28 +389,108 @@ class NCESoftmaxLoss(nn.Module):
         return loss
 
 
+# TODO: add distortion loss used by contrastive learning where the residual error after transformation is computed.
+class DistortionLossResidual(nn.Module):
+    def __init__(self):
+        super(DistortionLossResidual, self).__init__()
+
+    def forward(self, logits, enc_inds_q_sampled, enc_inds_t_sampled, pc_q, pc_t):
+        # find the optimial assignment between the query and target points.
+        cost_matrix = 1 / (logits.detach().cpu().numpy() + 1e-8)
+        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+
+        # take the xyz coordinates of query and target points assigned through the hungarian algorithm.
+        enc_inds_t_hungarian = enc_inds_t_sampled[row_ind, col_ind]
+        pc_t_hungarian = pc_t[enc_inds_t_hungarian, :3]
+        pc_q_hungarian = pc_q[enc_inds_q_sampled, :3]
+
+        # align the query and seed points and return the alignment error.
+        R, error = pc_util.svd_rotation(pc_q_hungarian, pc_t_hungarian)
+
+        return error
+
+
+# TODO: add distortion loss used by contrastive learning where the disparity is computed.
+class DistortionLossDisparity(nn.Module):
+    def __init__(self, temperature, nce_loss):
+        super(DistortionLossDisparity, self).__init__()
+        self.temperature = temperature
+        self.nce_loss = nce_loss
+
+    def forward(self, q_seed_features_sampled, t_seed_features_sampled, cl_loss_label):
+        N, D = q_seed_features_sampled.shape
+        disparity = torch.zeros((N, N), dtype=torch.float32, device=q_seed_features_sampled.device)
+        pos_pair_idx = 0
+        while pos_pair_idx < N:
+            # take feature for curr q seed point and its corresponding t.
+            q_i = q_seed_features_sampled[pos_pair_idx, :]
+            t_i = t_seed_features_sampled[pos_pair_idx, :]
+
+            # randomly select a feature from q points and the feature for its corresponding t.
+            indices = [i for i in range(N) if i != pos_pair_idx]
+            rand_pos_q_idx = np.random.choice(indices, 1)[0]
+            q_j = q_seed_features_sampled[rand_pos_q_idx, :]
+            t_j = t_seed_features_sampled[rand_pos_q_idx, :]
+
+            # find feature for negative t points.
+            neg_t_indices = [i for i in range(N) if i != rand_pos_q_idx]
+            neg_ts = t_seed_features_sampled[neg_t_indices, :]
+
+            # disparity for pos pair.
+            disparity[pos_pair_idx, pos_pair_idx] = torch.abs(torch.dot(q_i, q_j) - torch.dot(t_i, t_j))
+            disparity[pos_pair_idx, :pos_pair_idx] = torch.abs(torch.dot(q_i, q_j) - torch.mm(t_i.unsqueeze(dim=0),
+                                                                                              neg_ts[:pos_pair_idx, :].t()))
+            disparity[pos_pair_idx, pos_pair_idx+1:] = torch.abs(torch.dot(q_i, q_j) - torch.mm(t_i.unsqueeze(dim=0),
+                                                                                                neg_ts[pos_pair_idx:, :].t()))
+            pos_pair_idx += 1
+
+        # compute NCE on the disparity matrix.
+        disparity = torch.div(disparity, self.temperature)
+        loss = self.nce_loss(disparity, cl_loss_label)
+
+        return loss
+
+
 # TODO: add the loss for contrastive seed point matching.
 class PointContrastiveLoss(nn.Module):
-    def __init__(self, npos_pairs, nce_loss, tempreature):
+    def __init__(self, npos_pairs, nce_loss, distortion_loss, temperature, distortion_loss_weight,
+                 distortion_loss_type=None):
         super().__init__()
         self.npos_pairs = npos_pairs
         self.nce_loss = nce_loss
-        self.tempreature = tempreature
+        self.distortion_loss = distortion_loss
+        self.temperature = temperature
+        self.distortion_loss_weight = distortion_loss_weight
+        self.distortion_loss_type = distortion_loss_type
 
-    def forward(self, q_seed_points_info, t_seed_points_info, cl_loss_label, evaluation=False):
+    def forward(self, q_seed_points_info, t_seed_points_info, cl_loss_label, pc_q, pc_t, evaluation=False):
         # sample positive and negative points for each target seed point
         loss = 0
         batch_size = len(q_seed_points_info)
         batch_logits = torch.zeros((batch_size, self.npos_pairs, self.npos_pairs), dtype=torch.float32,
                                    device=cl_loss_label.device)
         for i in range(batch_size):
-            _, q_seed_features, _, q_seed_labels = q_seed_points_info[i]
-            _, t_seed_features, _, t_seed_labels = t_seed_points_info[i]
+            _, q_seed_features, enc_inds_q, q_seed_labels = q_seed_points_info[i]
+            _, t_seed_features, enc_inds_t, t_seed_labels = t_seed_points_info[i]
 
             # normalize the features
             q_seed_features = torch.nn.functional.normalize(q_seed_features, dim=1)
             t_seed_features = torch.nn.functional.normalize(t_seed_features, dim=1)
 
+            if self.distortion_loss_type == 'residual':
+                # keep indices of the pos/neg points required for residual distortion loss.
+                enc_inds_q_sampled = torch.zeros(self.npos_pairs, dtype=torch.long, device=cl_loss_label.device)
+                enc_inds_t_sampled = torch.zeros((self.npos_pairs, self.npos_pairs), dtype=torch.long,
+                                                 device=cl_loss_label.device)
+            elif self.distortion_loss_type == 'disparity':
+                # keep features of the pos/neg points required for disparity distortion loss.
+                D = q_seed_features.shape[1]
+                q_seed_features_sampled = torch.zeros((self.npos_pairs, D), dtype=torch.float32,
+                                                      device=cl_loss_label.device)
+                t_seed_features_sampled = torch.zeros((self.npos_pairs, D), dtype=torch.float32,
+                                                      device=cl_loss_label.device)
+
+            # find pos/neg examples and compute logits.
             logits = torch.zeros((self.npos_pairs, self.npos_pairs), dtype=torch.float32, device=cl_loss_label.device)
             j = 0
             pos_pair_idx = 0
@@ -434,14 +516,22 @@ class PointContrastiveLoss(nn.Module):
                 rand_neg_indices = np.random.choice(neg_indices, self.npos_pairs - 1,
                                                     replace=len(neg_indices) < (self.npos_pairs - 1))
 
+                if self.distortion_loss_type == 'residual':
+                    # take the indices of the 3d points for the sampled pos and negative points.
+                    enc_inds_q_sampled[pos_pair_idx] = enc_inds_q[j]
+                    enc_inds_t_sampled[pos_pair_idx, pos_pair_idx] = enc_inds_t[rand_pos_index]
+                    enc_inds_t_sampled[pos_pair_idx, :pos_pair_idx] = enc_inds_t[rand_neg_indices[:pos_pair_idx]]
+                    enc_inds_t_sampled[pos_pair_idx, pos_pair_idx+1:] = enc_inds_t[rand_neg_indices[pos_pair_idx:]]
+                elif self.distortion_loss_type == 'disparity':
+                    # take the indices of the 3d points for the sampled pos and negative points.
+                    q_seed_features_sampled[pos_pair_idx] = q_seed_features[j]
+                    t_seed_features_sampled[pos_pair_idx] = t_seed_features[rand_pos_index]
+
                 # load the positive and negative features.
                 t_pos_feature = t_seed_features[rand_pos_index, :]
                 t_neg_features = t_seed_features[rand_neg_indices, :]
 
                 # compute the logit given the pos/neg examples.
-                # print(t_seed_features[j, :10])
-                # print(q_seed_features[j, :10])
-                # print('*'*50)
                 logits[pos_pair_idx, pos_pair_idx] = torch.dot(q_seed_features[j, :], t_pos_feature)
                 neg_logits = torch.mm(t_neg_features, q_seed_features[j:j + 1, :].t()).squeeze()
                 logits[pos_pair_idx, :pos_pair_idx] = neg_logits[:pos_pair_idx]
@@ -454,8 +544,21 @@ class PointContrastiveLoss(nn.Module):
                     j = 0
 
             if not bad_example:
-                out = torch.div(logits, self.tempreature)
+                out = torch.div(logits, self.temperature)
                 batch_logits[i, ...] = out
+                # compute the distortion loss if needed.
+                if self.distortion_loss_type == 'residual':
+                    loss += (self.distortion_loss_weight * self.distortion_loss(out,
+                                                                                enc_inds_q_sampled,
+                                                                                enc_inds_t_sampled,
+                                                                                pc_q[i, ...],
+                                                                                pc_t[i, ...]))
+                elif self.distortion_loss_type == 'disparity':
+                    loss += (self.distortion_loss_weight * self.distortion_loss(q_seed_features_sampled,
+                                                                                t_seed_features_sampled,
+                                                                                cl_loss_label))
+
+                # compute the NCE loss
                 loss += self.nce_loss(out, cl_loss_label)
 
         return loss, batch_logits
@@ -484,6 +587,11 @@ def build_criterion(args, dataset_config):
 
 def build_criterion_point_contrast(args):
     nce_loss = NCESoftmaxLoss()
-    criterion = PointContrastiveLoss(args.npos_pairs, nce_loss, args.tempreature)
+    if args.distortion_loss_type == 'residual':
+        distortion_loss = DistortionLossResidual()
+    else:
+        distortion_loss = DistortionLossDisparity(args.temperature, nce_loss)
+    criterion = PointContrastiveLoss(args.npos_pairs, nce_loss, distortion_loss, args.temperature,
+                                     args.distortion_loss_weight, args.distortion_loss_type)
 
     return criterion
