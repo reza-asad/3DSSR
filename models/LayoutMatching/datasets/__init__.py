@@ -23,9 +23,9 @@ def build_dataset(args):
             use_color=args.use_color,
             augment=True
         ),
-        "test": dataset_builder(
+        args.test_split: dataset_builder(
             dataset_config,
-            split_set="val",
+            split_set=args.test_split,
             root_dir=args.dataset_root_dir,
             use_color=args.use_color,
             augment=False

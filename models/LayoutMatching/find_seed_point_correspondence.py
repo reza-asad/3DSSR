@@ -78,6 +78,7 @@ def make_args_parser():
     parser.add_argument(
         "--dataset_name", required=True, type=str, choices=["scannet", "sunrgbd", "matterport3d"]
     )
+    parser.add_argument("--test_split", default='val', type=str, choices=["test", "val"])
     parser.add_argument(
         "--dataset_root_dir",
         type=str,
@@ -136,7 +137,7 @@ def do_train(
     """
 
     num_iters_per_epoch = len(dataloaders["train"])
-    num_iters_per_eval_epoch = len(dataloaders["test"])
+    num_iters_per_eval_epoch = len(dataloaders[args.test_split])
     print(f"Model is {model}")
     print(f"Training started at epoch {args.start_epoch} until {args.max_epoch}.")
     print(f"One training epoch = {num_iters_per_epoch} iters.")
@@ -198,7 +199,7 @@ def do_train(
                 epoch,
                 model,
                 criterion,
-                dataloaders["test"],
+                dataloaders[args.test_split],
                 logger,
                 curr_iter,
             )
@@ -236,7 +237,7 @@ def do_train(
         epoch,
         model,
         criterion,
-        dataloaders["test"],
+        dataloaders[args.test_split],
         logger,
         curr_iter,
     )
@@ -277,7 +278,7 @@ def test_model(args, model, model_no_ddp, criterion, dataloaders):
         epoch,
         model,
         criterion,
-        dataloaders["test"],
+        dataloaders[args.test_split],
         logger,
         curr_iter,
     )
@@ -325,9 +326,9 @@ def main(local_rank, args):
 
     dataloaders = {}
     if args.test_only:
-        dataset_splits = ["test"]
+        dataset_splits = [args.test_split]
     else:
-        dataset_splits = ["train", "test"]
+        dataset_splits = ["train", args.test_split]
     for split in dataset_splits:
         if split == "train":
             shuffle = True

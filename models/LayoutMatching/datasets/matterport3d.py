@@ -204,7 +204,7 @@ class MatterportDetectionDataset(Dataset):
     ):
 
         self.dataset_config = dataset_config
-        assert split_set in ["train", "val"]
+        assert split_set in ["train", "val", "test"]
         if root_dir is None:
             root_dir = DATASET_ROOT_DIR
 
