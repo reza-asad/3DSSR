@@ -472,6 +472,8 @@ class PointContrastiveLoss(nn.Module):
         for i in range(batch_size):
             _, q_seed_features, enc_inds_q, q_seed_labels = q_seed_points_info[i]
             _, t_seed_features, enc_inds_t, t_seed_labels = t_seed_points_info[i]
+            if len(q_seed_labels) == 0:
+                continue
 
             # normalize the features
             q_seed_features = torch.nn.functional.normalize(q_seed_features, dim=1)
