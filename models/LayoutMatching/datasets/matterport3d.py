@@ -1,6 +1,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 
-""" 
+"""
 Modified from https://github.com/facebookresearch/votenet
 Dataset for object bounding box regression.
 An axis aligned bounding box is parameterized by (cx,cy,cz) and (dx,dy,dz)
@@ -9,88 +9,111 @@ where (cx,cy,cz) is the center point of the box, dx is the x-axis length of the 
 import os
 import sys
 
+import json
+import pandas as pd
 import numpy as np
 import torch
-import trimesh
 import utils.pc_util as pc_util
 from torch.utils.data import Dataset
 from utils.box_util import (flip_axis_to_camera_np, flip_axis_to_camera_tensor,
-                                                  get_3d_box_batch_np, get_3d_box_batch_tensor)
+                            get_3d_box_batch_np, get_3d_box_batch_tensor)
 from utils.pc_util import scale_points, shift_scale_points
 from utils.random_cuboid import RandomCuboid
 
-IGNORE_LABEL = -100
+IGNORE_LABEL = -1
 MEAN_COLOR_RGB = np.array([109.8, 97.2, 83.8])
-DATASET_ROOT_DIR = "/home/reza/Documents/research/3DSSR/data/scannet/scannet_train_detection_data"
-DATASET_METADATA_DIR = "/home/reza/Documents/research/3DSSR/data/scannet/meta_data"
-# DATASET_ROOT_DIR = "/home/rasad/scratch/3dssr/data/scannet/scannet_train_detection_data"
-# DATASET_METADATA_DIR = "/home/rasad/scratch/3dssr/data/scannet/meta_data"
+DATASET_ROOT_DIR = "/home/reza/Documents/research/3DSSR/data/matterport3d/matterport_train_detection_data"  ## Replace with path to dataset
+DATASET_METADATA_DIR = "/home/reza/Documents/research/3DSSR/data/matterport3d/meta_data" ## Replace with path to dataset
 
 
-class ScannetDatasetConfig(object):
+class MatterportDatasetConfig(object):
     def __init__(self):
-        self.num_semcls = 18
+        self.num_semcls = 42
         self.num_angle_bin = 1
         # TODO: changed from 64 to 5.
         self.max_num_obj = 5
 
         self.type2class = {
-            "cabinet": 0,
-            "bed": 1,
-            "chair": 2,
-            "sofa": 3,
-            "table": 4,
-            "door": 5,
-            "window": 6,
-            "bookshelf": 7,
-            "picture": 8,
-            "counter": 9,
-            "desk": 10,
-            "curtain": 11,
-            "refrigerator": 12,
-            "showercurtrain": 13,
-            "toilet": 14,
-            "sink": 15,
-            "bathtub": 16,
-            "garbagebin": 17,
+            'appliances': 0,
+            'bathtub': 1,
+            'beam': 2,
+            'bed': 3,
+            'blinds': 4,
+            'board_panel': 5,
+            'cabinet': 6,
+            'ceiling': 7,
+            'chair': 8,
+            'chest_of_drawers': 9,
+            'clothes': 10,
+            'column': 11,
+            'counter': 12,
+            'curtain': 13,
+            'cushion': 14,
+            'door': 15,
+            'fireplace': 16,
+            'floor': 17,
+            'furniture': 18,
+            'gym_equipment': 19,
+            'lighting': 20,
+            'mirror': 21,
+            'misc': 22,
+            'objects': 23,
+            'picture': 24,
+            'plant': 25,
+            'railing': 26,
+            'seating': 27,
+            'shelving': 28,
+            'shower': 29,
+            'sink': 30,
+            'sofa': 31,
+            'stairs': 32,
+            'stool': 33,
+            'table': 34,
+            'toilet': 35,
+            'towel': 36,
+            'tv_monitor': 37,
+            'unlabeled': 38,
+            'void': 39,
+            'wall': 40,
+            'window': 41
         }
         self.class2type = {self.type2class[t]: t for t in self.type2class}
         self.nyu40ids = np.array(
-            [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 24, 28, 33, 34, 36, 39]
+            range(self.num_semcls)
         )
         self.nyu40id2class = {
             nyu40id: i for i, nyu40id in enumerate(list(self.nyu40ids))
         }
 
-        # Semantic Segmentation Classes. Not used in 3DETR
-        self.num_class_semseg = 20
-        self.type2class_semseg = {
-            "wall": 0,
-            "floor": 1,
-            "cabinet": 2,
-            "bed": 3,
-            "chair": 4,
-            "sofa": 5,
-            "table": 6,
-            "door": 7,
-            "window": 8,
-            "bookshelf": 9,
-            "picture": 10,
-            "counter": 11,
-            "desk": 12,
-            "curtain": 13,
-            "refrigerator": 14,
-            "showercurtrain": 15,
-            "toilet": 16,
-            "sink": 17,
-            "bathtub": 18,
-            "garbagebin": 19,
-        }
-        self.class2type_semseg = {
-            self.type2class_semseg[t]: t for t in self.type2class_semseg
-        }
+        # # Semantic Segmentation Classes. Not used in 3DETR
+        # self.num_class_semseg = 20
+        # self.type2class_semseg = {
+        #     "wall": 0,
+        #     "floor": 1,
+        #     "cabinet": 2,
+        #     "bed": 3,
+        #     "chair": 4,
+        #     "sofa": 5,
+        #     "table": 6,
+        #     "door": 7,
+        #     "window": 8,
+        #     "bookshelf": 9,
+        #     "picture": 10,
+        #     "counter": 11,
+        #     "desk": 12,
+        #     "curtain": 13,
+        #     "refrigerator": 14,
+        #     "showercurtrain": 15,
+        #     "toilet": 16,
+        #     "sink": 17,
+        #     "bathtub": 18,
+        #     "garbagebin": 19,
+        # }
+        # self.class2type_semseg = {
+        #     self.type2class_semseg[t]: t for t in self.type2class_semseg
+        # }
         self.nyu40ids_semseg = np.array(
-            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 24, 28, 33, 34, 36, 39]
+            range(self.num_semcls)
         )
         self.nyu40id2class_semseg = {
             nyu40id: i for i, nyu40id in enumerate(list(self.nyu40ids_semseg))
@@ -163,7 +186,7 @@ class ScannetDatasetConfig(object):
         return np.concatenate([new_centers, new_lengths], axis=1)
 
 
-class ScannetDetectionDataset(Dataset):
+class MatterportDetectionDataset(Dataset):
     def __init__(
         self,
         dataset_config,
@@ -189,21 +212,18 @@ class ScannetDetectionDataset(Dataset):
             meta_data_dir = DATASET_METADATA_DIR
 
         self.data_path = root_dir
-        all_scan_names = list(
-            set(
-                [
-                    os.path.basename(x)[0:12]
-                    for x in os.listdir(self.data_path)
-                    if x.startswith("scene")
-                ]
-            )
-        )
+
+        # load all scan names.
+        with open(os.path.join(DATASET_METADATA_DIR, 'accepted_cats.json'), 'r') as f:
+            accepted_cats = json.load(f)
+        df_metadata = pd.read_csv(os.path.join(DATASET_METADATA_DIR, 'metadata.csv'))
+        is_accepted = df_metadata['mpcat40'].apply(lambda x: x in accepted_cats)
+        df_metadata = df_metadata.loc[is_accepted]
+        all_scan_names = np.unique(df_metadata['room_name'].values)
         if split_set == "all":
             self.scan_names = all_scan_names
         elif split_set in ["train", "val", "test"]:
-            split_filenames = os.path.join(meta_data_dir, f"scannetv2_{split_set}.txt")
-            with open(split_filenames, "r") as f:
-                self.scan_names = f.read().splitlines()
+            self.scan_names = np.unique(df_metadata.loc[df_metadata['split'] == split_set, 'room_name'].values)
             # remove unavailiable scans
             num_scans = len(self.scan_names)
             self.scan_names = [
@@ -275,8 +295,6 @@ class ScannetDetectionDataset(Dataset):
 
     def __getitem__(self, idx):
         scan_name = self.scan_names[idx]
-        # if scan_name != 'scene0636_00':
-        #     return {}
         mesh_vertices = np.load(os.path.join(self.data_path, scan_name) + "_vert.npy")
         instance_labels = np.load(
             os.path.join(self.data_path, scan_name) + "_ins_label.npy"
@@ -316,7 +334,7 @@ class ScannetDetectionDataset(Dataset):
             (
                 point_cloud,
                 instance_bboxes,
-                per_point_labels
+                per_point_labels,
             ) = self.random_cuboid_augmentor(
                 point_cloud, instance_bboxes, [instance_labels, semantic_labels]
             )
@@ -343,19 +361,19 @@ class ScannetDetectionDataset(Dataset):
 
         pcl_color = pcl_color[choices]
 
-        target_bboxes_mask[0: instance_bboxes.shape[0]] = 1
-        target_bboxes[0: instance_bboxes.shape[0], :] = instance_bboxes[:, 0:6]
+        target_bboxes_mask[0 : instance_bboxes.shape[0]] = 1
+        target_bboxes[0 : instance_bboxes.shape[0], :] = instance_bboxes[:MAX_NUM_OBJ, 0:6]
 
         # TODO: add a binary mask to the point cloud with 1 representing point belonging to the subscene.
         point_cloud_with_mask = self.add_subscene_mask(point_cloud, instance_bboxes)
         # print(point_cloud.shape)
         # print(point_cloud_with_mask.shape)
+        # import trimesh
         # trimesh.points.PointCloud(point_cloud[:, :3]).show()
         # subscene = point_cloud_with_mask[point_cloud_with_mask[:, 3] == 1, :3]
         # trimesh.points.PointCloud(subscene).show()
         # t=y
         # ------------------------------- DATA AUGMENTATION ------------------------------
-        rot_angle = 0
         if self.augment:
             # TODO: skip fliping as it does not make sense for 3DSSR.
             # if np.random.random() > 0.5:
@@ -371,7 +389,7 @@ class ScannetDetectionDataset(Dataset):
             # TODO: allow for more aggressive rotation
             # Rotation along up-axis/Z-axis
             if self.aggressive_rot:
-                rot_angle = np.random.uniform(0, 2*np.pi)
+                rot_angle = np.random.uniform(0, 2 * np.pi)
             else:
                 rot_angle = (np.random.random() * np.pi / 18) - np.pi / 36  # -5 ~ +5 degree
             rot_mat = pc_util.rotz(rot_angle)
@@ -380,7 +398,7 @@ class ScannetDetectionDataset(Dataset):
                 target_bboxes, rot_mat
             )
 
-        # TODO: allow for rotation during evaluation.
+            # TODO: allow for rotation during evaluation.
         if self.augment_eval and self.aggressive_rot:
             np.random.seed(idx)
             rot_angle = np.random.uniform(0, 2 * np.pi)
@@ -437,14 +455,13 @@ class ScannetDetectionDataset(Dataset):
         target_bboxes_semcls = np.zeros((MAX_NUM_OBJ))
         target_bboxes_semcls[0 : instance_bboxes.shape[0]] = [
             self.dataset_config.nyu40id2class[int(x)]
-            for x in instance_bboxes[:, -1][0 : instance_bboxes.shape[0]]
+            for x in instance_bboxes[:MAX_NUM_OBJ, -1][0 : instance_bboxes.shape[0]]
         ]
         ret_dict["gt_box_sem_cls_label"] = target_bboxes_semcls.astype(np.int64)
         ret_dict["gt_box_present"] = target_bboxes_mask.astype(np.float32)
         ret_dict["scan_idx"] = np.array(idx).astype(np.int64)
         # TODO: take the scan name and rotation angle between query and target.
         ret_dict["scan_name"] = scan_name
-        ret_dict["rot_angle"] = rot_angle
         ret_dict["pcl_color"] = pcl_color
         ret_dict["gt_box_sizes"] = raw_sizes.astype(np.float32)
         ret_dict["gt_box_sizes_normalized"] = box_sizes_normalized.astype(np.float32)

@@ -76,7 +76,7 @@ def make_args_parser():
 
     ##### Dataset #####
     parser.add_argument(
-        "--dataset_name", required=True, type=str, choices=["scannet", "sunrgbd"]
+        "--dataset_name", required=True, type=str, choices=["scannet", "sunrgbd", "matterport3d"]
     )
     parser.add_argument(
         "--dataset_root_dir",
