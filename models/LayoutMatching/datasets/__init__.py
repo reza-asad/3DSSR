@@ -2,11 +2,13 @@
 from .scannet import ScannetDetectionDataset, ScannetDatasetConfig
 from .sunrgbd import SunrgbdDetectionDataset, SunrgbdDatasetConfig
 from .matterport3d import MatterportDetectionDataset, MatterportDatasetConfig
+from .matterport3d_real_queries import MatterportRealDetectionDataset, MatterportRealDatasetConfig
 
 DATASET_FUNCTIONS = {
     "scannet": [ScannetDetectionDataset, ScannetDatasetConfig],
     "sunrgbd": [SunrgbdDetectionDataset, SunrgbdDatasetConfig],
     "matterport3d": [MatterportDetectionDataset, MatterportDatasetConfig],
+    "matterport3d_real": [MatterportRealDetectionDataset, MatterportRealDatasetConfig],
 }
 
 
@@ -28,7 +30,9 @@ def build_dataset(args):
             split_set=args.test_split,
             root_dir=args.dataset_root_dir,
             use_color=args.use_color,
-            augment=False
+            augment=False,
+            query_info=args.query_info,
+            scene_dir=args.scene_dir
         ),
     }
     return dataset_dict, dataset_config

@@ -257,7 +257,7 @@ def evaluate(
     dataset_config,
     dataset_loader,
     logger,
-    curr_train_iter,
+    curr_train_iter
 ):
 
     # ap calculator is exact for evaluation. This is slower than the ap calculator used during training.
@@ -265,7 +265,7 @@ def evaluate(
         dataset_config=dataset_config,
         ap_iou_thresh=[0.25, 0.5],
         class2type_map=dataset_config.class2type,
-        exact_eval=True,
+        exact_eval=True
     )
 
     curr_iter = 0
@@ -372,3 +372,120 @@ def evaluate(
         logger.log_scalars(test_dict, curr_train_iter, prefix="Test/")
 
     return ap_calculator
+
+
+@torch.no_grad()
+def evaluate_real_query(
+    args,
+    curr_epoch,
+    model,
+    criterion,
+    dataset_config,
+    dataset_loader,
+    logger,
+    curr_train_iter,
+    per_class_proposal=True
+):
+
+    # ap calculator is exact for evaluation. This is slower than the ap calculator used during training.
+    ap_calculator = APCalculator(
+        dataset_config=dataset_config,
+        ap_iou_thresh=[0.25, 0.5],
+        class2type_map=dataset_config.class2type,
+        exact_eval=True,
+        per_class_proposal=per_class_proposal
+    )
+
+    curr_iter = 0
+    net_device = next(model.parameters()).device
+    num_batches = len(dataset_loader)
+
+    time_delta = SmoothedValue(window_size=10)
+    loss_avg = SmoothedValue(window_size=10)
+    model.eval()
+    barrier()
+    epoch_str = f"[{curr_epoch}/{args.max_epoch}]" if curr_epoch > 0 else ""
+
+    scan_names = []
+    for batch_idx, batch_data_label in enumerate(dataset_loader):
+        curr_time = time.time()
+        scan_names += batch_data_label['scan_name']
+        for key in batch_data_label:
+            if key != 'scan_name':
+                batch_data_label[key] = batch_data_label[key].to(net_device)
+
+        # TODO: extract and encode the query seed points using the trained seed point correspondence model.
+        if args.ngpus > 1:
+            corr_model = model.module.corr_model
+        else:
+            corr_model = model.corr_model
+        # compute the radius used for cropping and aggregating features around seed points.
+        crop_radius = batch_data_label['subscene_radius'] * args.crop_factor
+        masked_inputs = {"point_clouds": batch_data_label["point_clouds_with_mask"]}
+        q_seed_points_info = extract_encode_seed_points(corr_model,
+                                                        masked_inputs,
+                                                        batch_data_label["instance_labels_q"],
+                                                        crop_radius,
+                                                        is_query=True)
+
+        # TODO: extract and encode target seed points, this time across the target scene (no condition on subscene).
+        inputs = {
+            "point_clouds": batch_data_label["point_clouds"],
+            "point_cloud_dims_min": batch_data_label["point_cloud_dims_min"],
+            "point_cloud_dims_max": batch_data_label["point_cloud_dims_max"],
+        }
+        t_seed_points_info = extract_encode_seed_points(corr_model,
+                                                        inputs,
+                                                        batch_data_label["instance_labels"],
+                                                        crop_radius,
+                                                        is_query=False)
+
+        # TODO: find the correspondence between the query and target seed points.
+        corr_indices = find_seed_point_correspondence(args, q_seed_points_info, t_seed_points_info)
+
+        # TODO: find the alignment that best matches target and query.
+        pred_thetas = align_target_query(corr_indices,
+                                         batch_data_label["point_clouds_with_mask"],
+                                         batch_data_label["point_clouds"])
+
+        # TODO: rotate the query scene using the predicted angle.
+        pc_q_rot = rotate_pc(batch_data_label["point_clouds_with_mask"], pred_thetas)
+
+        # TODO: encode the point cloud with mask first.
+        masked_inputs = {"point_clouds": pc_q_rot}
+        enc_xyz_q, enc_features_q, _ = model(masked_inputs, encoder_only=True)
+        subscene_inputs = {
+            "enc_xyz": enc_xyz_q,
+            "enc_features": enc_features_q
+        }
+        inputs = {
+            "point_clouds": batch_data_label["point_clouds"],
+            "point_cloud_dims_min": batch_data_label["point_cloud_dims_min"],
+            "point_cloud_dims_max": batch_data_label["point_cloud_dims_max"],
+        }
+        # TODO: the decoding is conditioned on the subscene inputs.
+        outputs = model(inputs, subscene_inputs)
+
+        # Memory intensive as it gathers point cloud GT tensor across all ranks
+        outputs["outputs"] = all_gather_dict(outputs["outputs"])
+        batch_data_label = all_gather_dict(batch_data_label)
+        ap_calculator.step_meter(outputs, batch_data_label, without_gt=True)
+        time_delta.update(time.time() - curr_time)
+
+        if is_primary() and curr_iter % args.log_every == 0:
+            mem_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)
+            print(
+                f"Evaluate {epoch_str}; Batch [{curr_iter}/{num_batches}]; Iter time {time_delta.avg:0.2f}; Mem {mem_mb:0.2f}MB"
+            )
+
+            test_dict = {}
+            test_dict["memory"] = mem_mb
+            test_dict["batch_time"] = time_delta.avg
+            if criterion is not None:
+                test_dict["loss"] = loss_avg.avg
+        curr_iter += 1
+        barrier()
+    if is_primary():
+        logger.log_scalars(test_dict, curr_train_iter, prefix="Test/")
+
+    return ap_calculator, scan_names

@@ -309,29 +309,32 @@ class APCalculator(object):
             )
         return batch_gt_map_cls
 
-    def step_meter(self, outputs, targets, with_rot_mat=False):
+    def step_meter(self, outputs, targets, without_gt=False):
         if "outputs" in outputs:
             outputs = outputs["outputs"]
-        pred_rot_mat = None
-        if with_rot_mat:
-            pred_rot_mat = outputs["pred_rot_mat"]
-        self.step(
-            predicted_box_corners=outputs["box_corners"],
-            sem_cls_probs=outputs["sem_cls_prob"],
-            objectness_probs=outputs["objectness_prob"],
-            batch_pred_rot_mats=pred_rot_mat,
-            point_cloud=targets["point_clouds"],
-            gt_box_corners=targets["gt_box_corners"],
-            gt_box_sem_cls_labels=targets["gt_box_sem_cls_label"],
-            gt_box_present=targets["gt_box_present"],
-        )
+        if without_gt:
+            self.step_without_gt(
+                predicted_box_corners=outputs["box_corners"],
+                sem_cls_probs=outputs["sem_cls_prob"],
+                objectness_probs=outputs["objectness_prob"],
+                point_cloud=targets["point_clouds"],
+            )
+        else:
+            self.step(
+                predicted_box_corners=outputs["box_corners"],
+                sem_cls_probs=outputs["sem_cls_prob"],
+                objectness_probs=outputs["objectness_prob"],
+                point_cloud=targets["point_clouds"],
+                gt_box_corners=targets["gt_box_corners"],
+                gt_box_sem_cls_labels=targets["gt_box_sem_cls_label"],
+                gt_box_present=targets["gt_box_present"],
+            )
 
     def step(
         self,
         predicted_box_corners,
         sem_cls_probs,
         objectness_probs,
-        batch_pred_rot_mats,
         point_cloud,
         gt_box_corners,
         gt_box_sem_cls_labels,
@@ -356,9 +359,30 @@ class APCalculator(object):
             self.ap_config_dict,
         )
 
-        self.accumulate(batch_pred_map_cls, batch_gt_map_cls, batch_pred_rot_mats)
+        self.accumulate(batch_pred_map_cls, batch_gt_map_cls)
 
-    def accumulate(self, batch_pred_map_cls, batch_gt_map_cls, batch_pred_rot_mats):
+    def step_without_gt(
+        self,
+        predicted_box_corners,
+        sem_cls_probs,
+        objectness_probs,
+        point_cloud,
+    ):
+        """
+        Perform NMS on predicted boxes and threshold them according to score.
+        Convert GT boxes
+        """
+        batch_pred_map_cls = parse_predictions(
+            predicted_box_corners,
+            sem_cls_probs,
+            objectness_probs,
+            point_cloud,
+            self.ap_config_dict,
+        )
+
+        self.accumulate_without_gt(batch_pred_map_cls)
+
+    def accumulate(self, batch_pred_map_cls, batch_gt_map_cls):
         """Accumulate one batch of prediction and groundtruth.
 
         Args:
@@ -371,8 +395,17 @@ class APCalculator(object):
         for i in range(bsize):
             self.gt_map_cls[self.scan_cnt] = batch_gt_map_cls[i]
             self.pred_map_cls[self.scan_cnt] = batch_pred_map_cls[i]
-            if batch_pred_rot_mats is not None:
-                self.pred_rot_mats[self.scan_cnt] = batch_pred_rot_mats[i]
+            self.scan_cnt += 1
+
+    def accumulate_without_gt(self, batch_pred_map_cls):
+        """Accumulate one batch of prediction and groundtruth.
+
+        Args:
+            batch_pred_map_cls: a list of lists [[(pred_cls, pred_box_params, score),...],...]
+        """
+        bsize = len(batch_pred_map_cls)
+        for i in range(bsize):
+            self.pred_map_cls[self.scan_cnt] = batch_pred_map_cls[i]
             self.scan_cnt += 1
 
     def compute_metrics(self):

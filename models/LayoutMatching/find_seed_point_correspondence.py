@@ -79,6 +79,7 @@ def make_args_parser():
         "--dataset_name", required=True, type=str, choices=["scannet", "sunrgbd", "matterport3d"]
     )
     parser.add_argument("--test_split", default='val', type=str, choices=["test", "val"])
+    parser.add_argument("--real_query", default=False, action="store_true")
     parser.add_argument(
         "--dataset_root_dir",
         type=str,
@@ -392,6 +393,8 @@ def launch_distributed(args):
 if __name__ == "__main__":
     parser = make_args_parser()
     args = parser.parse_args()
+    args.query_info = None
+    args.scene_dir = None
     try:
         set_start_method("spawn")
     except RuntimeError:

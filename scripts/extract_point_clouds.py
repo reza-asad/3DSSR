@@ -57,12 +57,12 @@ def sample_pc_and_render():
 
 def get_args():
     parser = argparse.ArgumentParser('Extract Regions', add_help=False)
-    parser.add_argument('--dataset', default='scannet')
-    parser.add_argument('--mode', default='train', help='train | val')
-    parser.add_argument('--action', default='render', help='extract | render')
+    parser.add_argument('--dataset', default='matterport3d')
+    parser.add_argument('--mode', default='test', help='train | val')
+    parser.add_argument('--action', default='extract', help='extract | render')
     parser.add_argument('--scene_dir', default='../data/{}/scenes')
-    parser.add_argument('--mesh_dir', default='../data/{}/mesh_regions')
-    parser.add_argument('--pc_dir', default='../data/{}/pc_regions')
+    parser.add_argument('--mesh_dir', default='../data/{}/mesh_regions_predicted')
+    parser.add_argument('--pc_dir', default='../data/{}/pc_regions_predicted')
     parser.add_argument('--rendering_dir', default='../data/{}/pc_regions_rendered')
     parser.add_argument('--num_points', default=40960, type=int, help='number of points to sample from the mesh')
     parser.add_argument('--num_imgs', default=50, type=int, help='number of imgs to render')

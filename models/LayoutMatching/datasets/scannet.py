@@ -177,6 +177,8 @@ class ScannetDetectionDataset(Dataset):
         use_random_cuboid=True,
         aggressive_rot=False,
         augment_eval=False,
+        query_info=None,
+        scene_dir=None,
         random_cuboid_min_points=30000,
     ):
 
