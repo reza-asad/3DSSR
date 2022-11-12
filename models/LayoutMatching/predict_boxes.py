@@ -151,8 +151,6 @@ def test_model(args, model, model_no_ddp):
     curr_iter = 0
 
     # for each query build dataset, dataloader and detect 3d subscenes.
-    # np.random.seed(0)
-    # query_keys = np.random.choice(list(query_dict.keys()), 5)
     query_results = {}
     for idx, query in enumerate(query_dict.keys()):
         print('Processing {}/{} queries: {}.'.format(idx+1, len(query_dict), query))
@@ -183,15 +181,15 @@ def test_model(args, model, model_no_ddp):
         for i, scan_name in enumerate(scan_names):
             # load the predictions for the current scene.
             predictions_scene = predictions[i]
-            cats, boxes, scores = [], [], []
+            categories, boxes, scores = [], [], []
             for j, predictions_obj in enumerate(predictions_scene):
-                cats.append(class_id_to_cat[predictions_obj[0]])
+                categories.append(class_id_to_cat[predictions_obj[0]])
                 bbox = format_bbox(predictions_obj[1].astype(float))
                 boxes.append(bbox.tolist())
                 scores.append(float(predictions_obj[2]))
 
             # the template for retrieved target subscens.
-            target_subscene = {'scene_name': scan_name, 'boxes': boxes, 'cats': cats, 'scores': scores}
+            target_subscene = {'scene_name': scan_name, 'boxes': boxes, 'cats': categories, 'scores': scores}
             target_subscenes.append(target_subscene)
 
         query_results[query]['target_subscenes'] = target_subscenes

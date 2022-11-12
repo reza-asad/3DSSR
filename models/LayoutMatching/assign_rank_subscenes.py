@@ -37,7 +37,7 @@ def load_boxes_target(boxes_list):
     return boxes
 
 
-def find_topk_target_nodes(query_scene_name, query_node, target_subscenes):
+def find_topk_target_nodes(query_scene_name, query_node, target_subscenes, scene_to_category_dict):
     # load the query scene and find the category of the query object.
     query_scene = load_from_json(os.path.join(args.scene_dir, query_scene_name))
     query_cat = query_scene[query_node]['category'][0]
@@ -46,13 +46,15 @@ def find_topk_target_nodes(query_scene_name, query_node, target_subscenes):
     target_node_indices = []
     heapq.heapify(target_node_indices)
     for i, target_subscene in enumerate(target_subscenes):
+        target_scene_name = target_subscene['scene_name']
+
         # skip if the target and query scene are the same
-        if target_subscene['scene_name'] == query_scene_name:
+        if target_scene_name == query_scene_name:
             continue
 
         # for the current target subscene take all the objects with the same category as the query object.
-        for j, target_cat in enumerate(target_subscene['cats']):
-            if target_cat == query_cat:
+        for j, _ in enumerate(target_subscene['cats']):
+            if query_cat in scene_to_category_dict[target_scene_name][j]:
                 # if len(target_node_indices) < args.topk:
                 heapq.heappush(target_node_indices, (target_subscene['scores'][j], (i, j)))
                 # else:
@@ -61,8 +63,11 @@ def find_topk_target_nodes(query_scene_name, query_node, target_subscenes):
     return target_node_indices
 
 
-def find_best_correspondence(target_scene_name, query_node, context_objects, q_boxes, t_obj_idx, t_boxes,
-                             target_subscene_raw):
+def find_best_correspondence(query_scene_name, target_scene_name, query_node, context_objects, q_boxes, t_obj_idx,
+                             t_boxes, target_subscene_raw, id_to_predicted_cat):
+    # load the query scene.
+    query_scene = load_from_json(os.path.join(args.scene_dir, query_scene_name))
+
     # read the box for the query object and find the translation that brings it to the origin.
     q_box = q_boxes[query_node]
     q_translation = -q_box.translation
@@ -82,10 +87,17 @@ def find_best_correspondence(target_scene_name, query_node, context_objects, q_b
         q_c_box = q_boxes[context_object]
         q_c_box_translated = translate_obbox(q_c_box, q_translation)
 
+        # find the category of the context object.
+        context_object_cat = query_scene[context_object]['category'][0]
+
         # the best candidate has IoU > 0 and highest embedding similarity.
         for j, score in enumerate(target_subscene_raw['scores']):
             # skip if the candidate is already assigned or is the target node.
             if (j in correspondence) or (j == t_obj_idx):
+                continue
+
+            # skip if the predicted category of the candidate is different from the context object.
+            if context_object_cat not in id_to_predicted_cat[j]:
                 continue
 
             # translate the candidate object using the translation that brings the target object to the origin.
@@ -112,14 +124,62 @@ def find_best_correspondence(target_scene_name, query_node, context_objects, q_b
             correspondence[str(best_candidate)] = context_object
             total_score += highest_score
 
-    # record the categories of the predicted boxes as well.
-    t_cat = target_subscene_raw['cats'][t_obj_idx]
-    context_cat = {i: target_subscene_raw['cats'][int(i)] for i in correspondence.keys()}
-    target_subscene = {'scene_name': target_scene_name, 'target': t_obj_idx, 'correspondence': correspondence,
-                       'context_match': len(correspondence), 'total_score': float(total_score), 'target_cat': t_cat,
-                       'context_cat': context_cat}
+    obj_to_cat = {}
+    obj_to_box = {}
+    for obj, cats in id_to_predicted_cat.items():
+        if (obj == t_obj_idx) or (str(obj) in correspondence):
+            obj_to_cat[str(obj)] = cats
+            obj_to_box[str(obj)] = target_subscene_raw['boxes'][obj]
+    target_subscene = {'scene_name': target_scene_name + '.json', 'target': str(t_obj_idx), 'correspondence': correspondence,
+                       'context_match': len(correspondence), 'total_score': float(total_score), 'obj_to_cat': obj_to_cat,
+                       'obj_to_box': obj_to_box}
 
     return target_subscene
+
+
+def find_cat_at_threshold(target_scene_name, target_subscene_raw, t_boxes):
+    # load the target scene.
+    target_scene = load_from_json(os.path.join(args.scene_dir, target_scene_name+'.json'))
+
+    # for each predicted box, only take its predicted category if the IoU between the box and at least one gt box of the
+    # same category is above a threshold.
+    id_to_predicted_cat = {}
+    for obj, obj_info in target_scene.items():
+        gt_box_vertices = np.asarray(obj_info['aabb'], dtype=np.float32)
+        gt_box = Box(gt_box_vertices)
+        gt_cat = obj_info['category'][0]
+        # iterate through the predicted boxes.
+        for i, pred_cat in enumerate(target_subscene_raw['cats']):
+            # predicted and gt categories must match.
+            if pred_cat == gt_cat:
+                # if IoU greater than a threshold, accept the predicted cat.
+                try:
+                    iou = IoU(t_boxes[i], gt_box).iou()
+                except Exception:
+                    iou = 0
+                if iou > args.cat_threshold:
+                    if i in id_to_predicted_cat:
+                        id_to_predicted_cat[i].append(pred_cat)
+                    else:
+                        id_to_predicted_cat[i] = [pred_cat]
+
+    # assign -1 to all boxes that have no match.
+    for i in range(len(target_subscene_raw['cats'])):
+        if i not in id_to_predicted_cat:
+            id_to_predicted_cat[i] = ['-1']
+
+    return id_to_predicted_cat
+
+
+def map_scene_to_accepted_predicted_cats(target_subscenes):
+    scene_to_category_dict = {}
+    for target_subscene_raw in target_subscenes:
+        target_scene_name = target_subscene_raw['scene_name']
+        t_boxes = load_boxes_target(target_subscene_raw['boxes'])
+        id_to_predicted_cat = find_cat_at_threshold(target_scene_name, target_subscene_raw, t_boxes)
+        scene_to_category_dict[target_scene_name] = id_to_predicted_cat
+
+    return scene_to_category_dict
 
 
 def find_best_target_subscenes(query_info):
@@ -130,19 +190,26 @@ def find_best_target_subscenes(query_info):
     query_scene = load_from_json(os.path.join(args.scene_dir, query_scene_name))
     q_boxes = load_boxes(query_scene, [query_node] + context_objects, box_type='aabb')
 
+    # find a mapping from each scene to the predicted categories that match gt (above a threshold).
+    scene_to_category_dict = map_scene_to_accepted_predicted_cats(query_info['target_subscenes'])
+
     # find the index (scene_idx, obj_idx) of topk target nodes among the retrieved subscenes.
-    target_node_indices = find_topk_target_nodes(query_scene_name, query_node, query_info['target_subscenes'])
+    target_node_indices = find_topk_target_nodes(query_scene_name, query_node, query_info['target_subscenes'],
+                                                 scene_to_category_dict)
 
     # find the best matching target subscenes given each anchor object.
     target_subscenes = []
     for score, (scene_idx, t_obj_idx) in target_node_indices:
         # find the target scene name.
-        target_scene_name = query_info['target_subscenes'][scene_idx]['scene_name'] + '.json'
+        target_scene_name = query_info['target_subscenes'][scene_idx]['scene_name']
 
         # load the boxes for the current target subscene.
-        t_boxes = load_boxes_target(query_info['target_subscenes'][scene_idx]['boxes'])
-        target_subscene = find_best_correspondence(target_scene_name, query_node, context_objects, q_boxes, t_obj_idx,
-                                                   t_boxes, query_info['target_subscenes'][scene_idx])
+        target_subscene_raw = query_info['target_subscenes'][scene_idx]
+        t_boxes = load_boxes_target(target_subscene_raw['boxes'])
+        id_to_predicted_cat = scene_to_category_dict[target_scene_name]
+        target_subscene = find_best_correspondence(query_scene_name, target_scene_name, query_node, context_objects,
+                                                   q_boxes, t_obj_idx, t_boxes, target_subscene_raw,
+                                                   id_to_predicted_cat)
         target_subscenes.append(target_subscene)
 
     # rank the target object based on the highest number of correspondences and overall IoU.
@@ -161,6 +228,7 @@ def make_args_parser():
     parser.add_argument('--query_input_file_name', default='query_dict_top10.json')
     parser.add_argument('--results_folder_name', default='full_3dssr_real_query')
     parser.add_argument("--experiment_name", default='3detr_pre_rank', type=str)
+    parser.add_argument('--cat_threshold', default=0.25, help='Threshold for categorizing the predicted boxes.')
     parser.add_argument('--topk', dest='topk', default=20, help='Number of most similar subscenes to be returned.')
 
     return parser
@@ -194,6 +262,7 @@ def main():
 
     # apply scene alignment for each query
     t0 = time()
+    query_results_ranked = {}
     for i, (query, query_info) in enumerate(query_results.items()):
         t = time()
         print('Processing query: {}'.format(query))
@@ -201,6 +270,8 @@ def main():
         target_subscenes = find_best_target_subscenes(query_info)
 
         query_info['target_subscenes'] = target_subscenes
+        query_results_ranked[query] = query_info
+
         duration = (time() - t) / 60
         print('Processing the query took {} minutes'.format(round(duration, 2)))
         print('*' * 50)
@@ -209,7 +280,7 @@ def main():
     print('Processing all queries took {} minutes'.format(round(duration_all, 2)))
 
     # save the changes to query dict
-    write_to_json(query_results, query_dict_output_path)
+    write_to_json(query_results_ranked, query_dict_output_path)
 
 
 if __name__ == "__main__":

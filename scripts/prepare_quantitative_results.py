@@ -26,7 +26,7 @@ def plot_results(metrics, model_name_exp_map, summary_results, mode, name, same_
 
             if same_scale:
                 # 38 or 55
-                ax.set_ylim([0, 80])
+                ax.set_ylim([0, 65])
                 ax.set_title('CD threshold: {}%'.format(metric.split('_')[-1]))
             elif title is not None:
                 ax.set_title(title)
@@ -38,9 +38,9 @@ def plot_results(metrics, model_name_exp_map, summary_results, mode, name, same_
             # compute the area under the curve if necessary
             auc_dic[metric][display_name] = np.round(auc(x, y), 2)
 
-        # plt.grid()
-        # plt.savefig('../results/matterport3d/evaluation_plots/{}_{}_{}.png'.format(mode, metric, name))
-        # plt.show()
+        plt.grid()
+        plt.savefig('../results/matterport3d/evaluation_plots/{}_{}_{}.png'.format(mode, metric, name))
+        plt.show()
 
     for k, v in auc_dic.items():
         print('{}: {}'.format(k, v))
@@ -141,7 +141,7 @@ def main():
         # For cd + IoU full classes
         model_name_exp_map = {
             ('LearningBased', '3D_DINO_point_transformer_full'): 'PointCropRank',
-            ('LearningBased', '3D_DINO_point_transformer_50_full'): 'PointCropRank50',
+            # ('LearningBased', '3D_DINO_point_transformer_50_full'): 'PointCropRank50',
             # ('LearningBased', '3D_DINO_point_transformer_with_boxes_large_nms_full'): 'PointCropRankV2',
             ('LearningBased', 'supervised_point_transformer_full'): 'TransformerRank',
             # ('LearningBased', 'supervised_point_transformer_with_boxes_large_nms_full'): 'TransformerRankV2',
@@ -151,7 +151,8 @@ def main():
             ('GKRank', 'GKRankFull'): 'OracleGKRank',
             ('CatRank', 'CatRankFull'): 'OracleCatRank',
             ('RandomRank', 'RandomRankFull'): 'RandomRank',
-            # ('PointTransformerSeg', 'CSC_point_transformer_with_boxes_large_nms_full'): 'CSCRankV2'
+            # ('PointTransformerSeg', 'CSC_point_transformer_with_boxes_large_nms_full'): 'CSCRankV2',
+            # ('LayoutMatching', '3detr'): 'Full 3DSSR'
         }
         # For cat + cd + IoU
         # model_name_exp_map = {
@@ -186,13 +187,14 @@ def main():
 
     # read the aggregated results and choose the metric to plot
     summary_results = pd.read_csv(aggregated_csv_path)
-    metrics = ['distance_cd_mAP_bi_5', 'distance_cd_mAP_bi_10', 'distance_cd_mAP_bi_20', 'distance_cd_mAP_bi_40']
-    metrics = ['angle_cd_mAP_bi_5', 'angle_cd_mAP_bi_10', 'angle_cd_mAP_bi_20', 'angle_cd_mAP_bi_40']
-    metrics = ['distance_angle_cd_mAP_bi_5', 'distance_angle_cd_mAP_bi_10', 'distance_angle_cd_mAP_bi_20', 'distance_angle_cd_mAP_bi_40']
-    metrics = ['distance_angle_cat_cd_mAP_bi_5', 'distance_angle_cat_cd_mAP_bi_10', 'distance_angle_cat_cd_mAP_bi_20', 'distance_angle_cat_cd_mAP_bi_40']
+    metrics = ['cat_mAP']
+    # metrics = ['distance_cd_mAP_bi_5', 'distance_cd_mAP_bi_10', 'distance_cd_mAP_bi_20', 'distance_cd_mAP_bi_40']
+    # metrics = ['angle_cd_mAP_bi_5', 'angle_cd_mAP_bi_10', 'angle_cd_mAP_bi_20', 'angle_cd_mAP_bi_40']
+    # metrics = ['distance_angle_cd_mAP_bi_5', 'distance_angle_cd_mAP_bi_10', 'distance_angle_cd_mAP_bi_20', 'distance_angle_cd_mAP_bi_40']
+    # metrics = ['distance_angle_cat_cd_mAP_bi_5', 'distance_angle_cat_cd_mAP_bi_10', 'distance_angle_cat_cd_mAP_bi_20', 'distance_angle_cat_cd_mAP_bi_40']
 
     # plot the quantiative results
-    plot_results(metrics, model_name_exp_map, summary_results, args.mode, '1st_epoch_same_scale',
+    plot_results(metrics, model_name_exp_map, summary_results, args.mode, 'same_scale',
                  same_scale=True, title=None)
 
 

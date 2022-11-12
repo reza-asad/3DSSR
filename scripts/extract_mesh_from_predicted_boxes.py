@@ -40,13 +40,13 @@ def extract_mesh_region(centroid, vertices, faces, face_normals, max_dist):
 def derive_mesh_regions(target_subscenes_chunk):
     for target_subscene in target_subscenes_chunk:
         # load the room mesh.
-        scene_name = target_subscene['scene_name']
+        scene_name = target_subscene['scene_name'].split('.')[0]
         room_mesh = trimesh.load(os.path.join(args.room_dir, scene_name, '{}.annotated.ply'.format(scene_name)))
 
         # for each predicted box find the mesh region it corresponds to.
         visited = set(os.listdir(args.mesh_regions_dir))
-        for i, box_vertices in enumerate(target_subscene['boxes']):
-            key = '{}_{}_{}.ply'.format(query, scene_name, i)
+        for obj, box_vertices in target_subscene['obj_to_box'].items():
+            key = '{}_{}_{}.ply'.format(query, scene_name, obj)
             if key in visited:
                 continue
 
@@ -83,7 +83,7 @@ def get_args():
     parser.add_argument("--output_path", default='../results/{}/LayoutMatching/', type=str)
     parser.add_argument('--query_input_file_name', default='query_dict_top10.json')
     parser.add_argument('--results_folder_name', default='full_3dssr_real_query')
-    parser.add_argument("--experiment_name", default='3detr_pre_rank', type=str)
+    parser.add_argument("--experiment_name", default='3detr', type=str)
     parser.add_argument('--seed', default=0, type=int, help='use different seed for parallel runs')
     parser.add_argument('--num_chunks', default=1, type=int, help='number of chunks for parallel run')
     parser.add_argument('--chunk_idx', default=0, type=int, help='chunk id for parallel run')

@@ -3,7 +3,8 @@ import argparse
 from time import time
 import pandas as pd
 
-from scripts.evaluator import evaluate_subscene_retrieval
+from scripts.evaluator import evaluate_3dssr
+from scripts.evaluator_full_3dssr import evaluate_full_3dssr
 from scripts.helper import load_from_json
 
 
@@ -17,7 +18,7 @@ def adjust_paths(args, exceptions):
 
 def get_args():
     parser = argparse.ArgumentParser('Evaluating 3D Subscene Retrieval', add_help=False)
-    parser.add_argument('--model_names', default=['dino_50_full_config'],
+    parser.add_argument('--model_names', default=['full_3dssr'],
                         type=str, nargs='+', help='choose one from 3dssr_model_configs.json')
     parser.add_argument('--cat_threshold', default=None, help='Threshold for categorizing the predicted boxes or None.')
     parser.add_argument('--bidirectional', action='store_true', default=True,
@@ -29,8 +30,8 @@ def get_args():
                         help='scenes_top10 | predicted_boxes_large/scenes_predicted_nms_final')
     parser.add_argument('--query_input_file_name', default='query_dict_top10.json')
     parser.add_argument('--pc_dir_queries', default='../data/{}/pc_regions')
-    parser.add_argument('--pc_dir', default='../data/{}/pc_regions',
-                        help='pc_regions | pc_regions_predicted_nms')
+    parser.add_argument('--pc_dir', default='../data/{}/pc_regions_predicted',
+                        help='pc_regions | pc_regions_predicted')
     parser.add_argument('--cd_path', default='../data/{}/cd_thresholds.json')
     parser.add_argument('--num_points', default=4096, type=int, help='number of points randomly sampled form the pc.')
     parser.add_argument('--remove_model', action='store_true', default=False,
@@ -76,7 +77,10 @@ def main():
         adjust_paths(args, exceptions=[])
 
         # evaluate 3dssr
-        evaluate_subscene_retrieval(args)
+        if model_name == 'full_3dssr':
+            evaluate_full_3dssr(args)
+        else:
+            evaluate_3dssr(args)
 
 
 if __name__ == '__main__':

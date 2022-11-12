@@ -29,6 +29,7 @@ class Evaluate:
         self.df_metadata = df_metadata
         self.fine_cat_field = fine_cat_field
         self.max_angle_diff = np.pi/2
+        self.query_name = None
 
     def map_obj_to_cat_fine(self, scene, scene_name):
         result = {}
@@ -114,6 +115,14 @@ class Evaluate:
 
         return obbox, obj_translation
 
+    def create_obb_at_origin_target(self, box_vertices):
+        box_vertices = np.asarray(box_vertices, dtype=np.float32)
+        obbox = Box(box_vertices)
+        obj_translation = -obbox.translation
+        obbox = self.translate_obbox(obbox, obj_translation)
+
+        return obbox, obj_translation
+
     def compute_rel_angle(self, t_c_obbox, q_c_obbox):
         # find the vector connecting the centroid of query/target boxes to origin.
         t_c_centroid = t_c_obbox.translation
@@ -134,22 +143,19 @@ class Evaluate:
         return np.abs(t_c_distance - q_c_distance) / q_c_distance
 
     def sim_shape(self, query_scene_name, query_object, target_scene_name, target_object, obj_to_cat_query,
-                  obj_to_cat_target, obj_to_cat_query_fine, obj_to_cat_target_fine, theta):
+                  obj_to_cat_target, theta):
         if 'cat' in self.metric[0]:
             # pure category based matching
             if 'cd' not in self.metric[0]:
-                return obj_to_cat_query[query_object] == obj_to_cat_target[target_object]
+                return obj_to_cat_query[query_object] in obj_to_cat_target[target_object]
             # reject if categories don't match.
             elif obj_to_cat_query[query_object] not in obj_to_cat_target[target_object]:
                 return False
-            # reject if fine categorization does not match
-            if self.fine_cat_field is not None:
-                if obj_to_cat_query_fine[query_object] not in obj_to_cat_target_fine[target_object]:
-                    return False
 
-        # creat the path for each pc
+        # create the path for each pc
         q_file_name = os.path.join(self.pc_dir_queries, '-'.join([query_scene_name.split('.')[0], query_object]) + '.npy')
-        t_file_name = os.path.join(self.pc_dir, '-'.join([target_scene_name.split('.')[0], target_object]) + '.npy')
+        pc_t_file_name = '{}_{}_{}.npy'.format(self.query_name, target_scene_name.split('.')[0], target_object)
+        t_file_name = os.path.join(self.pc_dir, pc_t_file_name)
 
         # load the pc for the query and target obj
         pc1 = np.load(q_file_name)
@@ -264,29 +270,20 @@ class Evaluate:
         target_scene_name = target_subscene['scene_name']
         if '.json' not in target_subscene['scene_name']:
             target_scene_name = target_subscene['scene_name'] + '.json'
-
-        # load the target scene
-        target_scene = load_from_json(os.path.join(self.scene_dir, self.mode, target_scene_name))
         target_object = target_subscene['target']
 
         # map each object in the query and target scenes to their cat
         obj_to_cat_query = self.map_obj_to_cat(query_scene, query=True)
-        obj_to_cat_query_fine = None
-        if self.fine_cat_field is not None:
-            obj_to_cat_query_fine = self.map_obj_to_cat_fine(query_scene, query_scene_name)
 
         obj_to_cat_target = None
-        obj_to_cat_target_fine = None
         if 'cat' in self.metric[0]:
-            obj_to_cat_target = self.map_obj_to_cat(target_scene, query=False)
-            if self.fine_cat_field is not None:
-                obj_to_cat_target_fine = self.map_obj_to_cat_fine(target_scene, target_scene_name)
+            obj_to_cat_target = target_subscene['obj_to_cat']
 
         # create a obbox object for the query object and translate it to the origin
         obbox_query, q_translation = self.create_obb_at_origin(query_scene, query_object, box_type='aabb')
 
         # create the obbox for the target object and translate it to the origin
-        obbox_target, t_translation = self.create_obb_at_origin(target_scene, target_object, box_type='aabb')
+        obbox_target, t_translation = self.create_obb_at_origin_target(target_subscene['obj_to_box'][target_object])
 
         # read rotation angle if it is computed
         theta = None
@@ -295,8 +292,8 @@ class Evaluate:
 
         # compute the iou between the query and target objects if their category match
         num_matches = 0
-        if self.sim_shape(query_scene_name, query_object, target_scene_name, target_object,
-                          obj_to_cat_query, obj_to_cat_target, obj_to_cat_query_fine, obj_to_cat_target_fine, theta):
+        if self.sim_shape(query_scene_name, query_object, target_scene_name, target_object, obj_to_cat_query,
+                          obj_to_cat_target, theta):
             q_t_iou = self.compute_iou(obbox_target, obbox_query)
             if q_t_iou > self.metric[2]:
                 num_matches += 1
@@ -309,7 +306,7 @@ class Evaluate:
         for candidate, context_object in target_subscene['correspondence'].items():
             # if the candidate and context objects have different categories, no match is counted.
             if not self.sim_shape(query_scene_name, context_object, target_scene_name, candidate, obj_to_cat_query,
-                                  obj_to_cat_target, obj_to_cat_query_fine, obj_to_cat_target_fine, theta):
+                                  obj_to_cat_target, theta):
                 continue
 
             # create a obbox object for the context object and translated it according to the query object
@@ -318,7 +315,7 @@ class Evaluate:
             q_c_obbox = self.translate_obbox(q_c_obbox, q_translation)
 
             # create a obbox object for the candidate and translated it according to the target object
-            t_context_obbox_vertices = np.asarray(target_scene[candidate]['aabb'])
+            t_context_obbox_vertices = np.asarray(target_subscene['obj_to_box'][candidate], dtype=np.float32)
             t_c_obbox = Box(t_context_obbox_vertices)
             t_c_obbox = self.translate_obbox(t_c_obbox, t_translation)
 
@@ -406,7 +403,7 @@ class Evaluate:
         self.curr_df.to_csv(self.evaluation_path, index=False)
 
 
-def evaluate_3dssr(args):
+def evaluate_full_3dssr(args):
     # check if this is evaluating an ablation model or baseline
     if args.ablations:
         evalaution_base_path = '../results/matterport3d/evaluations/ablations'
@@ -428,26 +425,31 @@ def evaluate_3dssr(args):
     # if evaluation csv file does not exist, copy it from the template.
     if not os.path.exists(evaluation_path):
         shutil.copy('../results/matterport3d/evaluations/evaluation_template.csv', evaluation_path)
-
     aggregated_csv_path = os.path.join(evalaution_base_path, evaluation_aggregate_file_name)
 
     # TODO: for removal consider and condition instead of or.
     curr_df = pd.read_csv(evaluation_path)
     if args.remove_model:
+        # remove from evaluation.csv
         model_to_remove = curr_df['model_name'] == args.model_name
         experiment_to_remove = curr_df['experiment_id'].apply(lambda x: x.split('-')[0] == args.experiment_name)
         curr_df = curr_df[~(model_to_remove & experiment_to_remove)]
         curr_df.to_csv(evaluation_path, index=False)
+
+        # remove from evaluation_aggregated.csv.
+        summary_results = pd.read_csv(aggregated_csv_path)
+        model_to_remove = summary_results['model_name'] == args.model_name
+        experiment_to_remove = summary_results['experiment_id'].apply(lambda x: x.split('-')[0] == args.experiment_name)
+        summary_results = summary_results[~(model_to_remove & experiment_to_remove)]
+        summary_results.to_csv(aggregated_csv_path, index=False)
+
         print('Model {} with Experiment {} is removed'.format(args.model_name, args.experiment_name))
         return
 
     # define paths and parameters
     thresholds = np.linspace(0.05, 0.95, num=10)
     metrics = [
-        'distance_cd_mAP_bi_5', 'distance_cd_mAP_bi_10', 'distance_cd_mAP_bi_20', 'distance_cd_mAP_bi_40',
-        'angle_cd_mAP_bi_5', 'angle_cd_mAP_bi_10', 'angle_cd_mAP_bi_20', 'angle_cd_mAP_bi_40',
-        'distance_angle_cd_mAP_bi_5', 'distance_angle_cd_mAP_bi_10', 'distance_angle_cd_mAP_bi_20', 'distance_angle_cd_mAP_bi_40',
-        'distance_angle_cat_cd_mAP_bi_5', 'distance_angle_cat_cd_mAP_bi_10', 'distance_angle_cat_cd_mAP_bi_20', 'distance_angle_cat_cd_mAP_bi_40'
+        'cat_mAP'#'cat_cd_mAP_bi_5', 'cat_cd_mAP_bi_10', 'cat_cd_mAP_bi_20', 'cat_cd_mAP_bi_40'
     ]
 
     # define the path for the results and evaluated results.
@@ -491,6 +493,7 @@ def evaluate_3dssr(args):
                     evaluator.metric = [metric, evaluator.compute_dist_angle_match, threshold]
                 else:
                     evaluator.metric = [metric, evaluator.compute_overlap_match, threshold]
+                    evaluator.query_name = query_name
                 evaluator.add_to_tabular(args.model_name, query_name, experiment_id)
                 evaluator.compute_mAP(query_name, args.model_name, experiment_id, topk=args.topk)
 
@@ -512,7 +515,7 @@ def evaluate_3dssr(args):
     for metric in all_metrics:
         df_mean[metric] = df_mean[metric].apply(lambda x: np.round(x * 100, 3))
 
-    summary_resutls = df_mean.sort_values(by=['model_name', 'experiment_id']).reset_index(drop=True)
-    summary_resutls.to_csv(aggregated_csv_path, index=False)
+    summary_results = df_mean.sort_values(by=['model_name', 'experiment_id']).reset_index(drop=True)
+    summary_results.to_csv(aggregated_csv_path, index=False)
 
 
