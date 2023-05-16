@@ -1,0 +1,527 @@
+{
+    "table-0": {
+        "example": {
+            "scene_name": "wc2JMjhGNzB_room23.json",
+            "query": "48",
+            "context_objects": [
+                "49",
+                "4",
+                "52"
+            ]
+        }
+    },
+    "chair-1": {
+        "example": {
+            "scene_name": "5ZKStnWn8Zo_room11.json",
+            "query": "50",
+            "context_objects": [
+                "3",
+                "6",
+                "47",
+                "31"
+            ]
+        }
+    },
+    "chair-2": {
+        "example": {
+            "scene_name": "RPmz2sHmrrY_room4.json",
+            "query": "19",
+            "context_objects": [
+                "20",
+                "15"
+            ]
+        }
+    },
+    "cushion-3": {
+        "example": {
+            "scene_name": "5ZKStnWn8Zo_room21.json",
+            "query": "6",
+            "context_objects": [
+                "8",
+                "31",
+                "11"
+            ]
+        }
+    },
+    "cushion-4": {
+        "example": {
+            "scene_name": "jtcxE69GiFV_room9.json",
+            "query": "23",
+            "context_objects": [
+                "15",
+                "17"
+            ]
+        }
+    },
+    "chair-5": {
+        "example": {
+            "scene_name": "5ZKStnWn8Zo_room4.json",
+            "query": "14",
+            "context_objects": [
+                "10",
+                "18"
+            ]
+        }
+    },
+    "picture-6": {
+        "example": {
+            "scene_name": "WYY7iVyf5p8_room5.json",
+            "query": "21",
+            "context_objects": [
+                "20",
+                "15",
+                "18",
+                "12"
+            ]
+        }
+    },
+    "curtain-7": {
+        "example": {
+            "scene_name": "yqstnuAEVhm_room22.json",
+            "query": "3",
+            "context_objects": [
+                "13"
+            ]
+        }
+    },
+    "chair-8": {
+        "example": {
+            "scene_name": "yqstnuAEVhm_room24.json",
+            "query": "6",
+            "context_objects": [
+                "1",
+                "21",
+                "27"
+            ]
+        }
+    },
+    "chair-9": {
+        "example": {
+            "scene_name": "5ZKStnWn8Zo_room17.json",
+            "query": "24",
+            "context_objects": [
+                "8",
+                "17"
+            ]
+        }
+    },
+    "mirror-10": {
+        "example": {
+            "scene_name": "wc2JMjhGNzB_room6.json",
+            "query": "8",
+            "context_objects": [
+                "6"
+            ]
+        }
+    },
+    "lighting-11": {
+        "example": {
+            "scene_name": "pa4otMbVnkk_room9.json",
+            "query": "29",
+            "context_objects": [
+                "30",
+                "11",
+                "21"
+            ]
+        }
+    },
+    "plant-12": {
+        "example": {
+            "scene_name": "rqfALeAoiTq_room8.json",
+            "query": "14",
+            "context_objects": [
+                "3",
+                "5"
+            ]
+        }
+    },
+    "cabinet-13": {
+        "example": {
+            "scene_name": "2t7WUuJeko7_room3.json",
+            "query": "3",
+            "context_objects": [
+                "8"
+            ]
+        }
+    },
+    "cabinet-14": {
+        "example": {
+            "scene_name": "2t7WUuJeko7_room2.json",
+            "query": "12",
+            "context_objects": [
+                "2",
+                "9",
+                "13",
+                "18"
+            ]
+        }
+    },
+    "chair-15": {
+        "example": {
+            "scene_name": "wc2JMjhGNzB_room24.json",
+            "query": "27",
+            "context_objects": [
+                "19",
+                "11",
+                "30"
+            ]
+        }
+    },
+    "cabinet-16": {
+        "example": {
+            "scene_name": "wc2JMjhGNzB_room20.json",
+            "query": "20",
+            "context_objects": [
+                "10"
+            ]
+        }
+    },
+    "shelving-17": {
+        "example": {
+            "scene_name": "yqstnuAEVhm_room19.json",
+            "query": "22",
+            "context_objects": [
+                "5",
+                "11",
+                "10",
+                "8"
+            ]
+        }
+    },
+    "cabinet-18": {
+        "example": {
+            "scene_name": "yqstnuAEVhm_room14.json",
+            "query": "16",
+            "context_objects": [
+                "26"
+            ]
+        }
+    },
+    "mirror-19": {
+        "example": {
+            "scene_name": "wc2JMjhGNzB_room15.json",
+            "query": "14",
+            "context_objects": [
+                "7"
+            ]
+        }
+    },
+    "cushion-20": {
+        "example": {
+            "scene_name": "ARNzJeq3xxb_room4.json",
+            "query": "15",
+            "context_objects": [
+                "40",
+                "8"
+            ]
+        }
+    },
+    "chair-21": {
+        "example": {
+            "scene_name": "UwV83HsGsw3_room9.json",
+            "query": "4",
+            "context_objects": [
+                "6",
+                "14",
+                "7"
+            ]
+        }
+    },
+    "curtain-22": {
+        "example": {
+            "scene_name": "yqstnuAEVhm_room12.json",
+            "query": "3",
+            "context_objects": [
+                "16",
+                "24",
+                "22",
+                "12"
+            ]
+        }
+    },
+    "lighting-23": {
+        "example": {
+            "scene_name": "pa4otMbVnkk_room6.json",
+            "query": "28",
+            "context_objects": [
+                "34",
+                "9"
+            ]
+        }
+    },
+    "shelving-24": {
+        "example": {
+            "scene_name": "pa4otMbVnkk_room10.json",
+            "query": "10",
+            "context_objects": [
+                "7",
+                "14",
+                "13",
+                "16"
+            ]
+        }
+    },
+    "chair-25": {
+        "example": {
+            "scene_name": "ARNzJeq3xxb_room12.json",
+            "query": "12",
+            "context_objects": [
+                "21",
+                "9",
+                "20"
+            ]
+        }
+    },
+    "cabinet-26": {
+        "example": {
+            "scene_name": "pa4otMbVnkk_room17.json",
+            "query": "29",
+            "context_objects": [
+                "23"
+            ]
+        }
+    },
+    "lighting-27": {
+        "example": {
+            "scene_name": "UwV83HsGsw3_room18.json",
+            "query": "26",
+            "context_objects": [
+                "4",
+                "19",
+                "31",
+                "21"
+            ]
+        }
+    },
+    "cabinet-28": {
+        "example": {
+            "scene_name": "pa4otMbVnkk_room19.json",
+            "query": "17",
+            "context_objects": [
+                "16",
+                "20"
+            ]
+        }
+    },
+    "table-29": {
+        "example": {
+            "scene_name": "pa4otMbVnkk_room7.json",
+            "query": "34",
+            "context_objects": [
+                "32",
+                "38",
+                "6"
+            ]
+        }
+    },
+    "table-30": {
+        "example": {
+            "scene_name": "WYY7iVyf5p8_room13.json",
+            "query": "7",
+            "context_objects": [
+                "13",
+                "32",
+                "29"
+            ]
+        }
+    },
+    "chair-31": {
+        "example": {
+            "scene_name": "UwV83HsGsw3_room20.json",
+            "query": "4",
+            "context_objects": [
+                "6",
+                "5"
+            ]
+        }
+    },
+    "picture-32": {
+        "example": {
+            "scene_name": "UwV83HsGsw3_room13.json",
+            "query": "2",
+            "context_objects": [
+                "15"
+            ]
+        }
+    },
+    "cushion-33": {
+        "example": {
+            "scene_name": "wc2JMjhGNzB_room0.json",
+            "query": "24",
+            "context_objects": [
+                "18",
+                "17",
+                "2",
+                "4"
+            ]
+        }
+    },
+    "plant-34": {
+        "example": {
+            "scene_name": "UwV83HsGsw3_room8.json",
+            "query": "12",
+            "context_objects": [
+                "14",
+                "28",
+                "27"
+            ]
+        }
+    },
+    "cushion-35": {
+        "example": {
+            "scene_name": "jtcxE69GiFV_room21.json",
+            "query": "3",
+            "context_objects": [
+                "4",
+                "5"
+            ]
+        }
+    },
+    "cabinet-36": {
+        "example": {
+            "scene_name": "jtcxE69GiFV_room36.json",
+            "query": "31",
+            "context_objects": [
+                "37"
+            ]
+        }
+    },
+    "lighting-37": {
+        "example": {
+            "scene_name": "YFuZgdQ5vWj_room2.json",
+            "query": "16",
+            "context_objects": [
+                "7",
+                "29",
+                "8"
+            ]
+        }
+    },
+    "chair-38": {
+        "example": {
+            "scene_name": "q9vSo1VnCiC_room12.json",
+            "query": "25",
+            "context_objects": [
+                "8",
+                "12"
+            ]
+        }
+    },
+    "picture-39": {
+        "example": {
+            "scene_name": "q9vSo1VnCiC_room18.json",
+            "query": "12",
+            "context_objects": [
+                "2"
+            ]
+        }
+    },
+    "plant-40": {
+        "example": {
+            "scene_name": "5ZKStnWn8Zo_room25.json",
+            "query": "22",
+            "context_objects": [
+                "21",
+                "14"
+            ]
+        }
+    },
+    "table-41": {
+        "example": {
+            "scene_name": "wc2JMjhGNzB_room3.json",
+            "query": "10",
+            "context_objects": [
+                "26",
+                "7",
+                "17"
+            ]
+        }
+    },
+    "shelving-42": {
+        "example": {
+            "scene_name": "jtcxE69GiFV_room2.json",
+            "query": "11",
+            "context_objects": [
+                "18",
+                "1",
+                "3",
+                "25"
+            ]
+        }
+    },
+    "table-43": {
+        "example": {
+            "scene_name": "YFuZgdQ5vWj_room14.json",
+            "query": "5",
+            "context_objects": [
+                "23",
+                "16",
+                "9"
+            ]
+        }
+    },
+    "shelving-44": {
+        "example": {
+            "scene_name": "jtcxE69GiFV_room18.json",
+            "query": "26",
+            "context_objects": [
+                "23",
+                "18",
+                "24",
+                "8"
+            ]
+        }
+    },
+    "chair-45": {
+        "example": {
+            "scene_name": "YFuZgdQ5vWj_room13.json",
+            "query": "36",
+            "context_objects": [
+                "34",
+                "18"
+            ]
+        }
+    },
+    "lighting-46": {
+        "example": {
+            "scene_name": "YFuZgdQ5vWj_room16.json",
+            "query": "8",
+            "context_objects": [
+                "16",
+                "14",
+                "7"
+            ]
+        }
+    },
+    "mirror-47": {
+        "example": {
+            "scene_name": "ARNzJeq3xxb_room1.json",
+            "query": "16",
+            "context_objects": [
+                "9",
+                "22"
+            ]
+        }
+    },
+    "curtain-48": {
+        "example": {
+            "scene_name": "RPmz2sHmrrY_room6.json",
+            "query": "9",
+            "context_objects": [
+                "22",
+                "2",
+                "21"
+            ]
+        }
+    },
+    "curtain-49": {
+        "example": {
+            "scene_name": "jtcxE69GiFV_room11.json",
+            "query": "5",
+            "context_objects": [
+                "32",
+                "16"
+            ]
+        }
+    }
+}
