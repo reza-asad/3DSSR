@@ -347,6 +347,20 @@ def apply_3dssr(args):
     for i, (query, query_info) in enumerate(query_dict.items()):
         t = time()
         print('Processing query: {}'.format(query))
+
+        # TODO: randomly rotate the query (consistent for all models.)
+        if args.rotate_query:
+            np.random.seed(i)
+            theta_q = np.random.choice([0, np.pi/4, np.pi/2, 3*np.pi/4, np.pi, 5*np.pi/4, 3*np.pi/2, 7*np.pi/4], 1)[0]
+            theta_q = int(theta_q * 180 / np.pi)
+            if theta_q == 0:
+                features_dir_queries = os.path.join(args.cp_dir, args.results_folder_name,
+                                                    args.features_dir_name_thresholding)
+            else:
+                features_dir_queries = os.path.join(args.cp_dir, args.results_folder_name,
+                                                    args.features_dir_name_thresholding + '_{}'.format(theta_q))
+            features_queries = torch.load(os.path.join(features_dir_queries, "{}feat.pth".format(args.mode)))
+
         # apply rotation module
         rotated_target_subscenes = []
         for j in range(num_thetas):

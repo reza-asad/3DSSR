@@ -17,13 +17,13 @@ def adjust_paths(args, exceptions):
 def get_args():
     parser = argparse.ArgumentParser('Extracting and Ranking 3D Subscenes', add_help=False)
 
-    parser.add_argument('--model_name', default='dino_50_full_config',
+    parser.add_argument('--model_name', default='csc_rot_query_config',
                         help='choose one from 3dssr_model_configs.json')
     parser.add_argument('--dataset', default='matterport3d')
     parser.add_argument('--mode', dest='mode', default='test', help='val or test')
-    parser.add_argument('--accepted_cats_path', default='../../data/{}/accepted_cats.json')
-    parser.add_argument('--metadata_path_queries', default='../../data/{}/metadata.csv')
-    parser.add_argument('--metadata_path', default='../../data/{}/metadata.csv')
+    parser.add_argument('--accepted_cats_path', default='../../data/{}/accepted_cats_top10.json')
+    parser.add_argument('--metadata_path_queries', default='../../data/{}/metadata_non_equal_full_top10.csv')
+    parser.add_argument('--metadata_path', default='../../data/{}/metadata_non_equal_full_top10.csv')
     parser.add_argument('--scene_dir_queries', default='../../results/{}/scenes')
     parser.add_argument('--scene_dir', default='../../results/{}/scenes')
     parser.add_argument('--query_dir', default='../../queries/{}/')
@@ -31,8 +31,9 @@ def get_args():
     parser.add_argument('--include_embedding_sim', action='store_true', default=True)
     parser.add_argument('--with_cat_predictions', action='store_true', default=False)
     parser.add_argument('--with_cluster_predictions', action='store_true', default=False)
-    parser.add_argument('--with_rotations', action='store_true', default=False)
-    parser.add_argument('--grid_res', type=float, default=0)
+    parser.add_argument('--with_rotations', action='store_true', default=True)
+    parser.add_argument('--rotate_query', action='store_true', default=True)
+    parser.add_argument('--grid_res', type=float, default=45)
     parser.add_argument('--iou_threshold', type=float, default=0)
     parser.add_argument('--k_max', type=int, default=15)
     parser.add_argument('--predicted_labels_file_name', default='predicted_labels.json', type=str)

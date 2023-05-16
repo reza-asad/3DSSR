@@ -29,6 +29,7 @@ class Evaluate:
         self.df_metadata = df_metadata
         self.fine_cat_field = fine_cat_field
         self.max_angle_diff = np.pi/2
+        self.theta_q = 0
 
     def map_obj_to_cat_fine(self, scene, scene_name):
         result = {}
@@ -158,7 +159,11 @@ class Evaluate:
         # sample prepare the pc for distance computation
         np.random.seed(0)
         sampled_indices = np.random.choice(range(len(pc1)), self.num_points, replace=False)
-        pc1 = np.expand_dims(pc1[sampled_indices, :], axis=0)
+        if self.theta_q != 0:
+            pc1 = self.rotate_pc(pc1[sampled_indices, :], self.theta_q)
+        else:
+            pc1 = pc1[sampled_indices, :]
+        pc1 = np.expand_dims(pc1, axis=0)
         pc1 = torch.from_numpy(pc1).cuda()
 
         # rotate the target pc if needed.
@@ -166,6 +171,8 @@ class Evaluate:
         sampled_indices = np.random.choice(range(len(pc2)), self.num_points, replace=False)
         if theta is not None:
             pc2 = self.rotate_pc(pc2[sampled_indices, :], theta)
+        else:
+            pc2 = pc2[sampled_indices, :]
         pc2 = np.expand_dims(pc2, axis=0)
         pc2 = torch.from_numpy(pc2).cuda()
 
@@ -482,6 +489,12 @@ def evaluate_subscene_retrieval(args):
         # initialize the mAP for each query
         for metric in metrics:
             results_info[metric] = {'mAP': []}
+
+        # TODO: randomly rotate the query (consistent for all models.)
+        if args.rotate_query:
+            np.random.seed(i)
+            theta_q = np.random.choice([0, np.pi/4, np.pi/2, 3*np.pi/4, np.pi, 5*np.pi/4, 3*np.pi/2, 7*np.pi/4], 1)[0]
+            evaluator.theta_q = theta_q
 
         for threshold in thresholds:
             experiment_id = args.experiment_name + '-' + str(np.round(threshold, 3))

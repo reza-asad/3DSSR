@@ -38,7 +38,7 @@ def plot_results(metrics, model_name_exp_map, summary_results, mode, name, same_
             # compute the area under the curve if necessary
             auc_dic[metric][display_name] = np.round(auc(x, y), 2)
 
-        # plt.grid()
+        plt.grid()
         # plt.savefig('../results/matterport3d/evaluation_plots/{}_{}_{}.png'.format(mode, metric, name))
         # plt.show()
 
@@ -106,20 +106,24 @@ def main():
         #     ('PointTransformerSeg', 'CSC_point_transformer_with_boxes_large_nms'): 'CSCRankV2'
         # }
         # For cd + distance + angle + cat + IoU with rotation
-        # model_name_exp_map = {
-            # ('LearningBased', '3D_DINO_point_transformer'): 'PointCropRank',
+        model_name_exp_map = {
+            ('LearningBased', '3D_DINO_point_transformer'): 'PointCropRank',
             # ('LearningBased', '3D_DINO_point_transformer_with_rotation'): 'PointCropRankRot',
-            # ('LearningBased', 'supervised_point_transformer'): 'TransformerRank',
+            ('LearningBased', '3D_DINO_point_transformer_with_rotation_query'): 'PointCropRankRotQuery',
+            ('LearningBased', 'supervised_point_transformer'): 'TransformerRank',
             # ('LearningBased', 'supervised_point_transformer_with_rotation'): 'TransformerRankRot',
-            # ('PointTransformerSeg', 'CSC_point_transformer'): 'CSCRank',
+            ('LearningBased', 'supervised_point_transformer_with_rotation_query'): 'TransformerRankRotQuery',
+            ('PointTransformerSeg', 'CSC_point_transformer'): 'CSCRank',
             # ('PointTransformerSeg', 'CSC_point_transformer_with_rotation'): 'CSCRankRot',
-            # ('OracleRank', 'OracleRank'): 'OracleCatRank[+IoU]',
+            ('PointTransformerSeg', 'CSC_point_transformer_with_rotation_query'): 'CSCRankRotQuery',
+            ('OracleRank', 'OracleRank'): 'OracleCatRank[+IoU]',
             # ('OracleRank', 'OracleRankRot'): 'OracleCatRankRot[+IoU]',
+            ('OracleRank', 'OracleRankRotQuery'): 'OracleCatRankRotQuery[+IoU]',
             # ('GKRank', 'GKRank'): 'OracleGKRank',
             # ('CatRank', 'CatRank'): 'OracleCatRank',
             # ('RandomRank', 'RandomRank'): 'RandomRank',
-        #     ('PointTransformerSeg', 'CSC_point_transformer_with_boxes_large_nms'): 'CSCRankV2'
-        # }
+            # ('PointTransformerSeg', 'CSC_point_transformer_with_boxes_large_nms'): 'CSCRankV2'
+        }
         # For cd + distance + angle including scannet training
         # model_name_exp_map = {
         #     ('LearningBased', '3D_DINO_point_transformer_scannet'): 'PointCropRank',
@@ -139,20 +143,20 @@ def main():
         #     ('RandomRank', 'RandomRank'): 'RandomRank',
         # }
         # For cd + IoU full classes
-        model_name_exp_map = {
-            ('LearningBased', '3D_DINO_point_transformer_full'): 'PointCropRank',
-            ('LearningBased', '3D_DINO_point_transformer_50_full'): 'PointCropRank50',
+        # model_name_exp_map = {
+            # ('LearningBased', '3D_DINO_point_transformer_full'): 'PointCropRank',
+            # ('LearningBased', '3D_DINO_point_transformer_50_full'): 'PointCropRank50',
             # ('LearningBased', '3D_DINO_point_transformer_with_boxes_large_nms_full'): 'PointCropRankV2',
-            ('LearningBased', 'supervised_point_transformer_full'): 'TransformerRank',
+            # ('LearningBased', 'supervised_point_transformer_full'): 'TransformerRank',
             # ('LearningBased', 'supervised_point_transformer_with_boxes_large_nms_full'): 'TransformerRankV2',
-            ('PointTransformerSeg', 'CSC_point_transformer_full'): 'CSCRank',
-            ('OracleRank', 'OracleRankFull'): 'OracleCatRank[+IoU]',
+            # ('PointTransformerSeg', 'CSC_point_transformer_full'): 'CSCRank',
+            # ('OracleRank', 'OracleRankFull'): 'OracleCatRank[+IoU]',
             # ('CatRank', 'CatRank_with_boxes_full'): 'CatRankV2[+IoU]',
-            ('GKRank', 'GKRankFull'): 'OracleGKRank',
-            ('CatRank', 'CatRankFull'): 'OracleCatRank',
-            ('RandomRank', 'RandomRankFull'): 'RandomRank',
+            # ('GKRank', 'GKRankFull'): 'OracleGKRank',
+            # ('CatRank', 'CatRankFull'): 'OracleCatRank',
+            # ('RandomRank', 'RandomRankFull'): 'RandomRank',
             # ('PointTransformerSeg', 'CSC_point_transformer_with_boxes_large_nms_full'): 'CSCRankV2'
-        }
+        # }
         # For cat + cd + IoU
         # model_name_exp_map = {
         #     ('LearningBased', '3D_DINO_point_transformer'): 'PointCropRank',
@@ -192,7 +196,7 @@ def main():
     metrics = ['distance_angle_cat_cd_mAP_bi_5', 'distance_angle_cat_cd_mAP_bi_10', 'distance_angle_cat_cd_mAP_bi_20', 'distance_angle_cat_cd_mAP_bi_40']
 
     # plot the quantiative results
-    plot_results(metrics, model_name_exp_map, summary_results, args.mode, '1st_epoch_same_scale',
+    plot_results(metrics, model_name_exp_map, summary_results, args.mode, '1st_epoch_same_scale_rot_query',
                  same_scale=True, title=None)
 
 

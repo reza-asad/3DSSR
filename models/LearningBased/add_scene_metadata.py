@@ -165,12 +165,12 @@ def get_args():
     parser.add_argument('--dataset', default='matterport3d')
     parser.add_argument('--data_root', default='../../data/{}/')
     parser.add_argument('--results_dir', default='../../results/{}')
-    parser.add_argument('--accepted_cats_path', default='../../data/{}/accepted_cats.json')
+    parser.add_argument('--accepted_cats_path', default='../../data/{}/accepted_cats_top10.json')
     parser.add_argument('--metadata_path', dest='metadata_path', default='../../data/{}/metadata_predicted_nms.csv')
     parser.add_argument('--scene_dir_gt', default='scenes')
     parser.add_argument('--scene_dir_in', default='scenes_predicted_nms_raw')
     parser.add_argument('--scene_dir_output', default='scenes')
-    parser.add_argument('--pc_dir', default='../../data/{}/pc_objects')
+    parser.add_argument('--pc_dir', default='../../data/{}/pc_regions')
     parser.add_argument('--room_dir', default='/media/reza/Large/{}/rooms')
     parser.add_argument('--predicted_boxes_path', default='predicted_boxes_large.npy')
     parser.add_argument('--add_gt_aabb', action='store_true', default=True)
@@ -201,7 +201,7 @@ def main():
     args.predicted_boxes_path = os.path.join(args.results_dir, args.predicted_boxes_path)
 
     # make sure the output directory exists.
-    modes = ['train', 'val']
+    modes = ['train', 'val', 'test']
     for mode in modes:
         if not os.path.exists(os.path.join(args.scene_dir_output, mode)):
             os.makedirs(os.path.join(args.scene_dir_output, mode))

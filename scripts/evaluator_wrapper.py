@@ -17,7 +17,8 @@ def adjust_paths(args, exceptions):
 
 def get_args():
     parser = argparse.ArgumentParser('Evaluating 3D Subscene Retrieval', add_help=False)
-    parser.add_argument('--model_names', default=['dino_50_full_config'],
+    parser.add_argument('--model_names', default=['dino_rot_query_config', 'sup_pt_rot_query_config',
+                                                  'csc_rot_query_config', 'oracle_rot_query_config'],
                         type=str, nargs='+', help='choose one from 3dssr_model_configs.json')
     parser.add_argument('--cat_threshold', default=None, help='Threshold for categorizing the predicted boxes or None.')
     parser.add_argument('--bidirectional', action='store_true', default=True,
@@ -28,6 +29,7 @@ def get_args():
     parser.add_argument('--scene_dir', default='../results/{}/scenes',
                         help='scenes_top10 | predicted_boxes_large/scenes_predicted_nms_final')
     parser.add_argument('--query_input_file_name', default='query_dict_top10.json')
+    parser.add_argument('--rotate_query', action='store_true', default=True)
     parser.add_argument('--pc_dir_queries', default='../data/{}/pc_regions')
     parser.add_argument('--pc_dir', default='../data/{}/pc_regions',
                         help='pc_regions | pc_regions_predicted_nms')
@@ -39,7 +41,7 @@ def get_args():
                         help='If True the evaluation results are stored in the ablation folder.')
     parser.add_argument('--topk', default=10, type=int, help='number of top results for mAP computations.')
     parser.add_argument('--model_config_filename', default='3dssr_model_configs.json')
-    parser.add_argument('--metadata_path', default='../data/{}/metadata.csv')
+    parser.add_argument('--metadata_path', default='../data/{}/metadata_non_equal_full_top10.csv')
     parser.add_argument('--fine_cat_field', default=None, help='wnsynsetkey | raw_category.')
 
     return parser

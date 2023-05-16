@@ -75,7 +75,7 @@ def find_topk_target_nodes(args, query_number, query_scene_name, target_scene_na
 
 
 def find_best_correspondence(args, query_number, query_scene, target_scene_name, target_scene, query_node, target_node,
-                             context_objects, q_boxes, t_boxes, theta):
+                             context_objects, q_boxes, t_boxes, theta, theta_q):
     # read the box for the query object and find the translation that brings it to the origin.
     q_box = q_boxes[query_node]
     q_translation = -q_box.translation
@@ -90,6 +90,13 @@ def find_best_correspondence(args, query_number, query_scene, target_scene_name,
                            [np.sin(theta), np.cos(theta), 0],
                            [0, 0, 1]])
     transformation[:3, :3] = rotation
+
+    # compute the rotation matrix for query.
+    transformation_q = np.eye(4)
+    rotation_q = np.asarray([[np.cos(theta_q), -np.sin(theta_q), 0],
+                             [np.sin(theta_q), np.cos(theta_q), 0],
+                             [0, 0, 1]])
+    transformation_q[:3, :3] = rotation_q
 
     # for each context object find the best candidate in the target object.
     correspondence = {}
@@ -128,8 +135,11 @@ def find_best_correspondence(args, query_number, query_scene, target_scene_name,
             # rotate the candidate object.
             t_c_box_translated_rotated = t_c_box_translated.apply_transformation(transformation)
 
+            # rotate the query box if needed.
+            q_c_box_translated_rotated = q_c_box_translated.apply_transformation(transformation_q)
+
             # compute the IoU between the context and candidate objects.
-            iou = compute_iou(t_c_box_translated_rotated, q_c_box_translated)
+            iou = compute_iou(t_c_box_translated_rotated, q_c_box_translated_rotated)
             if iou > args.iou_threshold:
                 best_candidate = candidate
                 break
@@ -143,7 +153,7 @@ def find_best_correspondence(args, query_number, query_scene, target_scene_name,
     return target_subscene
 
 
-def find_best_target_subscenes(args, query_number, query_info, target_scene_names, theta):
+def find_best_target_subscenes(args, query_number, query_info, target_scene_names, theta, theta_q):
     # load the query info
     query_scene_name = query_info['example']['scene_name']
     query_node = query_info['example']['query']
@@ -166,7 +176,8 @@ def find_best_target_subscenes(args, query_number, query_info, target_scene_name
         t_boxes = load_boxes(target_scene, target_scene.keys(), box_type='aabb')
         for target_node in target_scene_to_nodes[target_scene_name]:
             target_subscene = find_best_correspondence(args, query_number, query_scene, target_scene_name, target_scene,
-                                                       query_node, target_node, context_objects, q_boxes, t_boxes, theta)
+                                                       query_node, target_node, context_objects, q_boxes, t_boxes,
+                                                       theta, theta_q)
             target_subscenes.append(target_subscene)
 
     # rank the target object based on the highest number of correspondences and overall IoU.
@@ -192,8 +203,9 @@ def get_args():
     parser.add_argument('--include_cat', action='store_true', default=True)
     parser.add_argument('--include_iou', action='store_true', default=True)
     parser.add_argument('--with_rotations', action='store_true', default=True)
+    parser.add_argument('--rotate_query', action='store_true', default=True)
     parser.add_argument('--results_folder_name',  default='OracleRank')
-    parser.add_argument('--experiment_name', default='OracleRankRot')
+    parser.add_argument('--experiment_name', default='OracleRankRotQuery')
 
     return parser
 
@@ -249,11 +261,17 @@ def main():
         np.random.seed(i)
         np.random.shuffle(target_scene_names)
 
+        # TODO: randomly rotate the query (consistent for all models.)
+        theta_q = 0
+        if args.rotate_query:
+            np.random.seed(i)
+            theta_q = np.random.choice([0, np.pi/4, np.pi/2, 3*np.pi/4, np.pi, 5*np.pi/4, 3*np.pi/2, 7*np.pi/4], 1)[0]
+
         # apply rotation module
         rotated_target_subscenes = []
         for j in range(num_thetas):
             curr_theta = j * grid_res
-            target_subscenes = find_best_target_subscenes(args, i, query_info, target_scene_names, curr_theta)
+            target_subscenes = find_best_target_subscenes(args, i, query_info, target_scene_names, curr_theta, theta_q)
             rotated_target_subscenes += target_subscenes
 
         # choose the best among all possible rotations of the scenes.
