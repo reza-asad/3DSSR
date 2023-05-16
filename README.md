@@ -14,7 +14,7 @@ export PYTHONPATH="${PYTHONPATH}:/path/to/the/repository"
 ```
 
 ## Preparing Matterport3D
-1. Dowload the dataset from [here][1] and place it in this directory:
+1. Dowload the dataset and place it in this directory:
     ```
     3DSSR/data/matterport3d/rooms
     ```
@@ -29,10 +29,13 @@ export PYTHONPATH="${PYTHONPATH}:/path/to/the/repository"
     parallel -j5 "python3 -u build_scenes_matterport.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: build_scenes
     python3 -u build_scenes_matterport.py split_train_test_val
     ```
-4. Extract 3D pointclouds from the objects. The pointclouds are later fed into [3D Point Capsule Networks][2] and the latent capsules are used for category prediction. This step can be skipped if you plan to use the latent capsules trained by us.
+4. Extract 3D object-centric mesh regions.
     ```
-    parallel -j5 "python3 -u extract_point_clouds.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: extract_pc
-    python3 extract_point_clouds.py split_train_test_val
+    parallel -j5 "python3 -u extract_regions.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: extract
+    ```
+5. Sample point cloud from the extracted 3D mesh regions.
+    ```
+    parallel -j5 "python3 -u extract_point_clouds.py --mode {1} --seed {2} --num_chunks {3} --chunk_idx {4}" ::: test ::: 0 ::: 5 ::: 0 1 2 3 4
     ```
 
 ## PointCropRank
@@ -46,7 +49,5 @@ To train PointCrop from scratch follow the steps below:
     The trained models will be saved in ```results/matterport3d/LearningBased/lstm_alignment```.
 
 
-[1]: https://github.com/reza-asad/3DSSR
-[2]: https://github.com/yongheng1991/3D-point-capsule-networks
 [RA]: https://reza-asad.github.io/
 [MS]: https://msavva.github.io/
