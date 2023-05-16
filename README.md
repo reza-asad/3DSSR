@@ -35,27 +35,8 @@ export PYTHONPATH="${PYTHONPATH}:/path/to/the/repository"
     python3 extract_point_clouds.py split_train_test_val
     ```
 
-## AlignRank and AlignRankOracle
-### Scene Graph Construction
-First step is to construct the scene graphs:
-```
-parallel -j5 "python3 -u build_scene_graphs_matterport.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: build_scenes
-python3 build_scene_graphs_matterport.py split_train_test_val
-```
-### Test
-To run the pretrained models for AlignRankOracle:
-```
-cd models/LearningBased
-python3 run_AlignRank.py --experiment_name AlignRankOracle --with_cat_predictions False
-```
-To run the pretrained models for AlignRank:
-```
-cd models/LearningBased
-python3 run_gnn_cat_predictions.py
-python3 run_AlignRank.py --experiment_name AlignRank
-```
-### Train
-To train AlignRank and AlignRankOracle from scratch follow the steps below:
+## PointCropRank
+To train PointCrop from scratch follow the steps below:
 
 1. To train the Alignment module run:
     ```
@@ -63,19 +44,6 @@ To train AlignRank and AlignRankOracle from scratch follow the steps below:
     python3 train_AlignmentModule.py 
     ```
     The trained models will be saved in ```results/matterport3d/LearningBased/lstm_alignment```.
-
-2. Download the trained latent capsules from [here][1] and place them in this directory:
-    ```
-    3DSSR/data/matterport3d/latent_caps
-    ```
-    or train a [3D Point Capsule Network][2] on the pointclouds extracted in step 3 of data prepration.
- 
-3. Train GNN for object category prediction (this step can be skipped for AlignRankOracle)
-    ```
-    cd models/LearningBased
-    python3 train_gnn.py
-    ```
-4. Run the commands that assume pretrained models (described in the **Test** subsection).
 
 
 [1]: https://github.com/reza-asad/3DSSR
