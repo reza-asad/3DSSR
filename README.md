@@ -1,39 +1,9 @@
 # 3DSSR
-
-<!-- **[Project][1]**   -->
+TODO: Link to paper
 [Reza Asad][RA], [Manolis Savva][MS]
 
 <img src="https://github.com/reza-asad/3DSSR/blob/master/figures/3DSSROverview.png"/>
 
-<!-- <table width="500" border="0" cellpadding="5">
-<tr>
-
-<td align="center" valign="center">
-<img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/query_top_view.gif" />
-<br />
-<br />
-Query Subscene (bed*, chest-of-drawers, chair, lighting)
-</td>
-
-
-<td align="center" valign="center">
-<img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/rank1_alignment_colored.gif" />
-<br />
-<br />
-Aligning Rank 1 Target Scene
-</td>
-</tr>
- 
-<td align="center" valign="center">
-<img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/rank1_final.gif" />
-<br />
-<br />
-Rank 1 Target Subscene
-</td>
-</tr>
-
-</table>
-  -->
 ## Dependencies and Python Enviroment
 ```
 python3 -m venv env
