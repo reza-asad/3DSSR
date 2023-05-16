@@ -3,7 +3,7 @@
 **[Project][1]**  
 [Reza Asad][RA], [Manolis Savva][MS]
 
-<table width="500" border="0" cellpadding="5">
+<!-- <table width="500" border="0" cellpadding="5">
 <tr>
 
 <td align="center" valign="center">
@@ -31,7 +31,7 @@ Rank 1 Target Subscene
 </tr>
 
 </table>
- 
+  -->
 ## Dependencies and Python Enviroment
 ```
 python3 -m venv env
