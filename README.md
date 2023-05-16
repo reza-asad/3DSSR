@@ -1,6 +1,6 @@
-# Project
+# 3DSSR
 
-**[Project][1]**  
+<!-- **[Project][1]**   -->
 [Reza Asad][RA], [Manolis Savva][MS]
 
 <img src="https://github.com/reza-asad/3DSSR/blob/master/figures/3DSSROverview.png"/>
