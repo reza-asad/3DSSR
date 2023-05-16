@@ -44,7 +44,7 @@ def main():
     for i, crop_folder in enumerate(crop_folders):
         pc_dir = os.path.join(args.pc_dir, crop_folder)
         # render the results in parallel
-        command = 'python -m torch.distributed.launch --nproc_per_node=1 extract_point_transformer_features2.py ' \
+        command = 'python -m torch.distributed.launch --nproc_per_node=1 extract_point_transformer_features_v2.py ' \
                   '--dataset {dataset} --mode {mode} --accepted_cats_path {accepted_cats_path} ' \
                   '--metadata_path {metadata_path} --pc_dir {pc_dir} --features_dir_name {features_dir_name} ' \
                   '--classifier_type {classifier_type} --results_folder_name {results_folder_name} ' \
