@@ -4,6 +4,7 @@
 [Reza Asad][RA], [Manolis Savva][MS]
 
 <img src="https://github.com/reza-asad/reza-asad.github.io/blob/master/_publications/3DSSROverview.pdf" />
+![alt text](https://github.com/reza-asad/3DSSR/blob/master/figures/3DSSROverview.pdf?raw=true)
 
 <!-- <table width="500" border="0" cellpadding="5">
 <tr>
