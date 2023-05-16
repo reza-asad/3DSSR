@@ -1,0 +1,151 @@
+Iteration 1/50
+Processing query: toilet-0
+Processing the query took 0.01 minutes
+Iteration 2/50
+Processing query: sofa-1
+Processing the query took 0.02 minutes
+Iteration 3/50
+Processing query: chair-2
+Processing the query took 0.34 minutes
+Iteration 4/50
+Processing query: tv_monitor-3
+Processing the query took 0.02 minutes
+Iteration 5/50
+Processing query: bathtub-4
+Processing the query took 0.01 minutes
+Iteration 6/50
+Processing query: cushion-5
+Processing the query took 0.12 minutes
+Iteration 7/50
+Processing query: plant-6
+Processing the query took 0.04 minutes
+Iteration 8/50
+Processing query: towel-7
+Processing the query took 0.01 minutes
+Iteration 9/50
+Processing query: plant-8
+Processing the query took 0.04 minutes
+Iteration 10/50
+Processing query: table-9
+Processing the query took 0.13 minutes
+Iteration 11/50
+Processing query: lighting-10
+Processing the query took 0.15 minutes
+Iteration 12/50
+Processing query: shelving-11
+Processing the query took 0.02 minutes
+Iteration 13/50
+Processing query: curtain-12
+Processing the query took 0.03 minutes
+Iteration 14/50
+Processing query: chair-13
+Processing the query took 0.37 minutes
+Iteration 15/50
+Processing query: chair-14
+Processing the query took 0.2 minutes
+Iteration 16/50
+Processing query: chair-15
+Processing the query took 0.16 minutes
+Iteration 17/50
+Processing query: chair-16
+Processing the query took 1.64 minutes
+Iteration 18/50
+Processing query: table-17
+Processing the query took 0.04 minutes
+Iteration 19/50
+Processing query: table-18
+Processing the query took 0.03 minutes
+Iteration 20/50
+Processing query: table-19
+Processing the query took 0.07 minutes
+Iteration 21/50
+Processing query: table-20
+Processing the query took 1.43 minutes
+Iteration 22/50
+Processing query: chest_of_drawers-21
+Processing the query took 0.02 minutes
+Iteration 23/50
+Processing query: chest_of_drawers-22
+Processing the query took 0.01 minutes
+Iteration 24/50
+Processing query: chest_of_drawers-23
+Processing the query took 0.03 minutes
+Iteration 25/50
+Processing query: chest_of_drawers-24
+Processing the query took 0.08 minutes
+Iteration 26/50
+Processing query: chest_of_drawers-25
+Processing the query took 0.06 minutes
+Iteration 27/50
+Processing query: sofa-26
+Processing the query took 0.02 minutes
+Iteration 28/50
+Processing query: sofa-27
+Processing the query took 0.02 minutes
+Iteration 29/50
+Processing query: sofa-28
+Processing the query took 0.02 minutes
+Iteration 30/50
+Processing query: sofa-29
+Processing the query took 0.01 minutes
+Iteration 31/50
+Processing query: lighting-30
+Processing the query took 0.05 minutes
+Iteration 32/50
+Processing query: lighting-31
+Processing the query took 0.07 minutes
+Iteration 33/50
+Processing query: bed-32
+Processing the query took 0.02 minutes
+Iteration 34/50
+Processing query: bed-33
+Processing the query took 0.03 minutes
+Iteration 35/50
+Processing query: cushion-34
+Processing the query took 0.13 minutes
+Iteration 36/50
+Processing query: cushion-35
+Processing the query took 5.4 minutes
+Iteration 37/50
+Processing query: objects-36
+Processing the query took 0.18 minutes
+Iteration 38/50
+Processing query: objects-37
+Processing the query took 0.47 minutes
+Iteration 39/50
+Processing query: objects-38
+Processing the query took 0.23 minutes
+Iteration 40/50
+Processing query: picture-39
+Processing the query took 0.26 minutes
+Iteration 41/50
+Processing query: picture-40
+Processing the query took 0.16 minutes
+Iteration 42/50
+Processing query: picture-41
+Processing the query took 0.07 minutes
+Iteration 43/50
+Processing query: picture-42
+Processing the query took 0.09 minutes
+Iteration 44/50
+Processing query: picture-43
+Processing the query took 0.02 minutes
+Iteration 45/50
+Processing query: bathtub-44
+Processing the query took 0.01 minutes
+Iteration 46/50
+Processing query: tv_monitor-45
+Processing the query took 0.01 minutes
+Iteration 47/50
+Processing query: chair-46
+Processing the query took 0.14 minutes
+Iteration 48/50
+Processing query: gym_equipment-47
+Processing the query took 0.01 minutes
+Iteration 49/50
+Processing query: mirror-48
+Processing the query took 0.02 minutes
+Iteration 50/50
+Processing query: cabinet-49
+Processing the query took 0.58 minutes
+Processing all queries too 13.07 minutes
