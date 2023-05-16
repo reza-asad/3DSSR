@@ -95,7 +95,6 @@ def process_meshes(models_dir, voxel_dir, model_names):
 
 
 def main(num_chunks, chunk_idx, action='derive_zernike_features'):
-    models_dir = os.path.join(data_dir, 'models')
     accepted_cats = load_from_json(os.path.join(data_dir, 'accepted_cats.json'))
     metadata_path = os.path.join(data_dir, 'metadata.csv')
 
@@ -105,6 +104,9 @@ def main(num_chunks, chunk_idx, action='derive_zernike_features'):
     df_metadata = df_metadata.loc[is_accepted]
 
     if action == 'derive_zernike_features':
+        # filter the metadata to the mode
+        df_metadata = df_metadata[df_metadata['split'] == mode]
+
         # filter models to only include accepted cats.
         model_names = df_metadata[['room_name', 'objectId']].apply(lambda x: '-'.join([x['room_name'],
                                                                                        str(x['objectId'])]) + '.ply', axis=1)
@@ -115,17 +117,20 @@ def main(num_chunks, chunk_idx, action='derive_zernike_features'):
     if action == 'find_nth_closest_model':
         nth_closest_dict = nth_closest_descriptor(voxel_dir, subset_size=1000, df_metadata=df_metadata, n=100)
         # save the nth_closest dict
-        write_to_json(nth_closest_dict, os.path.join(data_dir, 'nth_closest_obj.json'))
+        write_to_json(nth_closest_dict, os.path.join(results_dir, 'nth_closest_obj.json'))
 
-        data = load_from_json(os.path.join(data_dir, 'nth_closest_obj.json'))
+        data = load_from_json(os.path.join(results_dir, 'nth_closest_obj.json'))
         for k, v in data.items():
             if pd.isna(v[1]):
                 print(k, v)
 
 
 if __name__ == '__main__':
+    mode = 'train'
     data_dir = '../../data/matterport3d'
-    voxel_dir = os.path.join(data_dir, 'voxels')
+    results_dir = '../../results/matterport3d/GKRank'
+    models_dir = os.path.join(data_dir, 'mesh_regions', mode)
+    voxel_dir = os.path.join(results_dir, 'voxels')
     if not os.path.exists(voxel_dir):
         try:
             os.mkdir(voxel_dir)

@@ -1,0 +1,309 @@
+import os
+import numpy as np
+import pandas as pd
+import torch
+import shutil
+from chamferdist import ChamferDistance
+
+from scripts.helper import load_from_json, write_to_json
+from scripts.box import Box
+from scripts.iou import IoU
+
+
+class Evaluate:
+    def __init__(self, pc_dir, query_results, evaluation_path, scene_dir, curr_df, mode, cd_sim, num_points):
+        self.pc_dir = pc_dir
+        self.query_results = query_results
+        self.evaluation_path = evaluation_path
+        self.scene_dir = scene_dir
+        self.curr_df = curr_df
+        self.mode = mode
+        self.cd_sim = cd_sim
+        self.num_points = num_points
+        self.metric = []
+
+    @staticmethod
+    def map_obj_to_cat(scene):
+        result = {}
+        for obj, obj_info in scene.items():
+            result[obj] = obj_info['category'][0]
+        return result
+
+    @staticmethod
+    def translate_obbox(obbox, translation):
+        # build the transformation matrix
+        transformation = np.eye(4)
+        transformation[:3, 3] = translation
+
+        # apply tranlsation to the obbox
+        obbox = obbox.apply_transformation(transformation)
+
+        return obbox
+
+    @staticmethod
+    def compute_iou(obbox1, obbox2):
+        # compute the iou
+        iou_computer = IoU(obbox1, obbox2)
+        iou = iou_computer.iou()
+
+        return iou
+
+    def create_obb_at_origin(self, scene, obj, box_type):
+        obbox_vertices = np.asarray(scene[obj][box_type])
+        obbox = Box(obbox_vertices)
+        obj_translation = -obbox.translation
+        obbox = self.translate_obbox(obbox, obj_translation)
+
+        return obbox, obj_translation
+
+    def sim_shape(self, query_scene_name, query_object, target_scene_name, target_object, obj_to_cat_query,
+                  obj_to_cat_target):
+        if 'cat' in self.metric[0]:
+            return obj_to_cat_query[query_object] == obj_to_cat_target[target_object]
+
+        # creat the path for each pc
+        q_file_name = os.path.join(self.pc_dir, '-'.join([query_scene_name.split('.')[0], query_object]) + '.npy')
+        t_file_name = os.path.join(self.pc_dir, '-'.join([target_scene_name.split('.')[0], target_object]) + '.npy')
+
+        # load the pc for the query and target obj
+        pc1 = np.load(q_file_name)
+        pc2 = np.load(t_file_name)
+
+        # sample prepare the pc for distance computation
+        np.random.seed(0)
+        sampled_indices = np.random.choice(range(len(pc1)), self.num_points, replace=False)
+        pc1 = np.expand_dims(pc1[sampled_indices, :], axis=0)
+        pc1 = torch.from_numpy(pc1).cuda()
+        np.random.seed(0)
+        sampled_indices = np.random.choice(range(len(pc2)), self.num_points, replace=False)
+        pc2 = np.expand_dims(pc2[sampled_indices, :], axis=0)
+        pc2 = torch.from_numpy(pc2).cuda()
+
+        # compute the chamfer distance similarity between query and target obj
+        chamferDist = ChamferDistance()
+        dist_forward = chamferDist(pc1, pc2)
+        dist = dist_forward.detach().cpu().item()
+
+        # see if the distance is within the threshold
+        threshold = self.metric[0].split('_')[-1]
+        q_cat = obj_to_cat_query[query_object]
+
+        return dist <= self.cd_sim[q_cat][threshold]
+
+    def compute_overlap_match(self, query_scene_name, query_scene, query_object, context_objects, target_subscene):
+        # load the target scene
+        target_scene = load_from_json(os.path.join(self.scene_dir, self.mode, target_subscene['scene_name']))
+        target_object = target_subscene['target']
+
+        # map each object in the query and target scenes to their cat
+        obj_to_cat_query = self.map_obj_to_cat(query_scene)
+        obj_to_cat_target = self.map_obj_to_cat(target_scene)
+
+        # create a obbox object for the query object and translate it to the origin
+        obbox_query, q_translation = self.create_obb_at_origin(query_scene, query_object, box_type='aabb')
+
+        # create the obbox for the target object and translate it to the origin
+        obbox_target, t_translation = self.create_obb_at_origin(target_scene, target_object, box_type='aabb')
+
+        # compute the iou between the query and target objects if their category match
+        num_matches = 0
+        if self.sim_shape(query_scene_name, query_object, target_subscene['scene_name'], target_object,
+                          obj_to_cat_query, obj_to_cat_target):
+            q_t_iou = self.compute_iou(obbox_target, obbox_query)
+            if q_t_iou > self.metric[2]:
+                num_matches += 1
+        else:
+            return 0
+
+        # for each candidate object in the query scene, examine its corresponding context object in the query scene.
+        # a match is detected if the IoU between the translated candidate and context objects are within a threshold.
+        # the translation is dictated by the query scene and is the vector connecting the context object to query.
+        for candidate, context_object in target_subscene['correspondence'].items():
+            # if the candidate and context objects have different categories, no match is counted.
+            if not self.sim_shape(query_scene_name, context_object, target_subscene['scene_name'], candidate,
+                                  obj_to_cat_query, obj_to_cat_target):
+                continue
+
+            # create a obbox object for the context object and translated it according to the query object
+            q_context_obbox_vertices = np.asarray(query_scene[context_object]['aabb'])
+            q_c_obbox = Box(q_context_obbox_vertices)
+            q_c_obbox = self.translate_obbox(q_c_obbox, q_translation)
+
+            # create a obbox object for the candidate and translated it according to the target object
+            t_context_obbox_vertices = np.asarray(target_scene[candidate]['aabb'])
+            t_c_obbox = Box(t_context_obbox_vertices)
+            t_c_obbox = self.translate_obbox(t_c_obbox, t_translation)
+
+            # compute the IoU between the candidate and context obboxes.
+            iou = self.compute_iou(t_c_obbox, q_c_obbox)
+
+            # compute the threshold relative to the overlap between the query and context object
+            if iou > self.metric[2]:
+                num_matches += 1.0
+
+        return num_matches / (len(context_objects) + 1)
+
+    def compute_precision_at(self, query_scene, query_scene_name, query_object, context_objects, target_subscenes,
+                             top, computed_precisions):
+        accuracies = []
+        for i in range(top):
+            # the case where there are no longer results
+            if i >= len(target_subscenes):
+                acc = 0
+            else:
+                target_subscene_name = target_subscenes[i]['scene_name']
+                target_object = target_subscenes[i]['target']
+
+                # read the accuracy if you have computed it before.
+                key = '-'.join([query_scene_name, query_object, target_subscene_name, target_object])
+                if key in computed_precisions:
+                    acc = computed_precisions[key]
+                else:
+                    acc = self.metric[1](query_scene_name, query_scene, query_object, context_objects,
+                                         target_subscenes[i])
+                    computed_precisions[key] = acc
+
+            accuracies.append(acc)
+        return np.mean(accuracies)
+
+    def compute_mAP(self, query_name, model_name, experiment_id, topk=10):
+        # load the query subscene and find the query and context objects
+        query_scene_name = self.query_results[query_name]['example']['scene_name']
+        query_scene = load_from_json(os.path.join(self.scene_dir, self.mode, query_scene_name))
+        query_object = self.query_results[query_name]['example']['query']
+        context_objects = self.query_results[query_name]['example']['context_objects']
+
+        metric_name = self.metric[0]
+        if len(context_objects) == 0:
+            mAP = 1
+            print('No context objects in the query, hence the mAP is trivially 1')
+        else:
+            # load the target subscenes up to topk
+            target_subscenes = self.query_results[query_name]['target_subscenes'][:topk]
+
+            # memorize the precisions that you already computed in a dict
+            computed_precisions = {}
+            precision_at = {i: 0 for i in range(1, topk+1)}
+            for top in precision_at.keys():
+                precision_at[top] = self.compute_precision_at(query_scene, query_scene_name, query_object,
+                                                              context_objects, target_subscenes, top,
+                                                              computed_precisions)
+            # compute and record the mAP
+            mAP = np.mean(list(precision_at.values()))
+            threshold = np.round(self.metric[2], 3)
+            self.query_results[query_name][metric_name]['mAP'].append((threshold, float(np.round(mAP * 100, 2))))
+
+        query_model = (self.curr_df['query_name'] == query_name) & \
+                      (self.curr_df['model_name'] == model_name) & \
+                      (self.curr_df['experiment_id'] == experiment_id)
+        self.curr_df.loc[query_model, metric_name] = mAP
+
+    def add_to_tabular(self, model_name, query_name, experiment_id):
+        # check if the row of data already exists
+        query_model = (self.curr_df['query_name'] == query_name) & \
+                      (self.curr_df['model_name'] == model_name) & \
+                      (self.curr_df['experiment_id'] == experiment_id)
+
+        metric_name = self.metric[0]
+        if len(self.curr_df.loc[query_model, metric_name]) == 0:
+            new_df = pd.DataFrame()
+            new_df['model_name'] = [model_name]
+            new_df['query_name'] = [query_name]
+            new_df['experiment_id'] = [experiment_id]
+
+            # update the dataframe that this evaluation represents.
+            self.curr_df = pd.concat([self.curr_df, new_df])
+
+    def to_tabular(self):
+        self.curr_df.to_csv(self.evaluation_path, index=False)
+
+
+def evaluate_subscene_retrieval(args):
+    # define paths and parameters
+    thresholds = np.linspace(0.05, 0.95, num=10)
+    metrics = ['cat_mAP', 'cd_mAP_5', 'cd_mAP_10', 'cd_mAP_20', 'cd_mAP_40']
+
+    # define the path for the results and evaluated results.
+    query_results_dir = os.path.join(args.cp_dir.format(args.model_name), args.results_folder_name)
+    query_results_input_file_name = args.query_input_file_name.split('.')[0] + '_{}_{}.json'.format(args.mode,
+                                                                                                    args.experiment_name)
+    query_results_output_file_name = query_results_input_file_name.split('.')[0] + '_evaluated.json'
+    query_results_input_path = os.path.join(query_results_dir, query_results_input_file_name)
+    query_results_output_path = os.path.join(query_results_dir, query_results_output_file_name)
+
+    # check if this is evaluating an ablation model or baseline
+    if args.ablations:
+        evalaution_base_path = '../results/matterport3d/evaluations/ablations'
+        if not os.path.exists(evalaution_base_path):
+            os.makedirs(evalaution_base_path)
+    else:
+        evalaution_base_path = '../results/matterport3d/evaluations/{}'.format(args.mode)
+
+    # if this is the first run create the evaluation directory
+    if not os.path.exists(evalaution_base_path):
+        os.makedirs(evalaution_base_path)
+    evaluation_path = os.path.join(evalaution_base_path, 'evaluation.csv')
+
+    # if evaluation csv file does not exist, copy it from the template.
+    if not os.path.exists(evaluation_path):
+        shutil.copy('../results/matterport3d/evaluations/evaluation_template.csv', evaluation_path)
+
+    aggregated_csv_path = os.path.join(evalaution_base_path, 'evaluation_aggregated.csv')
+
+    # read the results of a model and the evaluation csv file
+    query_results = load_from_json(query_results_input_path)
+    curr_df = pd.read_csv(evaluation_path)
+
+    if args.remove_model:
+        model_exclude = curr_df['model_name'] != args.model_name
+        experiment_exclude = curr_df['experiment_id'].apply(lambda x: x.split('-')[0] != args.experiment_name)
+        curr_df = curr_df[model_exclude | experiment_exclude]
+        curr_df.to_csv(evaluation_path, index=False)
+        print('Model {} with Experiment {} is removed'.format(args.model_name, args.experiment_name))
+        return
+
+    # filter the results by query if necessary
+    evaluation_queries = ['all']
+    if evaluation_queries[0] != 'all':
+        query_results = {k: v for k, v in query_results.items() if k in evaluation_queries}
+
+    # load the chamfer distance thresholds
+    cd_sim = load_from_json(args.cd_path)
+
+    # initialize the evaluator
+    evaluator = Evaluate(pc_dir=args.pc_dir, query_results=query_results, evaluation_path=evaluation_path,
+                         scene_dir=args.scene_dir, curr_df=curr_df, mode=args.mode, cd_sim=cd_sim,
+                         num_points=args.num_points)
+
+    # run evaluation and compute overlap mAP per query for each threshold.
+    for i, (query_name, results_info) in enumerate(query_results.items()):
+        print('Iteration {}/{}'.format(i+1, len(query_results)))
+        # initialize the mAP for each query
+        for metric in metrics:
+            results_info[metric] = {'mAP': []}
+
+        for threshold in thresholds:
+            experiment_id = args.experiment_name + '-' + str(np.round(threshold, 3))
+            for metric in metrics:
+                evaluator.metric = [metric, evaluator.compute_overlap_match, threshold]
+                evaluator.add_to_tabular(args.model_name, query_name, experiment_id)
+                evaluator.compute_mAP(query_name, args.model_name, experiment_id, topk=args.topk)
+
+    # save evaluation results in tabular format
+    evaluator.to_tabular()
+    # save the query dict with added precisions
+    write_to_json(query_results, query_results_output_path)
+
+    # average the evaluation results across all queries for each model
+    curr_df = pd.read_csv(evaluation_path)
+    groups = curr_df.groupby(['model_name', 'experiment_id'])
+    df_mean = groups.agg({metric: 'mean' for metric in metrics})
+    df_mean.reset_index(inplace=True)
+    # convert to percentage and round up to 3 decimals
+    for metric in metrics:
+        df_mean[metric] = df_mean[metric].apply(lambda x: np.round(x * 100, 3))
+
+    summary_resutls = df_mean.sort_values(by=['model_name', 'experiment_id']).reset_index(drop=True)
+    summary_resutls.to_csv(aggregated_csv_path, index=False)
+
+

@@ -5,6 +5,8 @@ import pandas as pd
 from optparse import OptionParser
 
 from scripts.helper import load_from_json, write_to_json
+from scripts.box import Box
+from scripts.iou import IoU
 
 
 def map_cats_to_scene_objects(df):
@@ -134,8 +136,14 @@ def CatRank(query_info, query_mode, scene_dir, mode, cat_to_scene_objects, topk)
 
 def get_args():
     parser = OptionParser()
-    parser.add_option('--mode', dest='mode', default='test', help='val|test')
-    parser.add_option('--model_name', dest='model_name', default='RandomRank', help='RandomRank|CatRank')
+    parser.add_option('--mode', dest='mode', default='val', help='val|test')
+    parser.add_option('--accepted_cats_path', default='../../data/matterport3d/accepted_cats_top10.json')
+    parser.add_option('--metadata_path', default='../../data/matterport3d/metadata_non_equal_full_top10.csv')
+    parser.add_option('--scene_dir', default='../../results/matterport3d/scenes_top10')
+    parser.add_option('--query_dir', default='../../queries/matterport3d/')
+    parser.add_option('--query_input_file_name', default='query_dict_val_top10.json')
+    parser.add_option('--results_dir', default='../../results/matterport3d')
+    parser.add_option('--model_name', dest='model_name', default='CatRank', help='RandomRank|CatRank')
     (options, args) = parser.parse_args()
     return options
 
@@ -145,17 +153,18 @@ def main():
     args = get_args()
 
     # define initial parameters
-    query_dict_input_path = '../../queries/matterport3d/query_dict_{}.json'.format(args.mode)
-    query_dict_output_path = '../../results/matterport3d/{}/query_dict_{}_{}.json'.format(args.model_name,
-                                                                                          args.mode,
-                                                                                          args.model_name)
-    scene_dir = '../../data/matterport3d/scenes'
-    accepted_cats = set(load_from_json('../../data/matterport3d/accepted_cats.json'))
-    topk = 200
+    query_dict_input_path = os.path.join(args.query_dir, args.query_input_file_name)
+    results_dir = os.path.join(args.results_dir, args.model_name)
+    if not os.path.exists(results_dir):
+        os.mkdir(results_dir)
+
+    query_dict_output_path = os.path.join(results_dir, 'query_dict_{}_top10_{}.json'.format(args.mode, args.model_name))
+    accepted_cats = set(load_from_json(args.accepted_cats_path))
+    topk = 100
 
     # read the query dict and the metadata
     query_dict = load_from_json(query_dict_input_path)
-    df_metadata = pd.read_csv('../../data/matterport3d/metadata.csv')
+    df_metadata = pd.read_csv(args.metadata_path)
     df_metadata = df_metadata[df_metadata['split'] == args.mode]
 
     # filter the metadata to only include objects with accepted category
@@ -168,13 +177,13 @@ def main():
                                                                                        str(x['objectId'])]), axis=1)
         model_names = model_names.values
         for query, query_info in query_dict.items():
-            target_subscenes = RandomRank(query_info, model_names, scene_dir, args.mode, topk)
+            target_subscenes = RandomRank(query_info, model_names, args.scene_dir, args.mode, topk)
             query_info['target_subscenes'] = target_subscenes
 
     elif args.model_name == 'CatRank':
         cat_to_scene_objects = map_cats_to_scene_objects(df_metadata)
         for query, query_info in query_dict.items():
-            target_subscenes = CatRank(query_info, args.mode, scene_dir, args.mode, cat_to_scene_objects, topk)
+            target_subscenes = CatRank(query_info, args.mode, args.scene_dir, args.mode, cat_to_scene_objects, topk)
             query_info['target_subscenes'] = target_subscenes
 
     else:

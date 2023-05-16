@@ -1,52 +1,90 @@
 import os
-from optparse import OptionParser
-from subprocess import Popen
-from time import sleep
+import argparse
+from time import time
+import pandas as pd
+
+from scripts.evaluator import evaluate_subscene_retrieval
+from scripts.helper import load_from_json
+
+
+def adjust_paths(args, exceptions):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    for k, v in vars(args).items():
+        if (type(v) is str) and ('/' in v) and k not in exceptions:
+            v = v.format(args.dataset)
+            vars(args)[k] = os.path.join(base_dir, v)
 
 
 def get_args():
-    parser = OptionParser()
-    parser.add_option('--mode', dest='mode', default='test', help='val|test')
-    parser.add_option('--ablations', dest='ablations', default='False',
-                      help='If True the evaluation results are stored in the ablation folder.')
-    (options, args) = parser.parse_args()
-    return options
+    parser = argparse.ArgumentParser('Evaluating 3D Subscene Retrieval', add_help=False)
+    parser.add_argument('--model_names', default=['dino_rot_query_config', 'sup_pt_rot_query_config',
+                                                  'csc_rot_query_config', 'oracle_rot_query_config'],
+                        type=str, nargs='+', help='choose one from 3dssr_model_configs.json')
+    parser.add_argument('--cat_threshold', default=None, help='Threshold for categorizing the predicted boxes or None.')
+    parser.add_argument('--bidirectional', action='store_true', default=True,
+                        help='If True distance is computed in both directions and added.')
+    parser.add_argument('--mode', default='test', help='val | test')
+    parser.add_argument('--dataset', default='matterport3d')
+    parser.add_argument('--scene_dir_queries', default='../results/{}/scenes')
+    parser.add_argument('--scene_dir', default='../results/{}/scenes',
+                        help='scenes_top10 | predicted_boxes_large/scenes_predicted_nms_final')
+    parser.add_argument('--query_input_file_name', default='query_dict_top10.json')
+    parser.add_argument('--rotate_query', action='store_true', default=True)
+    parser.add_argument('--pc_dir_queries', default='../data/{}/pc_regions')
+    parser.add_argument('--pc_dir', default='../data/{}/pc_regions',
+                        help='pc_regions | pc_regions_predicted_nms')
+    parser.add_argument('--cd_path', default='../data/{}/cd_thresholds.json')
+    parser.add_argument('--num_points', default=4096, type=int, help='number of points randomly sampled form the pc.')
+    parser.add_argument('--remove_model', action='store_true', default=False,
+                        help='If True the model and its corresponding experiment are removed from the evaluation table.')
+    parser.add_argument('--ablations', action='store_true', default=False,
+                        help='If True the evaluation results are stored in the ablation folder.')
+    parser.add_argument('--topk', default=10, type=int, help='number of top results for mAP computations.')
+    parser.add_argument('--model_config_filename', default='3dssr_model_configs.json')
+    parser.add_argument('--metadata_path', default='../data/{}/metadata_non_equal_full_top10.csv')
+    parser.add_argument('--fine_cat_field', default=None, help='wnsynsetkey | raw_category.')
+
+    return parser
 
 
 def main():
-    # load the arguments
-    args = get_args()
-    ablations = args.ablations == 'True'
-    # run evaluations to compare AlignRank against baselines.
-    if ablations:
-        evalaution_base_path = '../results/matterport3d/evaluations/ablations'
-        model_name_experiment = [('LearningBased', 'AlignRank'),
-                                 ('LearningBased', 'AlignRank[-GNN]'),
-                                 ('LearningBased', 'AlignRank[-Align]'),
-                                 ('SVDRank', 'SVDRank1D'),
-                                 ('SVDRank', 'SVDRank3D')]
+    # read the args
+    parser = argparse.ArgumentParser('Evaluating 3D Subscene Retrieval', parents=[get_args()])
+    args = parser.parse_args()
+    adjust_paths(args, exceptions=[])
+
+    # set the correct mode for required fields
+    args.pc_dir = os.path.join(args.pc_dir, args.mode)
+    args.pc_dir_queries = os.path.join(args.pc_dir_queries, args.mode)
+    args.cd_path = args.cd_path.split('.json')[0]
+    if args.bidirectional:
+        args.cd_path += '_{}_{}.json'.format('bidirectional', args.mode)
     else:
-        evalaution_base_path = '../results/matterport3d/evaluations/{}'.format(args.mode)
-        model_name_experiment = [('LearningBased', 'AlignRankOracle'),
-                                 ('LearningBased', 'AlignRank'),
-                                 ('GKRank', 'GKRank'),
-                                 ('CatRank', 'CatRank'),
-                                 ('RandomRank', 'RandomRank')]
+        args.cd_path += '_{}.json'.format(args.mode)
 
-    # delete previous evaluation results
-    evaluation_csv_path = os.path.join(evalaution_base_path, 'evaluation.csv')
-    evaluation_summary_path = os.path.join(evalaution_base_path, 'evaluation_aggregated.csv')
-    for path in [evaluation_csv_path, evaluation_summary_path]:
-        if os.path.exists(path):
-            os.remove(path)
+    # load the metadata and index by key.
+    df_metadata = pd.read_csv(args.metadata_path)
+    df_metadata['key'] = df_metadata.apply(lambda x: '-'.join([x['room_name'], str(x['objectId'])]), axis=1)
+    df_metadata.set_index('key', inplace=True)
+    args.df_metadata = df_metadata
 
-    for model_name, experiment_name in model_name_experiment:
-        command = 'python3 evaluator.py --mode {} --ablations {} --model_name {} --experiment_name {}'\
-            .format(args.mode, args.ablations, model_name, experiment_name)
-        evaluation_process = Popen(command, shell=True)
-        while evaluation_process.poll() is None:
-            sleep(10)
+    # determine the correct config for the pretraining strategy
+    for model_name in args.model_names:
+        config = load_from_json(args.model_config_filename)[model_name]
+
+        # add the pretraining configs and apply 3dssr and adjust paths.
+        for k, v in config.items():
+            vars(args)[k] = v
+        adjust_paths(args, exceptions=[])
+
+        # evaluate 3dssr
+        evaluate_subscene_retrieval(args)
 
 
 if __name__ == '__main__':
+    t = time()
     main()
+    duration = time() - t
+    print('Evaluation took {} minutes'.format(round(duration / 60, 2)))
+
+

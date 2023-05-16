@@ -2,10 +2,12 @@ import os
 from optparse import OptionParser
 from time import time
 import torch
+from torchvision import transforms
 from torch.utils.data import DataLoader
 
-from graph_dataset import Scene
-from models import MLP
+from region_dataset import Region
+from projection_models import MLP
+from capsnet_models import PointCapsNet
 from scripts.helper import load_from_json, write_to_json
 from train_linear_classifier import evaluate_net
 
@@ -13,30 +15,35 @@ alpha = 1
 gamma = 2.
 
 
-def run_classifier(scene_graph_dir, latent_caps_dir, cat_to_idx, device, hidden_dim, cp_dir, mode):
-    # create dataset and loader
-    dataset = Scene(scene_graph_dir, latent_caps_dir, cat_to_idx, mode=mode)
-    loader = DataLoader(dataset, batch_size=1, num_workers=4, shuffle=False)
+def run_classifier(cat_to_idx, args):
+    # create the training dataset
+    dataset = Region(args.data_dir, args.pc_dir, args.scene_dir, args.metadata_path, args.accepted_cats_path,
+                     num_local_crops=0, num_global_crops=0, mode=args.mode, cat_to_idx=cat_to_idx, num_files=None)
 
-    # find the required dimensions for building the classifier.
-    sample_data = list(enumerate(loader))[1][1]
-    input_dim = sample_data['features'].shape[-1]
+    # create the dataloaders
+    loader = DataLoader(dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
 
-    # initialize the models and set them on the right device
-    lin_layer = MLP(input_dim, hidden_dim, len(cat_to_idx))
-    lin_layer = lin_layer.to(device=device)
+    # load the pre-trained capsulenet and set it to the right device
+    capsule_net = PointCapsNet(1024, 16, 64, 64, args.num_points)
+    capsule_net.load_state_dict(torch.load(os.path.join(args.cp_dir, args.best_capsule_net)))
+    capsule_net = capsule_net.cuda()
+    capsule_net.eval()
+
+    # load the model and set it to the right device
+    lin_layer = MLP(64*64, args.hidden_dim, len(cat_to_idx))
+    lin_layer = lin_layer.cuda()
 
     # load the best models from training
     model_dic = {'lin_layer': lin_layer}
     for model_name, model in model_dic.items():
-        model.load_state_dict(torch.load(os.path.join(cp_dir, 'CP_{}_best.pth'.format(model_name))))
+        model.load_state_dict(torch.load(os.path.join(args.cp_dir, 'CP_{}_best.pth'.format(model_name))))
 
     # set models to evaluation mode
     for model_name, model in model_dic.items():
         model.eval()
 
     # evaluate the model
-    _, per_class_accuracy = evaluate_net(model_dic, loader, cat_to_idx, device=device)
+    _, per_class_accuracy = evaluate_net(model_dic, capsule_net, loader, cat_to_idx)
 
     # save the per class accuracies.
     per_class_accuracy_final = {}
@@ -44,22 +51,28 @@ def run_classifier(scene_graph_dir, latent_caps_dir, cat_to_idx, device, hidden_
         if num_total != 0:
             accuracy = float(num_correct) / num_total
             per_class_accuracy_final[c] = accuracy
-    write_to_json(per_class_accuracy_final, os.path.join(cp_dir, 'per_class_accuracy.json'))
+    write_to_json(per_class_accuracy_final, os.path.join(args.cp_dir, 'per_class_accuracy.json'))
 
 
 def get_args():
     parser = OptionParser()
-    parser.add_option('--mode', dest='mode', default='test', help='val or test')
+    parser.add_option('--mode', dest='mode', default='val')
     parser.add_option('--accepted_cats_path', dest='accepted_cats_path',
                       default='../../data/matterport3d/accepted_cats.json')
-    parser.add_option('--scene_graph_dir', dest='scene_graph_dir',
-                      default='../../results/matterport3d/LearningBased/scene_graphs')
-    parser.add_option('--latent_caps_dir', dest='latent_caps_dir',
-                      default='../../../3D-point-capsule-networks/dataset/matterport3d/latent_caps')
-    parser.add_option('--hidden_dim', dest='hidden_dim', default=1024, type='int')
+    parser.add_option('--data_dir', dest='data_dir',
+                      default='../../data/matterport3d/mesh_regions')
+    parser.add_option('--pc_dir', dest='pc_dir',
+                      default='../../data/matterport3d/point_cloud_regions')
+    parser.add_option('--scene_dir', dest='scene_dir', default='../../data/matterport3d/scenes')
+    parser.add_option('--metadata_path', dest='metadata_path', default='../../data/matterport3d/metadata.csv')
     parser.add_option('--cp_dir', dest='cp_dir',
-                      default='../../results/matterport3d/LearningBased/linear_cat_prediction')
-    parser.add_option('--gpu', action='store_true', dest='gpu', default=True, help='use cuda')
+                      default='../../results/matterport3d/LearningBased/'
+                              'region_classification_capsnet_linear_ar_preserved')
+    parser.add_option('--best_capsule_net', dest='best_capsule_net', default='best_capsule_net.pth')
+
+    parser.add_option('--num_points', dest='num_points', default=4096, type='int')
+    parser.add_option('--batch_size', dest='batch_size', default=7, type='int')
+    parser.add_option('--hidden_dim', dest='hidden_dim', default=1024, type='int')
 
     (options, args) = parser.parse_args()
     return options
@@ -73,11 +86,6 @@ def main():
     if not os.path.exists(args.cp_dir):
         os.makedirs(args.cp_dir)
 
-    # Set the right device for all the models
-    device = torch.device('cpu')
-    if args.gpu:
-        device = torch.device('cuda')
-
     # prepare the accepted categories for training.
     accepted_cats = load_from_json(args.accepted_cats_path)
     accepted_cats = sorted(accepted_cats)
@@ -85,15 +93,13 @@ def main():
 
     # time the training
     t = time()
-    run_classifier(scene_graph_dir=args.scene_graph_dir, latent_caps_dir=args.latent_caps_dir, cat_to_idx=cat_to_idx,
-                   device=device,  hidden_dim=args.hidden_dim, cp_dir=args.cp_dir, mode=args.mode)
+    run_classifier(cat_to_idx, args)
     t2 = time()
     print("Training took %.3f minutes" % ((t2 - t) / 60))
 
 
 if __name__ == '__main__':
     main()
-
 
 
 

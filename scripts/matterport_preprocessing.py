@@ -158,7 +158,8 @@ def main(num_chunks, chunk_idx, action='extract_mesh'):
 
         # read the dataframe mapping category ids to categories
         df_cats = pd.read_csv(os.path.join(root_dir, 'category_mapping.tsv'), delimiter='\t')
-        df_metadata = df_metadata.merge(df_cats[['index', 'mpcat40']], how='inner', left_on='categoryId', right_on='index')
+        df_metadata = df_metadata.merge(df_cats[['index', 'mpcat40', 'raw_category', 'wnsynsetkey']],
+                                        how='inner', left_on='categoryId', right_on='index')
         df_metadata = df_metadata.sort_values(by='room_name')
 
         # map each house to train, test and val
