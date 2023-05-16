@@ -45,7 +45,7 @@ To train PointCrop from scratch follow the steps below:
     ```
     cd models/LearningBased
     python -m torch.distributed.launch --nproc_per_node=4 train_PointCrop.py --local_crops_number 8 --global_crops_number 2 --batch_size_per_gpu 4 --num_workers 20 --results_folder_name
-    PointCrop --saveckp_freq 1 --nblocks 3 --transformer_dim 256 --out_dim 2000 
+    PointCrop --nblocks 3 --transformer_dim 256 --out_dim 2000 
     ```
 
 [RA]: https://reza-asad.github.io/
