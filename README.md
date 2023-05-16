@@ -78,42 +78,6 @@ To train AlignRank and AlignRankOracle from scratch follow the steps below:
 4. Run the commands that assume pretrained models (described in the **Test** subsection).
 
 
-## Evaluations
-1. To run each baseline and ablation model from scratch follow the instructions in [BASELINES.md](BASELINES.md). Otherwise, this step can be skipped. 
-2. To evaluate AlignRank against baselines and ablations run:
-    ```
-    cd scripts
-    python3 evaluator_wrapper.py --mode test --ablations < True, False >
-    ```
-    If ```--ablations``` is True, AlignRank is evaluated against the ablations. Otherwise, AlignRank is compared against the baseline models.
-
-3. To plot the evaluated results and compute the Area Under the Curve (AUC) run:
-    ```
-    python3 prepare_quantitative_results.py --ablations < True, False >
-    ```
-    If ```--ablations``` is True the left plot is generated. Otherwise, the output is the right plot.
-
-<table width="500" border="0" cellpadding="5">
-<tr>
-<td align="center" valign="center">
-<img src="https://github.com/reza-asad/Project/blob/master/results/matterport3d/evaluation_plots/alignment_ablation_global.png" />
-</td>
-<td align="center" valign="center">
-<img src="https://github.com/reza-asad/Project/blob/master/results/matterport3d/evaluation_plots/mAP_comparisons.png" />
-</td>
-</tr>
-</table>
-
-## Rendering Results
-To render the top 5 results for the queries presented in the paper run:
-```
-python3 render_results_wrapper.py --mode test --topk 5 --include_queries '["bed-33", "table-9", "sofa-28"]'
-```
-To render the top 5 results for all test queries run:
-```
-python3 render_results_wrapper.py --mode test --topk 5 --include_queries '["all"]'
-```
-
 [1]: https://github.com/reza-asad/3DSSR
 [2]: https://github.com/yongheng1991/3D-point-capsule-networks
 [RA]: https://reza-asad.github.io/
