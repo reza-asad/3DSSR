@@ -267,7 +267,7 @@ if __name__ == '__main__':
         results_dir = os.path.join(data_dir, 'pc_regions', mode)#'/media/reza/Large/pc_regions/{}'.format(mode)
         results_dir_rendered = os.path.join(data_dir, 'pc_regions_rendered', 'imgs')
     else:
-        room_dir = '/media/reza/Large/matterport3d/rooms/'
+        room_dir = '../data/matterport3d/rooms'
         results_dir = os.path.join(data_dir, 'mesh_regions_predicted_nms', mode)
         results_dir_rendered = os.path.join(data_dir, 'mesh_regions_rendered', 'imgs')
         scenes_dir = os.path.join('../results/{}/predicted_boxes_large/scenes_predicted_nms_raw'.format(dataset_name), mode)
