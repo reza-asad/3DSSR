@@ -257,6 +257,7 @@ if __name__ == '__main__':
     # define paths
     mode = 'test'
     dataset_name = 'matterport3d'
+    predicted_boxes = False
     split_char = '_' if dataset_name == 'matterport3d' else '-'
     data_dir = '../data/{}'.format(dataset_name)
     model_dir = os.path.join(data_dir, 'models')
@@ -270,7 +271,8 @@ if __name__ == '__main__':
         room_dir = '../data/matterport3d/rooms'
         results_dir = os.path.join(data_dir, 'mesh_regions_predicted_nms', mode)
         results_dir_rendered = os.path.join(data_dir, 'mesh_regions_rendered', 'imgs')
-        scenes_dir = os.path.join('../results/{}/predicted_boxes_large/scenes_predicted_nms_raw'.format(dataset_name), mode)
+        if predicted_boxes:
+            scenes_dir = os.path.join('../results/{}/predicted_boxes_large/scenes_predicted_nms_raw'.format(dataset_name), mode)
 
     for folder in [results_dir]:
         if not os.path.exists(folder):
