@@ -35,12 +35,11 @@ def derive_pc(args, region_names):
         region_name = region_name.split('.')[0] + '.npy'
         if region_name not in visited:
             pc_object = PointCloud(region_name)
-
             # sample point clouds
             pc = pc_object.sample(num_points=args.num_points, centralize=False)
             if pc is not None:
                 # visualize_pc(pc)
-                # t=y
+
                 # save point clouds and labels
                 output_path = os.path.join(results_dir, region_name)
                 np.save(output_path, pc)
@@ -134,13 +133,12 @@ def sample_crop_pc(pc_file_names, crop_bounds, num_points, num_tries=200):
 
 def get_args():
     parser = argparse.ArgumentParser('Extract Regions', add_help=False)
-    parser.add_argument('--action', default='sample_crop', help='extract | sample_crop')
+    parser.add_argument('--action', default='extract', help='extract | sample_crop')
     parser.add_argument('--dataset', default='matterport3d')
     parser.add_argument('--mode', default='train', help='train | val | test')
     parser.add_argument('--mesh_regions_dir', default='../data/{}/mesh_regions')
     parser.add_argument('--pc_dir', default='../data/{}/pc_regions')
-    parser.add_argument('--results_dir', default='../data/{}/pc_region_crops')
-    parser.add_argument('--results_folder_name', default='crops')
+    parser.add_argument('--results_dir', default='../data/{}/pc_regions')
     parser.add_argument('--num_points', default=4096, type=int, help='number of points randomly sampled form the pc.')
     parser.add_argument('--crop_bounds', type=float, nargs='+', default=(0.9, 0.9))
     parser.add_argument('--seed', default=0, type=int, help='use different seed for parallel runs')
@@ -179,7 +177,7 @@ if __name__ == '__main__':
     # load metadata
     mesh_regions_dir = os.path.join(args.mesh_regions_dir, args.mode)
     pc_dir = os.path.join(args.pc_dir, args.mode)
-    results_dir = os.path.join(args.results_dir, args.results_folder_name, args.mode)
+    results_dir = os.path.join(args.results_dir, args.mode)
     if not os.path.exists(results_dir):
         try:
             os.makedirs(results_dir)
