@@ -33,9 +33,9 @@ export PYTHONPATH="${PYTHONPATH}:/path/to/the/repository"
     ```
     parallel -j5 "python3 -u extract_regions.py {1} {2} {3} {4}" ::: train ::: 5 ::: 0 1 2 3 4 ::: extract
     ```
-5. Sample a point cloud from each extracted 3D mesh region.
+5. Sample point cloud from each extracted 3D mesh region and repeat with arguments 'test' and 'val' in place of 'train'.
     ```
-    parallel -j5 "python3 -u extract_point_clouds.py --mode {1} --seed {2} --num_chunks {3} --chunk_idx {4}" ::: test ::: 0 ::: 5 ::: 0 1 2 3 4
+    parallel -j5 "python3 -u extract_point_clouds.py --mode {1} --seed {2} --num_chunks {3} --chunk_idx {4} --action {5}" ::: train ::: 0 ::: 5 ::: 0 1 2 3 4 ::: extract
     ```
 
 ## PointCropRank
