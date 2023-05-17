@@ -241,7 +241,7 @@ def main(mode, num_chunks, chunk_idx, action='extract'):
 if __name__ == '__main__':
     # set up rendering parameters
     resolution = (512, 512)
-    rendering_kwargs = {'fov': np.pi / 4, 'light_directional_intensity': 0.01, 'light_point_intensity_center': 0.0,
+    rendering_kwargs = {'fov': np.pi/4, 'light_directional_intensity': 0.01, 'light_point_intensity_center': 0.0,
                         'wall_thickness': 5}
     num_imgs = 20
 
