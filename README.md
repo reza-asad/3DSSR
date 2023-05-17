@@ -6,7 +6,7 @@ TODO: Link to paper
 
 ## Dependencies and Python Enviroment
 ```
-python3 -m venv 3dssr
+virtualenv 3dssr --python=python3.8
 source 3dssr/bin/activate
 pip install -r requirements.txt
 
