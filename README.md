@@ -38,7 +38,7 @@ export PYTHONPATH="${PYTHONPATH}:/path/to/the/repository"
     parallel -j5 "python3 -u extract_point_clouds.py --mode {1} --seed {2} --num_chunks {3} --chunk_idx {4} --action {5}" ::: train ::: 0 ::: 5 ::: 0 1 2 3 4 ::: extract
     ```
 
-## PointCropRank
+## PointCrop
 To train PointCrop from scratch:
 ```
 cd models/LearningBased
