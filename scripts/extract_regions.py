@@ -72,7 +72,7 @@ def extract_region_pc(obj_info, pc, num_points, max_dist):
     return pc_region
 
 
-def derive_mesh_regions(scene_names):
+def derive_mesh_regions(scene_names, model_dir, room_dir, scenes_dir, results_dir, accepted_cats):
     for scene_name in scene_names:
         # load the room mesh.
         scene_name = scene_name.split('.')[0]
@@ -133,7 +133,7 @@ def derive_mesh_regions(scene_names):
                 visited.add(model_name)
 
 
-def derive_pc_regions(scene_names, num_points=4096):
+def derive_pc_regions(scene_names, model_dir, room_dir, scenes_dir, results_dir, accepted_cats, num_points=4096):
     for scene_name in scene_names:
         # load the scene.
         scene_name = scene_name.split('.')[0]
@@ -176,36 +176,34 @@ def derive_pc_regions(scene_names, num_points=4096):
                 visited.add(model_name)
 
 
-def find_processed_scenes(scene_names):
-    # find all the objects for each processed scene.
-    scene_obj = {}
-    for file_name in os.listdir(results_dir):
-        scene_name, obj = file_name.split('-')
-        obj = obj.split('.')[0]
-        if scene_name in scene_obj:
-            scene_obj[scene_name].append(obj)
-        else:
-            scene_obj[scene_name] = [obj]
+def main(mode, num_chunks, chunk_idx, action='extract'):
+    # define paths
+    dataset_name = 'matterport3d'
+    predicted_boxes = False
+    split_char = '_' if dataset_name == 'matterport3d' else '-'
+    data_dir = '../data/{}'.format(dataset_name)
+    model_dir = os.path.join(data_dir, 'models')
+    scenes_dir = os.path.join(data_dir, 'scenes', mode)
+    accepted_cats = load_from_json(os.path.join(data_dir, 'accepted_cats.json'))
+    if region_type == 'pc':
+        room_dir = '/media/reza/Large/matterport3d/rooms_pc'
+        results_dir = os.path.join(data_dir, 'pc_regions', mode)#'/media/reza/Large/pc_regions/{}'.format(mode)
+        results_dir_rendered = os.path.join(data_dir, 'pc_regions_rendered', 'imgs')
+    else:
+        room_dir = '../data/matterport3d/rooms'
+        results_dir = os.path.join(data_dir, 'mesh_regions', mode)
+        results_dir_rendered = os.path.join(data_dir, 'mesh_regions_rendered', 'imgs')
+        if predicted_boxes:
+            results_dir = os.path.join(data_dir, 'mesh_regions_predicted_nms', mode)
+            scenes_dir = os.path.join('../results/{}/predicted_boxes_large/scenes_predicted_nms_raw'.format(dataset_name), mode)
 
-    # find the accepted objects in each processed scene
-    filtered_scene_names = []
-    for scene_name in scene_names:
-        scene_name = scene_name.split('.')[0]
-        if scene_name not in scene_obj:
-            filtered_scene_names.append(scene_name+'.json')
-        else:
-            scene = load_from_json(os.path.join(scenes_dir, scene_name+'.json'))
-            itr = 0
-            for obj, obj_info in scene.items():
-                if (obj_info['category'][0] in accepted_cats) and (obj in scene_obj[scene_name]):
-                    itr += 1
-            if itr != len(scene_obj[scene_name]):
-                filtered_scene_names.append(scene_name+'.json')
+    for folder in [results_dir]:
+        if not os.path.exists(folder):
+            try:
+                os.makedirs(folder)
+            except FileExistsError:
+                pass
 
-    return filtered_scene_names
-
-
-def main(num_chunks, chunk_idx, action='extract'):
     if action == 'extract':
         scene_names = os.listdir(scenes_dir)
         # scene_names = find_processed_scenes(scene_names)
@@ -216,9 +214,11 @@ def main(num_chunks, chunk_idx, action='extract'):
         np.random.shuffle(scene_names)
         chunk_size = int(np.ceil(len(scene_names) / num_chunks))
         if region_type == 'mesh':
-            derive_mesh_regions(scene_names=scene_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size])
+            derive_mesh_regions(scene_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size], model_dir, room_dir,
+                                scenes_dir, results_dir, accepted_cats)
         elif region_type == 'pc':
-            derive_pc_regions(scene_names=scene_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size])
+            derive_pc_regions(scene_names[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size], model_dir, room_dir,
+                              scenes_dir, results_dir, accepted_cats)
     elif action == 'render':
         if region_type == 'mesh':
             mesh_file_names = sample_files(results_dir, num_imgs)
@@ -251,39 +251,11 @@ if __name__ == '__main__':
     scene_coverage = 0.3
     expansion_factor = 1.5
 
-    # define paths
-    mode = 'test'
-    dataset_name = 'matterport3d'
-    predicted_boxes = False
-    split_char = '_' if dataset_name == 'matterport3d' else '-'
-    data_dir = '../data/{}'.format(dataset_name)
-    model_dir = os.path.join(data_dir, 'models')
-    scenes_dir = os.path.join(data_dir, 'scenes', mode)
-    accepted_cats = load_from_json(os.path.join(data_dir, 'accepted_cats.json'))
-    if region_type == 'pc':
-        room_dir = '/media/reza/Large/matterport3d/rooms_pc'
-        results_dir = os.path.join(data_dir, 'pc_regions', mode)#'/media/reza/Large/pc_regions/{}'.format(mode)
-        results_dir_rendered = os.path.join(data_dir, 'pc_regions_rendered', 'imgs')
-    else:
-        room_dir = '../data/matterport3d/rooms'
-        results_dir = os.path.join(data_dir, 'mesh_regions', mode)
-        results_dir_rendered = os.path.join(data_dir, 'mesh_regions_rendered', 'imgs')
-        if predicted_boxes:
-            results_dir = os.path.join(data_dir, 'mesh_regions_predicted_nms', mode)
-            scenes_dir = os.path.join('../results/{}/predicted_boxes_large/scenes_predicted_nms_raw'.format(dataset_name), mode)
-
-    for folder in [results_dir]:
-        if not os.path.exists(folder):
-            try:
-                os.makedirs(folder)
-            except FileExistsError:
-                pass
-
     if len(sys.argv) == 1:
-        main(1, 0, 'extract')
+        main('test', 1, 0, 'extract')
     elif len(sys.argv) == 2:
-        main(1, 0, sys.argv[1])
+        main('test', 1, 0, sys.argv[1])
     else:
         # To run in parallel you can use the command:
-        # parallel -j5 "python3 -u extract_regions.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: extract
-        main(int(sys.argv[1]), int(sys.argv[2]), sys.argv[3])
+        # parallel -j5 "python3 -u extract_regions.py {1} {2} {3} {4}" ::: test ::: 5 ::: 0 1 2 3 4 ::: extract
+        main(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4])
