@@ -1,5 +1,5 @@
-torch==1.5.0
-torchvision==0.6.0
+torch==1.9.1
+torchvision==0.10.1
 trimesh==3.6.30
 pyrender==0.1.43
 plyfile==0.7.2
