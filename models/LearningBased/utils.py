@@ -13,7 +13,7 @@ import torch
 from torch import nn
 import torch.distributed as dist
 
-from models.LearningBased.transformer_models import PointTransformerCls
+from transformer_models import PointTransformerCls
 
 
 def compute_accuracy(per_class_accuracy, predicted_labels, labels, cat_to_idx):

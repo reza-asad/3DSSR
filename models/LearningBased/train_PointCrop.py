@@ -19,7 +19,7 @@ import pandas as pd
 from pathlib import Path
 
 from region_dataset import Region
-from models.LearningBased.region_dataset_normalized_crop import Region as RegionNorm
+from region_dataset_normalized_crop import Region as RegionNorm
 
 from transformations import PointcloudScale, PointcloudTranslate, PointcloudRotatePerturbation, PointcloudJitter, \
     PointCloudRotateZ, PointCloudFlip
@@ -27,7 +27,6 @@ import utils
 from transformer_models import PointTransformerSeg
 from projection_models import DINOHead
 from scripts.helper import load_from_json
-from eval_knn_transformer import extract_feature_pipeline, knn_classifier
 
 
 def train_net(cat_to_idx, args):
@@ -293,12 +292,6 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
         # apply 3D DINO model.
         teacher_output = teacher(crops[:2])
         student_output = student(crops)
-
-        _, predictions = torch.max(torch.softmax(teacher_output, dim=1), dim=1)
-        print('teachefr predictions: ', predictions)
-        _, predictions = torch.max(torch.softmax(student_output, dim=1), dim=1)
-        print('student predictions: ', predictions)
-        print('*' * 50)
         loss = dino_loss(student_output, teacher_output, epoch)
 
         # exit if the loss is infinity.
@@ -448,7 +441,7 @@ def get_args():
     parser.add_argument('--nneighbor', default=16, type=int)
     parser.add_argument('--input_dim', default=3, type=int)
     parser.add_argument('--transformer_dim', default=512, type=int)
-    parser.add_argument('--pretrain_mode', default='full', type=str, help='full|start|')
+    parser.add_argument('--pretrain_mode', default='None', type=str, help='full|start|')
 
     # knn parameters
     parser.add_argument('--nb_knn', default=[10, 20, 100, 200], nargs='+', type=int,
@@ -479,7 +472,7 @@ def get_args():
     parser.add_argument('--epochs', default=100, type=int)
     parser.add_argument('--freeze_last_layer', default=1, type=int)
     parser.add_argument('--lr', default=0.0005, type=float)
-    parser.add_argument('--warmup_epochs', default=10, type=int)
+    parser.add_argument('--warmup_epochs', default=0, type=int)
     parser.add_argument('--min_lr', default=1e-6, type=float)
     parser.add_argument('--optimizer', default='adamw', type=str, choices=['adamw', 'sgd', 'lars'])
     parser.add_argument('--drop_path_rate', default=0.1, type=float, help="stochastic depth rate")
@@ -490,7 +483,7 @@ def get_args():
     parser.add_argument('--global_crops_number', default=2, type=int)
     parser.add_argument('--local_crop_bounds', type=float, nargs='+', default=(0.05, 0.4))
     parser.add_argument('--global_crop_bounds', type=float, nargs='+', default=(0.4, 1.))
-    parser.add_argument('--crop_normalized', default=False, type=utils.bool_flag)
+    parser.add_argument('--crop_normalized', default=True, type=utils.bool_flag)
     parser.add_argument('--max_coord', default=14.30, type=float, help='14.30 for MP3D| 5.02 for shapenetsem')
 
     # augmentations

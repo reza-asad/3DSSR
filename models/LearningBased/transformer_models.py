@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-from models.LearningBased.pointnet_util import PointNetFeaturePropagation, PointNetSetAbstraction, index_points, square_distance
+from pointnet_util import PointNetFeaturePropagation, PointNetSetAbstraction, index_points, square_distance
 
 
 class TransitionDown(nn.Module):

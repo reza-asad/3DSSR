@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.parallel
 import torch.utils.data
 
-from models.LearningBased.utils import trunc_normal_
+from utils import trunc_normal_
 
 
 class MLP(nn.Module):
