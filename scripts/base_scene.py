@@ -8,9 +8,10 @@ from mesh import Mesh
 
 
 class BaseScene:
-    def __init__(self, models_dir):
+    def __init__(self, models_dir, accepted_cats):
         self.models_dir = models_dir
         self.graph = {}
+        self.accepted_cats = accepted_cats
 
     @staticmethod
     def compute_transformation(translation):
@@ -27,10 +28,19 @@ class BaseScene:
 
         return transformation.T.reshape(16)
 
-    def compute_box(self, obj, centroid):
+    def compute_obb(self, obj, centroid):
         mesh = self.prepare_mesh_for_scene(obj)
         obbox = [centroid] + mesh.bounding_box_oriented.vertices.tolist()
         return obbox
+
+    def compute_aabb(self, obj, centroid):
+        if self.graph[obj]['category'][0] in self.accepted_cats:
+            mesh = self.prepare_mesh_for_scene(obj)
+            aabb = [centroid] + mesh.bounding_box.vertices.tolist()
+
+            return aabb
+
+        return []
 
     def build_from_matterport(self, scene_name, csv_path):
         # read the metadata and filter it to the current scene
@@ -56,7 +66,10 @@ class BaseScene:
                                         'transform': transformation,
                                         'file_name': key+'.ply'}
             # save the centroid and vertices of the object's obbox
-            self.graph[object_index]['obbox'] = self.compute_box(object_index, translation)
+            self.graph[object_index]['obbox'] = self.compute_obb(object_index, translation)
+
+            # save the centroid and vertices of the object's aabb
+            self.graph[object_index]['aabb'] = self.compute_aabb(object_index, translation)
 
     def prepare_mesh_for_scene(self, node):
         model_path = os.path.join(self.models_dir, self.graph[node]['file_name'])

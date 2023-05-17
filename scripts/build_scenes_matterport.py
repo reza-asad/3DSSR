@@ -4,10 +4,10 @@ import numpy as np
 from time import time
 
 from base_scene import BaseScene
-from scripts.helper import write_to_json, create_train_val_test
+from scripts.helper import load_from_json, write_to_json, create_train_val_test
 
 
-def process_scenes(scene_files, metadata_path, models_dir, scene_dir):
+def process_scenes(scene_files, metadata_path, models_dir, scene_dir, accepted_cats):
     t = time()
     idx = 0
     for scene_name in scene_files:
@@ -23,7 +23,7 @@ def process_scenes(scene_files, metadata_path, models_dir, scene_dir):
             continue
 
         # first initialize the graph
-        scene = BaseScene(models_dir)
+        scene = BaseScene(models_dir, accepted_cats)
         scene.build_from_matterport(scene_name, metadata_path)
 
         # save the scene recipe
@@ -46,6 +46,7 @@ def main(num_chunks, chunk_idx, action='build_scenes'):
     metadata_path = '../data/matterport3d/metadata.csv'
     models_dir = '../data/matterport3d/models'
     scene_dir = '../data/matterport3d/scenes/all'
+    accepted_cats = load_from_json('../data/matterport3d/accepted_cats.json')
     if not os.path.exists(scene_dir):
         try:
             os.makedirs(scene_dir)
@@ -58,7 +59,8 @@ def main(num_chunks, chunk_idx, action='build_scenes'):
         process_scenes(scene_files[chunk_idx * chunk_size: (chunk_idx + 1) * chunk_size],
                        metadata_path,
                        models_dir,
-                       scene_dir)
+                       scene_dir,
+                       accepted_cats)
     if action == 'split_train_test_val':
         data_dir = '../data/matterport3d'
         scene_graph_dir = '../data/matterport3d/scenes'

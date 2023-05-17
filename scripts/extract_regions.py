@@ -19,10 +19,7 @@ def sample_files(files_dir, num_files, seed=12):
 
 def extract_region_mesh(obj_info, vertices, faces, face_normals, max_dist):
     # find the centroid of the object.
-    if 'obbox' in obj_info:
-        centroid = np.asarray(obj_info['obbox'])[0, :]
-    else:
-        centroid = np.asarray(obj_info['aabb'])[0, :]
+    centroid = np.asarray(obj_info['aabb'])[0, :]
 
     # compute the distance of each vertex to the centroid
     distance_x = np.abs(vertices[:, 0] - centroid[0])
@@ -269,9 +266,10 @@ if __name__ == '__main__':
         results_dir_rendered = os.path.join(data_dir, 'pc_regions_rendered', 'imgs')
     else:
         room_dir = '../data/matterport3d/rooms'
-        results_dir = os.path.join(data_dir, 'mesh_regions_predicted_nms', mode)
+        results_dir = os.path.join(data_dir, 'mesh_regions', mode)
         results_dir_rendered = os.path.join(data_dir, 'mesh_regions_rendered', 'imgs')
         if predicted_boxes:
+            results_dir = os.path.join(data_dir, 'mesh_regions_predicted_nms', mode)
             scenes_dir = os.path.join('../results/{}/predicted_boxes_large/scenes_predicted_nms_raw'.format(dataset_name), mode)
 
     for folder in [results_dir]:
