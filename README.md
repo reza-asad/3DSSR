@@ -29,9 +29,9 @@ export PYTHONPATH="${PYTHONPATH}:/path/to/the/repository"
     parallel -j5 "python3 -u build_scenes_matterport.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: build_scenes
     python3 -u build_scenes_matterport.py split_train_test_val
     ```
-4. Extract 3D object-centric mesh regions.
+4. Extract 3D object-centric mesh regions and repeat with arguments 'test' and 'val' in place of 'train'.
     ```
-    parallel -j5 "python3 -u extract_regions.py {1} {2} {3}" ::: 5 ::: 0 1 2 3 4 ::: extract
+    parallel -j5 "python3 -u extract_regions.py {1} {2} {3} {4}" ::: train ::: 5 ::: 0 1 2 3 4 ::: extract
     ```
 5. Sample a point cloud from each extracted 3D mesh region.
     ```
