@@ -4,6 +4,8 @@ TODO: Link to paper
 
 <img src="https://github.com/reza-asad/3DSSR/blob/master/figures/3DSSROverview.png"/>
 
+We tackle 3DSSR using our self-supervised point cloud encoder PointCrop.
+
 ## Dependencies and Python Enviroment
 ```
 virtualenv 3dssr --python=python3.8
