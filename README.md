@@ -1,5 +1,5 @@
 # 3DSSR
-TODO: Link to paper
+
 [Reza Asad][RA], [Manolis Savva][MS]
 
 <img src="https://github.com/reza-asad/3DSSR/blob/master/figures/3DSSROverview.png"/>
@@ -48,5 +48,6 @@ python -m torch.distributed.launch --nproc_per_node=4 train_PointCrop.py --local
 PointCrop --nblocks 3 --transformer_dim 32 --out_dim 2000 
 ```
 
+[3DSSR: 3D Subscene Retrieval]: https://struco3d.github.io/cvpr2023/papers/02.pdf
 [RA]: https://reza-asad.github.io/
 [MS]: https://msavva.github.io/
