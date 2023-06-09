@@ -1,5 +1,5 @@
 # 3DSSR: 3D Subscene Retrieval
-[Link to paper] 
+[[Link to paper]] 
 
 <img src="https://github.com/reza-asad/3DSSR/blob/master/figures/3DSSROverview.png"/>
 
