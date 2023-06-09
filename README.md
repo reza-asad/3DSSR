@@ -1,4 +1,4 @@
-#[3DSSR: 3D Subscene Retrieval] 
+[# 3DSSR: 3D Subscene Retrieval] 
 
 [Reza Asad][RA], [Manolis Savva][MS]
 
