@@ -1,5 +1,6 @@
 # 3DSSR
-[3DSSR: 3D Subscene Retrieval]
+[3DSSR: 3D Subscene Retrieval] 
+
 [Reza Asad][RA], [Manolis Savva][MS]
 
 <img src="https://github.com/reza-asad/3DSSR/blob/master/figures/3DSSROverview.png"/>
