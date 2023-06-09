@@ -1,5 +1,5 @@
 # 3DSSR: 3D Subscene Retrieval
-[[Link to paper]] 
+[[Link to paper]] [[video]]
 
 <img src="https://github.com/reza-asad/3DSSR/blob/master/figures/3DSSROverview.png"/>
 
@@ -48,5 +48,6 @@ PointCrop --nblocks 3 --transformer_dim 32 --out_dim 2000
 ```
 
 [Link to paper]: https://struco3d.github.io/cvpr2023/papers/02.pdf
+[video]: https://www.youtube.com/watch?v=HhpCJbdYhxk
 [RA]: https://reza-asad.github.io/
 [MS]: https://msavva.github.io/
