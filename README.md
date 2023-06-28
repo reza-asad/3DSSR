@@ -48,6 +48,6 @@ PointCrop --nblocks 3 --transformer_dim 32 --out_dim 2000
 ```
 
 [Link to paper]: https://struco3d.github.io/cvpr2023/papers/02.pdf
-[video]: https://www.youtube.com/watch?v=HhpCJbdYhxk
+[video]: https://www.youtube.com/watch?v=jMZFzJnu6Sk
 [RA]: https://reza-asad.github.io/
 [MS]: https://msavva.github.io/
