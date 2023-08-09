@@ -46,7 +46,7 @@ cd models/LearningBased
 python -m torch.distributed.launch --nproc_per_node=4 train_PointCrop.py --local_crops_number 8 --global_crops_number 2 --batch_size_per_gpu 8 --num_workers 20 --results_folder_name
 PointCrop --nblocks 3 --transformer_dim 32 --out_dim 2000 
 ```
-## Cite
+## Citation
 @inproceedings{asad20233dssr,
     author = {Asad, Reza and Savva, Manolis},
     title = {3DSSR: 3D Subscene Retrieval},
