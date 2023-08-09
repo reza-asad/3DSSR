@@ -47,19 +47,14 @@ python -m torch.distributed.launch --nproc_per_node=4 train_PointCrop.py --local
 PointCrop --nblocks 3 --transformer_dim 32 --out_dim 2000 
 ```
 ## Citation
+```
 @inproceedings{asad20233dssr,
     author = {Asad, Reza and Savva, Manolis},
     title = {3DSSR: 3D Subscene Retrieval},
     booktitle = {IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
     year = {2023}
 }
-    @inproceedings{mao2022multiscan,
-        author = {Mao, Yongsen and Zhang, Yiming and Jiang, Hanxiao and Chang, Angel X, Savva, Manolis},
-        title = {MultiScan: Scalable RGBD scanning for 3D environments with articulated objects},
-        booktitle = {Advances in Neural Information Processing Systems},
-        year = {2022}
-    }
-
+```
 
 [Link to paper]: https://openaccess.thecvf.com/content/CVPR2023W/StruCo3D/papers/Asad_3DSSR_3D_Subscene_Retrieval_CVPRW_2023_paper.pdf 
 [video]: https://www.youtube.com/watch?v=jMZFzJnu6Sk
