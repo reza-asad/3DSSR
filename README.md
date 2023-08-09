@@ -47,7 +47,7 @@ python -m torch.distributed.launch --nproc_per_node=4 train_PointCrop.py --local
 PointCrop --nblocks 3 --transformer_dim 32 --out_dim 2000 
 ```
 
-[Link to paper]: https://struco3d.github.io/cvpr2023/papers/02.pdf](https://openaccess.thecvf.com/content/CVPR2023W/StruCo3D/papers/Asad_3DSSR_3D_Subscene_Retrieval_CVPRW_2023_paper.pdf) 
+[Link to paper]: https://openaccess.thecvf.com/content/CVPR2023W/StruCo3D/papers/Asad_3DSSR_3D_Subscene_Retrieval_CVPRW_2023_paper.pdf 
 [video]: https://www.youtube.com/watch?v=jMZFzJnu6Sk
 [RA]: https://reza-asad.github.io/
 [MS]: https://msavva.github.io/
